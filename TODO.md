@@ -58,6 +58,28 @@ applies per-seed jitter (seed 0 = identity, seeds ≥ 1 random); prints
 `mean ± stderr` per task. `pick_ycb_mug --seeds 50` reports 50/50
 mean=1.00 ± 0.00 with ±3 cm xy + ±90° yaw jitter. 9 unit tests in
 `test_randomize.py`. Coverage of size/mass/rgba jitter deferred.
+
+### 2.1 — More skills  **[partial: shipped 2/6 on 2026-04-18]**
+Shipped: **Pour** (move held object above target, dwell, retreat —
+pose pantomime; physics doesn't simulate fluids) and **Tap** (touch
+target top and retreat — serves the button_press role without a
+dedicated button primitive). Both have unit + agent-loop tests and
+StubPlanner regex routing. Registered as entry points.
+
+Deferred:
+- `open_drawer` / `close_drawer` — need an articulated scene primitive
+  (prismatic-jointed body) and a perception/query API to read joint
+  state. Larger architectural slice.
+- `stack_n` — composite of existing pick + place_on; reduces to
+  long-horizon planning (2.3).
+- `insert_peg` — needs a peg-hole scene primitive.
+
+### 2.3 — Long-horizon composites  **[partial: 1 task shipped]**
+`pour_can_into_bowl` benchmark task chains pick -> pour. StubPlanner's
+`_RE_POUR` emits the two-step plan; VLMPlanner does too (tool-based
+decomposition). Success: can ends up within 10 cm xy of bowl + ≥ 6 cm
+above. More multi-step tasks (2+ objects, ≥ 3 skills) will land with
+the remaining 2.1 skills.
 `ScenePresets.tabletop_clutter(n_objects=5, seed=0)` → randomized scene
 with YCB distractors at feasible poses. Same API for `kitchen_drawer`,
 `desk_push`, etc.

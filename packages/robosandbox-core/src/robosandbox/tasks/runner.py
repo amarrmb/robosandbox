@@ -28,7 +28,9 @@ from robosandbox.sim.mujoco_backend import MuJoCoBackend
 from robosandbox.skills.home import Home
 from robosandbox.skills.pick import Pick
 from robosandbox.skills.place import PlaceOn
+from robosandbox.skills.pour import Pour
 from robosandbox.skills.push import Push
+from robosandbox.skills.tap import Tap
 from robosandbox.tasks.loader import (
     SuccessCriterion,
     Task,
@@ -134,7 +136,7 @@ def _run_one(
         initial = sim.observe()
 
         perception = GroundTruthPerception()
-        skills = [Pick(), PlaceOn(), Push(), Home()]
+        skills = [Pick(), PlaceOn(), Push(), Home(), Pour(), Tap()]
         if vlm_provider == "stub":
             planner = StubPlanner(skills=skills)
         else:

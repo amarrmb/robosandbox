@@ -1,0 +1,23 @@
+name: pour_can_into_bowl
+prompt: "pour the tomato soup can into the bowl"
+seed_note: "Long-horizon task — exercises planner decomposition into multiple skills (pick -> pour) rather than a single-shot pick. Can ends up above the bowl; physics doesn't simulate contents."
+scene:
+  robot_urdf: "@builtin:robots/franka_panda/panda.xml"
+  robot_config: "@builtin:robots/franka_panda/panda.robosandbox.yaml"
+  objects:
+    - id: tomato_soup_can
+      kind: mesh
+      mesh: "@ycb:005_tomato_soup_can"
+      pose:
+        xyz: [0.35, -0.12, 0.065]
+    - id: bowl
+      kind: mesh
+      mesh: "@ycb:024_bowl"
+      pose:
+        xyz: [0.45, 0.12, 0.06]
+success:
+  kind: moved_above
+  object: tomato_soup_can
+  target: bowl
+  xy_tol: 0.10          # can xy within 10 cm of bowl xy (hand is above bowl, can hangs under)
+  min_dz: 0.06          # can is at least 6 cm above bowl
