@@ -189,3 +189,32 @@ def load_byo_mesh(
         "use a bundled sidecar via mesh: '@builtin:objects/...' for now."
         % collision_mode
     )
+
+
+def resolve_mesh_asset(obj: "SceneObject") -> MeshAsset:  # type: ignore[name-defined]
+    """Dispatch a ``SceneObject(kind="mesh")`` to the right loader.
+
+    Exactly one of ``obj.mesh_sidecar`` / ``obj.mesh_path`` must be set;
+    raises ``MeshConfigError`` otherwise.
+    """
+    from robosandbox.types import SceneObject  # avoid circular at import time
+
+    if not isinstance(obj, SceneObject):
+        raise TypeError(f"expected SceneObject, got {type(obj).__name__}")
+    if obj.kind != "mesh":
+        raise MeshConfigError(
+            f"resolve_mesh_asset called on SceneObject(kind={obj.kind!r}), expected 'mesh'"
+        )
+    has_sidecar = obj.mesh_sidecar is not None
+    has_path = obj.mesh_path is not None
+    if has_sidecar == has_path:
+        raise MeshConfigError(
+            f"mesh object {obj.id!r} must set exactly one of mesh_sidecar (bundled) "
+            f"or mesh_path (bring-your-own); got "
+            + ("both" if has_sidecar else "neither")
+        )
+    if has_sidecar:
+        assert obj.mesh_sidecar is not None
+        return load_bundled_mesh(obj.mesh_sidecar, obj_id=obj.id)
+    assert obj.mesh_path is not None
+    return load_byo_mesh(obj.mesh_path, obj_id=obj.id, collision_mode=obj.collision)

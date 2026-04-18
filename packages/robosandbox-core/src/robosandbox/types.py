@@ -39,7 +39,19 @@ class SceneObject:
     """One object in the scene, described abstractly.
 
     Kind is the MJCF geom primitive (box/sphere/cylinder) OR 'mesh' for
-    user-supplied OBJ/STL. For v0.1 we ship only the primitives.
+    user-supplied or bundled OBJ/STL. Mesh-specific fields:
+
+    - ``mesh_sidecar``: path to a ``<name>.robosandbox.yaml`` describing a
+      bundled, pre-decomposed mesh (visual + list of convex hulls + mass
+      + friction + rgba defaults).
+    - ``mesh_path``: path to a raw OBJ/STL for the bring-your-own flow.
+      Decomposed at load time via ``collision`` policy.
+    - ``collision``: ``"coacd"`` (default; requires ``robosandbox[meshes]``)
+      or ``"hull"`` (single convex hull, no extra dep). Ignored for the
+      bundled path.
+
+    A mesh object sets exactly one of ``mesh_sidecar`` / ``mesh_path``.
+    ``mass == 0`` on a mesh object means "use the sidecar's default".
     """
 
     id: str
@@ -49,6 +61,8 @@ class SceneObject:
     mass: float = 0.1
     rgba: tuple[float, float, float, float] = (0.7, 0.7, 0.7, 1.0)
     mesh_path: Path | None = None
+    mesh_sidecar: Path | None = None
+    collision: str = "coacd"
 
 
 @dataclass(frozen=True)

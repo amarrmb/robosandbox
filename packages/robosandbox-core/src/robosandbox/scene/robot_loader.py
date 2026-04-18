@@ -363,9 +363,13 @@ def inject_scene_objects(spec: mujoco.MjSpec, scene: Scene) -> None:
     world = spec.worldbody
     for obj in scene.objects:
         if obj.kind == "mesh":
-            raise NotImplementedError(
-                f"SceneObject(kind='mesh') not supported in URDF path yet (id={obj.id!r})"
-            )
+            # Lazy imports avoid pulling trimesh/yaml into the primitive-only path.
+            from robosandbox.scene.mesh_conversion import resolve_mesh_asset
+            from robosandbox.scene.mesh_injection import inject_mesh_object
+
+            asset = resolve_mesh_asset(obj)
+            inject_mesh_object(spec, obj, asset)
+            continue
         body = world.add_body(
             name=obj.id,
             pos=list(obj.pose.xyz),
