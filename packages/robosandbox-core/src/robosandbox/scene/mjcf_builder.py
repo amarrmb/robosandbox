@@ -1,14 +1,21 @@
-"""Build a self-contained MJCF from a Scene description.
+"""Build a MuJoCo model from a Scene description.
 
-v0.1 uses a built-in 6-DOF arm (no external meshes) so that the demo
-runs with a single `pip install` and nothing else. Supplying a
-`robot_urdf` is reserved for a future slice — the slot exists in the
-Scene dataclass but is currently unused.
+Two paths:
+  - Scene.robot_urdf is None: emit the built-in 6-DOF arm MJCF string
+    (zero external deps) and compile.
+  - Scene.robot_urdf is set: delegate to scene.robot_loader which uses
+    MjSpec to absorb the URDF/MJCF + sidecar YAML, inject objects and
+    decor, and compile.
+
+Both paths return (MjModel, RobotSpec) so sim backends can stay robot-
+agnostic — they cache names from RobotSpec, no hardcoded joint strings.
 """
 
 from __future__ import annotations
 
 from xml.sax.saxutils import escape
+
+import mujoco
 
 from robosandbox.scene.robot_spec import RobotSpec
 from robosandbox.types import Scene, SceneObject
@@ -142,7 +149,7 @@ def _object_xml(obj: SceneObject) -> str:
 
 
 def build_mjcf(scene: Scene) -> str:
-    """Return a complete MJCF XML string for the given scene."""
+    """Return a complete MJCF XML string for the built-in-arm path."""
     objects_xml = "\n".join(_object_xml(o) for o in scene.objects)
     gx, gy, gz = scene.gravity
     arm = _ARM_XML.replace("__OBJECTS__", objects_xml)
@@ -163,3 +170,21 @@ def build_mjcf(scene: Scene) -> str:
 {arm}
 </mujoco>
 """
+
+
+def build_model(scene: Scene) -> tuple[mujoco.MjModel, RobotSpec]:
+    """Compile a Scene into a MuJoCo model + RobotSpec pair.
+
+    Built-in path: renders the string template, compiles, returns with
+    BUILTIN_ROBOT_SPEC. URDF/MJCF path: delegates to robot_loader (which
+    uses MjSpec to compose the final model programmatically).
+    """
+    if scene.robot_urdf is None:
+        mjcf = build_mjcf(scene)
+        model = mujoco.MjModel.from_xml_string(mjcf)
+        return model, BUILTIN_ROBOT_SPEC
+
+    # Lazy import avoids forcing MjSpec / yaml on the built-in path.
+    from robosandbox.scene.robot_loader import load_and_compile
+
+    return load_and_compile(scene)

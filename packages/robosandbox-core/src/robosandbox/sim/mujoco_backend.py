@@ -1,8 +1,11 @@
 """MuJoCo implementation of SimBackend.
 
-Loads an MJCF string built from a Scene, exposes step/observe/object-pose
-queries, and offers offscreen rendering for the Observation's rgb/depth
-channels.
+Compiles a Scene (via scene.build_model) into an MjModel + RobotSpec,
+exposes step/observe/object-pose queries, and offers offscreen rendering
+for the Observation's rgb/depth channels. The backend is robot-agnostic
+— all joint/actuator/site names flow from the RobotSpec produced by the
+scene layer, so any arm (built-in, Franka, UR5, …) Just Works once its
+MJCF + sidecar are loadable.
 """
 
 from __future__ import annotations
@@ -16,18 +19,14 @@ except ImportError as e:
         "robosandbox requires mujoco>=3.2 — install via `pip install mujoco`"
     ) from e
 
-from robosandbox.scene import build_mjcf
+from robosandbox.scene import build_model
+from robosandbox.scene.robot_spec import RobotSpec
 from robosandbox.types import (
     CameraIntrinsics,
     Observation,
     Pose,
     Scene,
 )
-
-
-ARM_JOINTS = ("j1", "j2", "j3", "j4", "j5", "j6")
-GRIPPER_JOINT = "left_finger_joint"
-EE_SITE = "ee_site"
 
 
 def _mat_to_quat_xyzw(mat9: np.ndarray) -> tuple[float, float, float, float]:
@@ -54,6 +53,7 @@ class MuJoCoBackend:
         self._renderer: mujoco.Renderer | None = None
         self._depth_renderer: mujoco.Renderer | None = None
         self._scene: Scene | None = None
+        self._robot: RobotSpec | None = None
         self._arm_qpos_adr: list[int] = []
         self._gripper_qpos_adr: int = -1
         self._arm_ctrl_adr: list[int] = []
@@ -64,8 +64,7 @@ class MuJoCoBackend:
 
     # ---- lifecycle -------------------------------------------------------
     def load(self, scene: Scene) -> None:
-        mjcf = build_mjcf(scene)
-        self._model = mujoco.MjModel.from_xml_string(mjcf)
+        self._model, self._robot = build_model(scene)
         self._data = mujoco.MjData(self._model)
         self._renderer = mujoco.Renderer(self._model, height=self._render_h, width=self._render_w)
         self._depth_renderer = mujoco.Renderer(
@@ -74,28 +73,25 @@ class MuJoCoBackend:
         self._depth_renderer.enable_depth_rendering()
         self._scene = scene
 
-        # Cache joint/actuator/site addresses once.
-        self._arm_qpos_adr = [self._model.joint(j).qposadr[0] for j in ARM_JOINTS]
-        self._gripper_qpos_adr = self._model.joint(GRIPPER_JOINT).qposadr[0]
-        self._arm_ctrl_adr = [
-            self._model.actuator(f"a{i}").id for i in range(1, 7)
-        ]
-        self._gripper_ctrl_adr = self._model.actuator("a_gripper").id
-        self._ee_site_id = self._model.site(EE_SITE).id
+        spec = self._robot
+        self._arm_qpos_adr = [self._model.joint(j).qposadr[0] for j in spec.arm_joint_names]
+        self._gripper_qpos_adr = self._model.joint(spec.gripper_primary_joint).qposadr[0]
+        self._arm_ctrl_adr = [self._model.actuator(a).id for a in spec.arm_actuator_names]
+        self._gripper_ctrl_adr = self._model.actuator(spec.gripper_actuator_name).id
+        self._ee_site_id = self._model.site(spec.ee_site_name).id
         self._obj_body_ids = {o.id: self._model.body(o.id).id for o in scene.objects}
         self.reset()
 
     def reset(self) -> None:
-        assert self._model is not None and self._data is not None
+        assert self._model is not None and self._data is not None and self._robot is not None
         mujoco.mj_resetData(self._model, self._data)
-        # Nudge into a neutral pose so IK has a non-singular start.
-        neutral = np.array([0.0, -0.4, 1.2, -0.8, 0.0, 0.0])
-        for adr, q in zip(self._arm_qpos_adr, neutral):
-            self._data.qpos[adr] = q
-        self._data.qpos[self._gripper_qpos_adr] = -0.035  # open
-        for adr, q in zip(self._arm_ctrl_adr, neutral):
-            self._data.ctrl[adr] = q
-        self._data.ctrl[self._gripper_ctrl_adr] = -0.035
+        home = np.asarray(self._robot.home_qpos, dtype=np.float64)
+        for adr, q in zip(self._arm_qpos_adr, home):
+            self._data.qpos[adr] = float(q)
+        self._data.qpos[self._gripper_qpos_adr] = self._robot.gripper_open_qpos
+        for adr, q in zip(self._arm_ctrl_adr, home):
+            self._data.ctrl[adr] = float(q)
+        self._data.ctrl[self._gripper_ctrl_adr] = self._robot.gripper_open_qpos
         mujoco.mj_forward(self._model, self._data)
         self._t = 0.0
 
@@ -113,19 +109,27 @@ class MuJoCoBackend:
         target_joints: np.ndarray | None = None,
         gripper: float | None = None,
     ) -> None:
-        assert self._model is not None and self._data is not None
+        assert self._model is not None and self._data is not None and self._robot is not None
+        n_dof = len(self._robot.arm_joint_names)
         if target_joints is not None:
             arr = np.asarray(target_joints, dtype=np.float64).ravel()
-            if arr.shape != (len(ARM_JOINTS),):
+            if arr.shape != (n_dof,):
                 raise ValueError(
-                    f"target_joints must have shape ({len(ARM_JOINTS)},), got {arr.shape}"
+                    f"target_joints must have shape ({n_dof},), got {arr.shape}"
                 )
             for adr, q in zip(self._arm_ctrl_adr, arr):
                 self._data.ctrl[adr] = float(q)
         if gripper is not None:
-            # gripper arg is semantic: 0.0 == open (max width), 1.0 == closed
-            # map to ctrl range [-0.035, 0.0] (ctrl = -0.035 * (1 - closed))
-            ctrl = -0.035 * (1.0 - float(np.clip(gripper, 0.0, 1.0)))
+            # Semantic input: 0.0 == open, 1.0 == closed.
+            # Lerp form (open*(1-t) + closed*t) — collapses to OLD's
+            # `open*(1-t)` when closed==0, preserving bit-exact ctrl values.
+            # Physics determinism depends on this; a 1-ulp change compounds
+            # over ~1000 steps and can flip grasps from success to failure.
+            t = float(np.clip(gripper, 0.0, 1.0))
+            ctrl = (
+                self._robot.gripper_open_qpos * (1.0 - t)
+                + self._robot.gripper_closed_qpos * t
+            )
             self._data.ctrl[self._gripper_ctrl_adr] = ctrl
         mujoco.mj_step(self._model, self._data)
         self._t += self._model.opt.timestep
@@ -133,7 +137,7 @@ class MuJoCoBackend:
     # ---- observation -----------------------------------------------------
     def observe(self) -> Observation:
         assert self._model is not None and self._data is not None and self._renderer is not None
-        assert self._depth_renderer is not None
+        assert self._depth_renderer is not None and self._robot is not None
 
         self._renderer.update_scene(self._data, camera=self._camera)
         rgb = self._renderer.render().copy()
@@ -144,7 +148,10 @@ class MuJoCoBackend:
             [self._data.qpos[adr] for adr in self._arm_qpos_adr], dtype=np.float64
         )
         gripper_qpos = float(self._data.qpos[self._gripper_qpos_adr])
-        # Open (max) == -0.035, closed == 0.0. Width = 2 * |qpos|.
+        # Width = 2 * |qpos|. Works for every parallel gripper we ship where
+        # closed_qpos == 0 (built-in: open=-0.035→w=0.07; Franka:
+        # open=0.04→w=0.08). Matches OLD backend byte-for-byte so physics
+        # determinism is preserved across the refactor.
         gripper_width = 2.0 * abs(gripper_qpos)
         ee_pose = self._ee_pose()
         objects = {
@@ -221,11 +228,13 @@ class MuJoCoBackend:
 
     @property
     def n_dof(self) -> int:
-        return len(ARM_JOINTS)
+        assert self._robot is not None
+        return len(self._robot.arm_joint_names)
 
     @property
     def joint_names(self) -> list[str]:
-        return list(ARM_JOINTS)
+        assert self._robot is not None
+        return list(self._robot.arm_joint_names)
 
     # ---- internal accessors (for MotionPlanner + Skills) ----------------
     @property
