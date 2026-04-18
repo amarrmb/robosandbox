@@ -1,328 +1,198 @@
-# RoboSandbox — v0.1 → v0.2 TODO
+# RoboSandbox — Roadmap
 
-What's pending for the repo to be actually usable, grouped by severity
-and with concrete next actions. Estimates assume a focused afternoon
-unless noted.
+## Mission
 
----
+> **A playground where someone can build and evaluate manipulation agents.**
 
-## Critical — blocks the "any arm, any object" headline
-
-Without these two, the tagline is a lie.
-
-### 1. URDF import for the robot
-
-**Problem:** `Scene.robot_urdf` is a dataclass field, but
-`scene/mjcf_builder.py` ignores it and always emits the hardcoded
-6-DOF arm. Dropping in a Franka / UR5 / SO-101 URDF does nothing.
-
-**Fix:**
-- Detect `scene.robot_urdf is not None`; load via
-  `mujoco.MjModel.from_xml_path` (MuJoCo accepts URDF natively) into a
-  sub-tree.
-- Wire the arm's joint names, end-effector site, and gripper actuator
-  into `MuJoCoBackend`'s cached addresses. Either derive them via URDF
-  metadata (tag the URDF with `<mujoco><compiler>` directives) or
-  require a small YAML sidecar that maps roles to link/joint names.
-- Verify SO-101, Franka Panda (menagerie), and UR5 all load + home.
-
-**Where:** `packages/robosandbox-core/src/robosandbox/scene/mjcf_builder.py`,
-`sim/mujoco_backend.py`.
-
-**Effort:** ~1 day (mostly debugging URDF → MuJoCo quirks per arm).
-
-**Done when:** `robo-sandbox run --urdf /path/to/panda.urdf "pick the cube"` works.
+Today RoboSandbox is a library that runs one kind of task (pick a cube)
+with one kind of arm. To become a playground we need four things:
+**object diversity, task diversity, interaction, and a closing of the
+loop (record → train → deploy).** Everything in this file is justified
+against that mission — if a work item doesn't move one of those pillars,
+cut it.
 
 ---
 
-### 2. Mesh object import
+## Done
 
-**Problem:** `SceneObject(kind="mesh")` raises `NotImplementedError` in
-`scene/mjcf_builder.py:_object_xml`. Only primitives (box/sphere/
-cylinder) work.
-
-**Fix:**
-- Accept OBJ/STL via `mesh_path`.
-- Convert collision mesh via V-HACD (convex decomposition) so MuJoCo
-  contacts are stable.
-- Emit `<mesh>` asset definition in the MJCF and a `<geom type="mesh"
-  mesh="<name>">` in the body.
-- Tool integration: `obj2mjcf` or hand-rolled conversion.
-
-**Where:** `scene/mjcf_builder.py:_object_xml` + a new
-`scene/mesh_conversion.py`.
-
-**Effort:** ~1 day including convex decomposition.
-
-**Done when:** `SceneObject(kind="mesh", mesh_path="bunny.obj")` spawns a
-grippable bunny.
+- **v0.1** — agent loop, VLMPlanner, built-in 6-DOF arm, 4 skills (pick /
+  place_on / push / home), 4-task benchmark, stub + VLM providers.
+- **v0.2 slice 1 — URDF import** (2026-04-18). `Scene(robot_urdf=Path)`
+  loads any URDF/MJCF via MjSpec + sidecar YAML. Bundled Franka Panda
+  (160 KB collision-only), `pick_cube_franka` acceptance test passes.
+  Design spec: `docs/superpowers/specs/2026-04-18-urdf-import-design.md`.
+- **v0.2 slice 2 — browser live viewer** (2026-04-18). `robo-sandbox
+  viewer` → FastAPI + WebSocket + SPA client. Watch the agent live,
+  pick tasks from a dropdown, see events stream.
 
 ---
 
-## Important — blocks believable demos
+## Pillar 1 — Object diversity (so users can grasp real things)
 
-### 3. VLM path end-to-end verification
+> The "any object" tagline is a lie until we support meshes.
 
-**Problem:** All VLM tests use stubs. The real path (OpenAI / Ollama)
-has never been executed against a live endpoint in this project. The
-projection math in `VLMPointer._pixel_to_world` was only validated
-against the `top` camera, not the default `scene` camera.
+### 1.1 — Mesh object import  **[next up]**
+`SceneObject(kind="mesh")` raises NotImplementedError today. We need
+OBJ/STL → V-HACD convex decomp → MuJoCo `<mesh>` asset + `<geom
+type="mesh">` in the body. Tool: `obj2mjcf` or a hand-rolled helper.
+- **Where:** `scene/mjcf_builder.py:_object_xml`,
+  `scene/robot_loader.py:inject_scene_objects`, new
+  `scene/mesh_conversion.py`.
+- **Done when:** `SceneObject(kind="mesh", mesh_path="bunny.obj")` spawns
+  a grippable bunny. Convex decomp stable enough that the agent's pick
+  skill succeeds ≥80 % on the YCB mug.
+- **Effort:** ~1 day.
 
-**Fix:**
-- Run `robo-sandbox run --vlm-provider openai "pick the red cube"` with
-  a real key; verify correct plan + correct perception.
-- Record the VLM request/response as a fixture cassette for a
-  regression test.
-- Validate projection math against both cameras for known cube
-  positions.
+### 1.2 — YCB object pack
+Ship a small YCB subset (10 objects: mug, can, box, bowl, apple, banana,
+bottle, drill, wrench, ball). Vendored under `assets/objects/ycb/` with
+sidecar metadata (recommended grasp hints).
+- **Why:** single biggest credibility signal — people know YCB.
+- **Done when:** `SceneObject(kind="ycb", id="003_cracker_box")` resolves.
+- **Effort:** ~½ day (mostly licensing + trimming meshes).
 
-**Where:** `perception/vlm_pointer.py`, new
-`tests/test_vlm_pointer_camera_scene.py`.
-
-**Effort:** ~half day.
-
-**Done when:** there's a committed VCR cassette showing the full agent
-loop succeeding with a real VLM, replayable by CI.
-
----
-
-### 4. `place_on` verifies placement
-
-**Problem:** `PlaceOn` returns `success=True` after opening the gripper
-regardless of whether the cube actually landed on the target. Held
-cube can fall mid-traverse and we claim success.
-
-**Fix:**
-- After release + retract, re-observe. Find the cube closest to the
-  release pose (or, more principled: track the cube the agent last
-  picked via `AgentContext.last_picked`).
-- Check `final_cube.xy ≈ target.xy` within tolerance AND
-  `final_cube.z > target.z`. If not, return
-  `SkillResult(success=False, reason="misplaced")`.
-
-**Where:** `skills/place.py`, possibly
-`agent/context.py` (to thread `last_picked` forward).
-
-**Effort:** half day.
-
-**Done when:** misplaced stack attempts return failure → agent replans.
+### 1.3 — Procedural scene generator
+`ScenePresets.tabletop_clutter(n_objects=5, seed=0)` → randomized scene
+with YCB distractors at feasible poses. Same API for `kitchen_drawer`,
+`desk_push`, etc.
+- **Done when:** benchmark tasks can request a preset + seed; same task
+  at seeds 0..50 gives 50 distinct but solvable layouts.
+- **Effort:** ~1 day.
 
 ---
 
-### 5. Force-controlled grip (fixes stack + pick reliability)
+## Pillar 2 — Task diversity (so evaluation means something)
 
-**Problem:** MuJoCo position-controlled grippers keep pressing toward
-"fully closed" even when a cube is in the way. Fingers squeeze past
-the cube, cube pops out mid-lift or mid-traverse. Stack fails
-deterministically; Pick succeeds ~65% of the time.
+> 4 tasks × 1 seed is not a benchmark. It's a smoke test.
 
-**Fix path A (proper):** Force-control actuator. Replace
-`<position>` with `<general>` or `<motor>` + a control law that
-commands constant force until contact velocity = 0.
+### 2.1 — More skills
+Implement: `open_drawer`, `close`, `pour`, `insert_peg`, `stack_n`,
+`button_press`. Each is a constrained trajectory + verification criterion.
+- **Done when:** each skill has a unit test and an agent-loop test.
+- **Effort:** ~½ day per skill.
 
-**Fix path B (hack that works):** Weld-on-grasp. When Pick's verify
-passes, add a MuJoCo `<equality type="weld">` between the palm and the
-cube. Remove on PlaceOn's release. Runtime equality management in
-MuJoCo requires rebuilding MjModel which is expensive; a trick is to
-have pre-declared "weld slots" in the MJCF, disabled at start, and
-flip `eq_active` at runtime.
+### 2.2 — Randomized benchmark suite (target: 20 tasks × 50 seeds)
+Extend `tasks/loader.py` with a `randomize:` block: per-field jitter
+distributions (position, rotation, color, size, mass). Runner loops
+seeds automatically.
+- **Done when:** `robo-sandbox-bench --seeds 50` reports mean success
+  rate + standard error per task.
+- **Effort:** ~1 day core + ~½ day per new task YAML.
 
-**Where:** `sim/mujoco_backend.py`, `scene/mjcf_builder.py`,
-`skills/pick.py`, `skills/place.py`.
-
-**Effort:** 1-2 days for (A); ~1 day for (B).
-
-**Done when:** `robo-sandbox-bench --tasks _experimental_stack_two
---seeds 10` passes 10/10 and we re-enable it as a default task.
+### 2.3 — Long-horizon composites
+Tasks that chain multiple skills: "put the can in the drawer," "stack
+the three cubes by size." Exercise the planner's decomposition, not
+just single-skill dispatch.
+- **Effort:** ~½ day once skills + benchmark framework are in place.
 
 ---
 
-### 6. Projection-math fix for the scene camera
+## Pillar 3 — Interaction (so the viewer stops being a slideshow)
 
-**Problem:** `_pixel_to_world` math was derived assuming MuJoCo
-camera convention; verified against `top` camera in tests but the
-default `scene` camera has a tilted orientation that may expose a
-sign bug in my quat-to-rotation-matrix conversion.
+> Read-only viewer is barely more than an MP4. Users need to drive.
 
-**Fix:** regression test covering a cube at known world coords,
-rendering from both `top` and `scene` cameras, asserting
-`_pixel_to_world` returns world coords within 3cm.
+### 3.1 — Orbit camera  **[high leverage]**
+Move the viewer's render from server-side MJPEG to client-side Three.js:
+server streams joint states + object poses at 60 Hz via WS; browser
+reconstructs the scene and renders with a draggable camera.
+- **Why:** the #1 "feels like a toy" complaint.
+- **Tradeoff:** URDF/MJCF → Three.js model sync is a real engineering
+  task. Alternative: stay on MJPEG but ship a URDF loader for Three.js
+  that reads the same `robot_urdf` path.
+- **Effort:** ~2–3 days.
 
-**Where:** `perception/vlm_pointer.py`,
-`tests/test_vlm_pointer_projection.py`.
+### 3.2 — Teleop (keyboard + gamepad)
+`robo-sandbox viewer --teleop` → WASD drives end-effector xy, QE drives z,
+arrow keys rotate, space toggles gripper. Gamepad axes map to the same.
+- **Why:** demo collection. Without teleop, no human data.
+- **Effort:** ~1 day. Most of it is IK-for-teleop-rate safety.
 
-**Effort:** ~2 hours.
+### 3.3 — Record button
+Viewer exposes start/stop record. Produces an MCAP + MP4 + episode JSON
+on disk. The existing `LocalRecorder` is almost enough — wire it into
+the SimThread's step loop and add WS actions `{"action":"record_start/stop"}`.
+- **Effort:** ~½ day.
 
----
-
-## Usability — blocks `pip install` and "drop in and try"
-
-### 7. Publish `robosandbox` to PyPI
-
-**Problem:** README says `pip install robosandbox`. It's not on PyPI.
-
-**Fix:**
-- GitHub Actions workflow: on a tag push, build wheel + source dist,
-  run tests, publish via trusted publisher (OIDC).
-- Take the name before someone else does.
-
-**Where:** `.github/workflows/publish.yml`.
-
-**Effort:** half day.
-
----
-
-### 8. GitHub Actions CI
-
-**Problem:** No CI. Tests pass on my laptop; no guarantee on Mac or
-Windows, no regression protection on PRs.
-
-**Fix:**
-- Matrix job: Linux + macOS, Python 3.10/3.11/3.12.
-- Steps: `uv sync`, `uv run pytest`, `uv run ruff check`.
-- Cache the uv venv.
-- Add a CI badge to the README.
-
-**Where:** `.github/workflows/ci.yml`.
-
-**Effort:** half day.
+### 3.4 — Trajectory inspector
+After a run ends, the viewer shows a scrubber: drag to replay from any
+step, inspect robot joints + object poses + camera view at that instant.
+- **Why:** debugging skills + demos needs more than a final success/fail.
+- **Effort:** ~1 day (requires recording into RAM, not just on disk).
 
 ---
 
-### 9. `examples/` directory
+## Pillar 4 — Loop closure (so users can ship, not just watch)
 
-**Problem:** No entry point for "how do I add a skill / task / arm?"
-The code is the only documentation.
+> "Sim-first" is fine as a starting point. "Sim-only" is a dead end.
 
-**Fix:** three short example files:
-- `examples/custom_skill.py` — add a `Wave` skill that waves the arm.
-- `examples/custom_task.yaml` — new benchmark task with a
-  `moved_above` success.
-- `examples/custom_arm.py` — load a Franka URDF and pick a cube
-  (depends on #1 landing first).
+### 4.1 — Real VLM path verified with cassette
+Memory note says no VLM test has hit a real endpoint. One recording
+against OpenAI or Ollama, saved as a fixture, played back in CI.
+- **Where:** `tests/test_vlm_pointer.py` + new cassette.
+- **Effort:** ~½ day.
 
-**Where:** new top-level `examples/`.
+### 4.2 — Data export: MCAP → LeRobot
+Recorded episodes can be converted to LeRobot v3 format with a single
+command. Users can then train ACT / Diffusion / GR00T on the output.
+- **Why:** closes "record → train" half of the loop.
+- **Effort:** ~1 day (schema mapping mostly done by LeRobot side).
 
-**Effort:** few hours each once the underlying capability exists.
+### 4.3 — Policy-in-the-loop replay
+Given a LeRobot checkpoint path, replace the agent loop with a policy
+that runs on observations. `robo-sandbox run --policy /path/to/ckpt`.
+Starts empty — users bring checkpoints. Validates the "deploy" half
+without owning the training.
+- **Effort:** ~1 day.
 
----
-
-### 10. Docs site
-
-**Problem:** Just the README. No per-page docs, no tutorial, no
-architecture deep-dive.
-
-**Fix:** mkdocs-material skeleton:
-- `Overview`, `Quickstart`, `Architecture`, `Custom skills`, `Custom
-  arms`, `Benchmark`, `Roadmap`, `API reference` (pdoc).
-- Deploy via GitHub Pages.
-
-**Where:** new top-level `docs/`.
-
-**Effort:** half day setup + 1 day content.
+### 4.4 — Real-robot bridge (stub)
+Define `SimBackend` vs `RealBackend` interface. `RealBackend` stub
+talks to a hardware driver (ROS2 / serial / LeRobot). Users can swap
+backends without changing skill code.
+- **Why:** without this, RoboSandbox is sim-only forever.
+- **Effort:** ~2 days for the stub + SO-101 reference impl.
 
 ---
 
-## Strategic — blocks the "why this and why DN" story
+## Pillar-agnostic polish
 
-### 11. `robosandbox-dn` plugin (the closed loop)
+### 5.1 — Examples folder
+`examples/` with ≥6 runnable scripts: custom_robot, custom_task,
+custom_skill, record_demo, headless_eval, llm_guided, procedural_scene.
+Each has a 10-line README and runs on a clean checkout.
+- **Effort:** ~1 day.
 
-**Problem:** Without this, RoboSandbox is a cute sandbox, not a pipe
-into DeviceNexus. The commercial argument requires record → train →
-deploy-back working.
+### 5.2 — Full-mesh Franka (visual quality)
+Add `--meshes full` flag to the bundled Franka sidecar. Downloads
+menagerie's 33 MB of OBJ visuals on demand (cached at
+`~/.cache/robosandbox/`), re-enables `class="visual"` geoms. Default
+stays collision-only so install is lean.
+- **Effort:** ~½ day.
 
-**Fix:**
-- `packages/robosandbox-dn/`:
-  - `DNRecordSink` (`RecordSink` protocol): writes MCAP locally, then
-    uploads via existing Nexus data-ingestion endpoint (same as
-    Loopback). Batch on `end_episode`. Tags: `source=robosandbox`,
-    task_prompt, plan, success, episode_id.
-  - `DNLearnedSkill` (`Skill` protocol): pulls a checkpoint from a
-    Nexus tenant (REST + signed URL, same as Forge download), caches
-    locally, runs via LeRobot / ACT / SmolVLA inference. Formats
-    observation, rolls out N steps, verifies like the scripted skill.
-- Auth via env var (API key or JWT) referenced in config. Placeholder
-  key for local no-auth endpoints (same pattern as current ollama
-  support).
-- CLI: `robo-sandbox run --recorder dn --skill pick=dn_learned ...`.
+### 5.3 — Docs site
+MkDocs-material or Starlight. Hosted at robosandbox.dev or
+`<github-pages>`. Content: quickstart, core concepts (Scene/Skill/
+Agent/Perception), tutorial (custom arm + custom task), API reference.
+- **Effort:** ~1–2 days depending on ambition.
 
-**Where:** new `packages/robosandbox-dn/` with its own pyproject,
-separate publishable package.
-
-**Effort:** ~2-3 days.
-
-**Done when:** the 8-line demo from the design spec works:
-```
-# Day 1: collect
-robo-sandbox run --recorder dn --tenant $DN_TENANT --seeds 50 pick_cube
-# (train in NCC console)
-# Day 2: deploy
-robo-sandbox run --skill pick=dn_learned --checkpoint nexus://... pick_cube
-```
+### 5.4 — PyPI release
+First public release. CI pipeline builds wheel + sdist, uploads on tag.
+- **Effort:** ~½ day.
 
 ---
 
-### 12. Collision-aware motion
+## Sequencing recommendation
 
-**Problem:** `plan_linear_cartesian` interpolates in a straight line
-through whatever happens to be in the way. In multi-object scenes the
-arm plows through other cubes during traverses.
+**Sprint A — object diversity (1 week)**: 1.1 mesh import → 1.2 YCB pack
+→ 5.1 examples (mesh-specific). Unblocks credible task content.
 
-**Fix path A:** Optional `robosandbox-curobo` plugin registering a
-`curobo` MotionPlanner that does GPU-accelerated collision-aware
-planning.
+**Sprint B — task diversity (1 week)**: 2.1 skills (pick 3 most-used:
+open_drawer, stack_n, pour) → 2.2 randomized benchmark. Now we have
+real evaluation signal.
 
-**Fix path B:** Integrate MoveIt2 via ROS2 (heavier, for customers
-already in ROS).
+**Sprint C — interaction (1.5 weeks)**: 3.3 record button (easy win) →
+3.2 teleop → 3.1 orbit camera. Turns the viewer into a workstation.
 
-**Where:** new `packages/robosandbox-curobo/`.
+**Sprint D — loop closure (1.5 weeks)**: 4.1 VLM cassette → 4.2 LeRobot
+export → 4.3 policy replay → 4.4 real-robot stub. Closes the loop.
 
-**Effort:** 1 day for (A) integration once cuRobo is installed.
-
----
-
-### 13. Real-robot bridge
-
-**Problem:** "Sim-first" is currently "sim-only." No path from a
-working sandbox episode to a real robot.
-
-**Fix:** Port DeviceNexus's LeRobot adapter (device-side serial bus
-control) and ROS2 adapter into a
-`packages/robosandbox-real-lerobot/` plugin that registers as a
-`SimBackend` (reusing the interface). `Observation.depth` becomes
-optional (most real cameras don't have it) and perception falls back
-to VLMPointer + RGB-only projection using table-plane assumption.
-
-**Where:** new `packages/robosandbox-real-lerobot/` +
-`packages/robosandbox-real-ros2/`.
-
-**Effort:** ~1-2 weeks given the existing DN code to port.
-
----
-
-## Ordering recommendation
-
-**Week 1 — "actually usable":**
-1. URDF import (#1) ⬅ start here
-2. Mesh import (#2)
-3. VLM path E2E verify (#3)
-4. `place_on` verify (#4)
-5. CI + PyPI (#7, #8)
-
-**Week 2 — "demos don't embarrass me":**
-6. Force-controlled grip (#5)
-7. Projection math fix (#6)
-8. Examples directory (#9)
-
-**Week 3+ — "commercial story":**
-9. `robosandbox-dn` (#11)
-10. `robosandbox-curobo` (#12)
-11. Docs site (#10)
-
-**Backlog:** real-robot bridge (#13), Molmo plugin, Contact-GraspNet
-plugin, AnyGrasp contrib package.
-
----
-
-*Last updated: 2026-04-17 after the initial v0.1 push to
-`github.com/amarrmb/robosandbox`.*
+After Sprint D, RoboSandbox is no longer a demo — it's a tool.
