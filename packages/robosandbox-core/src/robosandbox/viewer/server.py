@@ -40,7 +40,7 @@ from robosandbox.agent.agent import Agent
 from robosandbox.agent.context import AgentContext
 from robosandbox.agent.planner import StubPlanner
 from robosandbox.grasp.analytic import AnalyticTopDown
-from robosandbox.motion.ik import DLSMotionPlanner
+from robosandbox.motion.ik import DLSMotionPlanner, plan_linear_cartesian, UnreachableError
 from robosandbox.perception.ground_truth import GroundTruthPerception
 from robosandbox.recorder.local import LocalRecorder
 from robosandbox.sim.mujoco_backend import MuJoCoBackend
@@ -83,6 +83,8 @@ class SimThread(threading.Thread):
         self._recorder = LocalRecorder(root=runs_dir)
         self._recording = False
         self._rec_episode_id: str | None = None
+        # Teleop persists a gripper state (0=open, 1=closed) between clicks.
+        self._teleop_gripper = 0.0
 
     def run(self) -> None:  # noqa: D401
         idle_dt = 1.0 / _IDLE_HZ
@@ -107,6 +109,8 @@ class SimThread(threading.Thread):
                     self._record_start()
                 elif kind == "record_stop":
                     self._record_stop()
+                elif kind == "teleop":
+                    self._teleop(args)
             except Exception as e:  # pragma: no cover - surfaced to client
                 self._emit({"type": "error", "message": str(e)})
 
@@ -233,6 +237,79 @@ class SimThread(threading.Thread):
             }
         )
 
+    # -- teleop --------------------------------------------------------------
+
+    def _teleop(self, args: dict[str, Any]) -> None:
+        """Nudge the end-effector by (dx, dy, dz) from its current pose.
+
+        ``args`` keys (all optional):
+          dx, dy, dz: Cartesian delta in metres. Tiny values (≤ 3 cm per
+              call) keep the linear Cartesian planner reliably convergent.
+          gripper: "toggle" | "open" | "close" | None.
+
+        Discrete stepping keeps the physics stable: each call runs a short
+        Cartesian plan, executes it, and publishes one frame. The viewer
+        client rate-limits keystrokes to ~20 Hz.
+        """
+        if self._sim is None:
+            return
+        sim = self._sim
+        obs = sim.observe()
+
+        g_cmd = args.get("gripper")
+        if g_cmd == "toggle":
+            self._teleop_gripper = 1.0 - self._teleop_gripper
+        elif g_cmd == "open":
+            self._teleop_gripper = 0.0
+        elif g_cmd == "close":
+            self._teleop_gripper = 1.0
+
+        dx = float(args.get("dx", 0.0))
+        dy = float(args.get("dy", 0.0))
+        dz = float(args.get("dz", 0.0))
+
+        # Pure gripper toggle with no translation: just commit the gripper
+        # change over a handful of ticks so the fingers actually move.
+        if dx == 0.0 and dy == 0.0 and dz == 0.0:
+            for _ in range(40):
+                sim.step(target_joints=obs.robot_joints, gripper=self._teleop_gripper)
+            self._publish_frame()
+            if self._recording:
+                try:
+                    self._recorder.write_frame(sim.observe())
+                except Exception:  # pragma: no cover
+                    pass
+            return
+
+        from robosandbox.types import Pose
+        ex, ey, ez = obs.ee_pose.xyz
+        target = Pose(
+            xyz=(ex + dx, ey + dy, ez + dz),
+            quat_xyzw=obs.ee_pose.quat_xyzw,
+        )
+        try:
+            traj = plan_linear_cartesian(
+                sim,
+                start_joints=obs.robot_joints,
+                target_pose=target,
+                n_waypoints=12,
+                dt=0.005,
+                orientation="z_down",
+            )
+        except UnreachableError:
+            self._emit({"type": "teleop_unreachable", "target_xyz": target.xyz})
+            return
+
+        for row in traj.waypoints:
+            for _ in range(4):
+                sim.step(target_joints=row, gripper=self._teleop_gripper)
+        self._publish_frame()
+        if self._recording:
+            try:
+                self._recorder.write_frame(sim.observe())
+            except Exception:  # pragma: no cover
+                pass
+
     def _record_stop(self, *, reason: str | None = None) -> None:
         if not self._recording:
             return
@@ -333,6 +410,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             elif action == "record_stop":
                 assert _state is not None
                 _state.submit("record_stop")
+            elif action == "teleop":
+                assert _state is not None
+                _state.submit("teleop", {
+                    "dx": float(msg.get("dx", 0.0)),
+                    "dy": float(msg.get("dy", 0.0)),
+                    "dz": float(msg.get("dz", 0.0)),
+                    "gripper": msg.get("gripper"),
+                })
             else:
                 await ws.send_json({"type": "error", "message": f"unknown action {action!r}"})
     except WebSocketDisconnect:

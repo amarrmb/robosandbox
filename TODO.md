@@ -129,7 +129,24 @@ just single-skill dispatch.
 
 > Read-only viewer is barely more than an MP4. Users need to drive.
 
-### 3.1 — Orbit camera  **[high leverage]**
+### ~~3.3 — Record button~~ **[shipped 2026-04-18]**
+Viewer sidebar has a Record button. WS actions `record_start` /
+`record_stop` toggle a `LocalRecorder` keyed on the loaded task; every
+agent `on_step` writes a frame. Output lands under `./runs/<ts>-<id>/`
+with the usual `episode.json` + `events.jsonl` + `result.json` +
+`video.mp4` artifacts. Switching tasks mid-record closes the current
+episode so frames from task A don't leak into an episode labelled B.
+CLI: `robo-sandbox viewer --runs-dir /custom/path`.
+
+### ~~3.2 — Teleop (keyboard)~~ **[shipped 2026-04-18]**
+Viewer sidebar has a `Teleop` checkbox. When on: `WASD` drives ee xy,
+`QE` drives z, `Space` toggles gripper. Each keystroke emits a discrete
+WS `teleop` message; server solves `plan_linear_cartesian` for a 12-
+waypoint move (1.5 cm per press) and steps the sim. Unreachable moves
+emit `{type: "teleop_unreachable"}` rather than crashing. Gamepad +
+continuous-velocity teleop deferred to a future slice.
+
+### 3.1 — Orbit camera  **[deferred: larger-than-one-slice]**
 Move the viewer's render from server-side MJPEG to client-side Three.js:
 server streams joint states + object poses at 60 Hz via WS; browser
 reconstructs the scene and renders with a draggable camera.
@@ -138,6 +155,11 @@ reconstructs the scene and renders with a draggable camera.
   task. Alternative: stay on MJPEG but ship a URDF loader for Three.js
   that reads the same `robot_urdf` path.
 - **Effort:** ~2–3 days.
+- **Status:** deliberately out of scope for the 2026-04-18 session.
+  Requires: (1) pose stream WS protocol (joints + N object poses at
+  60 Hz), (2) Three.js loader for MJCF geoms + bundled URDFs, (3)
+  camera controls + re-layout of the viewer HTML. A dedicated slice
+  with its own spec + brainstorming pass.
 
 ### 3.2 — Teleop (keyboard + gamepad)
 `robo-sandbox viewer --teleop` → WASD drives end-effector xy, QE drives z,

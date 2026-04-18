@@ -72,6 +72,12 @@
     <button id="run">Run</button>
     <button id="record" class="record" title="Start/stop recording to runs/"><span class="rec-dot"></span><span id="record-label">Record</span></button>
   </div>
+  <div class="group">
+    <label>
+      <input type="checkbox" id="teleop-toggle" style="vertical-align: middle; margin-right: 6px;">
+      Teleop <span class="muted" style="color:#6b7280; font-size:11px;">(WASD=xy, QE=z, Space=grip)</span>
+    </label>
+  </div>
   <div class="group" style="flex:1; min-height:0">
     <label>Events</label>
     <div id="log"></div>
@@ -230,6 +236,49 @@ promptInput.addEventListener("keydown", (e) => {
 
 recordBtn.addEventListener("click", () => {
   ws.send(JSON.stringify({ action: isRecording ? "record_stop" : "record_start" }));
+});
+
+// ------ Teleop ------------------------------------------------------------
+// Discrete keypress teleop: WASD/QE emit a delta, Space toggles gripper.
+// The server rate-limits via its queue; we also rate-limit at the client so
+// auto-repeat doesn't flood the socket.
+const TELEOP_STEP_XY = 0.015;   // m per key press
+const TELEOP_STEP_Z  = 0.015;
+const TELEOP_MIN_MS  = 80;      // client-side rate limit
+
+const teleopToggle = document.getElementById("teleop-toggle");
+let teleopEnabled = false;
+let lastTeleopAt = 0;
+
+teleopToggle.addEventListener("change", () => {
+  teleopEnabled = teleopToggle.checked;
+  addLog(teleopEnabled ? "Teleop ON — focus the page" : "Teleop off", "info");
+});
+
+function sendTeleop(dx, dy, dz, gripper) {
+  const now = performance.now();
+  if (now - lastTeleopAt < TELEOP_MIN_MS) return;
+  lastTeleopAt = now;
+  ws.send(JSON.stringify({ action: "teleop", dx, dy, dz, gripper }));
+}
+
+window.addEventListener("keydown", (e) => {
+  if (!teleopEnabled) return;
+  // Ignore if a form control has focus (prompt input).
+  const ae = document.activeElement;
+  if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
+  let handled = true;
+  switch (e.key.toLowerCase()) {
+    case "w": sendTeleop(+TELEOP_STEP_XY, 0, 0, null); break;
+    case "s": sendTeleop(-TELEOP_STEP_XY, 0, 0, null); break;
+    case "a": sendTeleop(0, +TELEOP_STEP_XY, 0, null); break;  // +y = "left" from the robot's POV
+    case "d": sendTeleop(0, -TELEOP_STEP_XY, 0, null); break;
+    case "q": sendTeleop(0, 0, +TELEOP_STEP_Z, null); break;
+    case "e": sendTeleop(0, 0, -TELEOP_STEP_Z, null); break;
+    case " ": sendTeleop(0, 0, 0, "toggle"); break;
+    default: handled = false;
+  }
+  if (handled) e.preventDefault();
 });
 
 loadTasks().then(() => {
