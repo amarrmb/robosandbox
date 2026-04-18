@@ -190,9 +190,9 @@ def _run_policy_cli(args: argparse.Namespace) -> int:
     success_ok = result["success"]
     verdict = "success" if success_ok else ("failure" if success_ok is False else "unknown")
     final_reason = (
-        f"policy_completed_{result['steps']}_steps"
+        f"policy_step_limit_reached_{result['steps']}"
         if result["steps"] >= args.max_steps
-        else "policy_exhausted_trajectory"
+        else f"policy_trajectory_done_{result['steps']}"
     )
     print(f"[run --policy] task:        {task.name}")
     print(f"[run --policy] policy:      {args.policy}")

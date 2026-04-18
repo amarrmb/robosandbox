@@ -369,11 +369,10 @@ function ensureGamepadPolling() {
   if (!gamepadPollAnim) gamepadPollAnim = requestAnimationFrame(pollGamepad);
 }
 
-// Kick off the poll loop whenever teleop turns on; stop when off. We also
-// start it opportunistically on first gamepad connection so users don't
-// have to re-toggle after plugging in.
-const origToggle = teleopToggle;
-origToggle.addEventListener("change", () => {
+// Kick off the poll loop whenever teleop turns on; the existing
+// `teleopToggle` change handler above flips `teleopEnabled`, and the
+// next RAF tick either cancels or continues the loop.
+teleopToggle.addEventListener("change", () => {
   if (teleopEnabled) ensureGamepadPolling();
 });
 window.addEventListener("gamepadconnected", (e) => {

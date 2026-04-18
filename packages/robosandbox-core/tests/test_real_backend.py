@@ -79,19 +79,6 @@ def test_config_validation_home_qpos_length() -> None:
         )
 
 
-def test_scene_tracked_after_load_attempt_fails() -> None:
-    """Even though load() raises, we record the scene for debugging.
-
-    Useful in subclasses: they can call super().load(scene) to stash the
-    scene before doing their own hardware setup.
-    """
-    b = RealRobotBackend(_basic_cfg())
-    scene = Scene()
-    with pytest.raises(NotImplementedError):
-        b.load(scene)
-    assert b.scene is scene
-
-
 def test_subclass_override_works() -> None:
     """A minimal subclass that overrides the stub can be driven normally."""
     calls: list[str] = []

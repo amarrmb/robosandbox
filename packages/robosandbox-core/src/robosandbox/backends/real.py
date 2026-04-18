@@ -53,14 +53,10 @@ template and the RoboSandbox docs for integration recipes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from robosandbox.types import Observation, Pose, Scene
-
-if TYPE_CHECKING:  # pragma: no cover
-    pass
 
 
 @dataclass
@@ -136,7 +132,6 @@ class RealRobotBackend:
     # -- SimBackend protocol -----------------------------------------------
 
     def load(self, scene: Scene) -> None:
-        self._loaded_scene = scene
         raise NotImplementedError(_NYI_MSG.format(method="load(scene)"))
 
     def reset(self) -> None:

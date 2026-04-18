@@ -175,7 +175,11 @@ def load_bundled_mesh(sidecar_path: Path, obj_id: str) -> MeshAsset:
     )
 
 
-_DEFAULT_CACHE_DIR = Path.home() / ".cache" / "robosandbox" / "mesh_hulls"
+from robosandbox import _cache_root as _robosandbox_cache_root
+
+
+def _default_cache_dir() -> Path:
+    return _robosandbox_cache_root("mesh_hulls")
 
 _BYO_VALID_MODES = ("coacd", "hull")
 
@@ -300,7 +304,7 @@ def load_byo_mesh(
             "collision", f"must be one of {_BYO_VALID_MODES}, got {collision_mode!r}"
         )
 
-    cache_root = Path(cache_dir) if cache_dir is not None else _DEFAULT_CACHE_DIR
+    cache_root = Path(cache_dir) if cache_dir is not None else _default_cache_dir()
     key = _byo_cache_key(mesh_path, collision_mode)
     cache_subdir = cache_root / key
 

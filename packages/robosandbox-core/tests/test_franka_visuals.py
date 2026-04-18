@@ -51,11 +51,13 @@ def test_download_all_cached_is_fast(tmp_path: Path) -> None:
         raise RuntimeError("should not be called for fully-cached dir")
 
     with patch("urllib.request.urlopen", side_effect=sentinel):
-        statuses = download_all(cache, verbose=False)
+        results = download_all(cache, verbose=False, max_workers=1)
 
     assert call_count["n"] == 0
-    assert set(statuses.values()) == {"cached"}
-    assert len(statuses) == len(VISUAL_OBJS)
+    assert len(results) == len(VISUAL_OBJS)
+    assert {status for status, _ in results.values()} == {"cached"}
+    # All cached entries report the on-disk size (4 bytes of "stub").
+    assert all(size == 4 for _, size in results.values())
 
 
 def test_download_all_missing_returns_status(tmp_path: Path) -> None:
@@ -68,6 +70,6 @@ def test_download_all_missing_returns_status(tmp_path: Path) -> None:
         raise urllib.error.HTTPError(url, 404, "Not Found", hdrs=None, fp=None)
 
     with patch("urllib.request.urlopen", side_effect=always_404):
-        statuses = download_all(tmp_path / "cache", verbose=False)
+        results = download_all(tmp_path / "cache", verbose=False, max_workers=1)
 
-    assert all(s == "missing" for s in statuses.values())
+    assert all(s == "missing" and size == 0 for s, size in results.values())

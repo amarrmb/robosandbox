@@ -205,13 +205,11 @@ def test_byo_hull_compiles_on_builtin_arm(tmp_path: Path) -> None:
         str(mesh_path), file_type="obj"
     )
 
-    # Point the BYO cache at tmp_path so repeated test runs don't pollute
-    # the user's real ~/.cache. We do this via monkey-patching the default
-    # cache dir — simplest is to preload the cache once.
-    import robosandbox.scene.mesh_conversion as mc
-
-    orig = mc._DEFAULT_CACHE_DIR
-    mc._DEFAULT_CACHE_DIR = tmp_path / "cache"  # type: ignore[assignment]
+    # Point the BYO cache at tmp_path via ROBOSANDBOX_CACHE so repeated
+    # test runs don't pollute the user's real ~/.cache. monkeypatch.setenv
+    # cleans up automatically when the test function exits.
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("ROBOSANDBOX_CACHE", str(tmp_path))
     try:
         scene = Scene(
             objects=(
@@ -228,7 +226,7 @@ def test_byo_hull_compiles_on_builtin_arm(tmp_path: Path) -> None:
         )
         model, _ = build_model(scene)
     finally:
-        mc._DEFAULT_CACHE_DIR = orig  # type: ignore[assignment]
+        monkeypatch.undo()
 
     body_id = model.body("byo").id
     assert body_id > 0

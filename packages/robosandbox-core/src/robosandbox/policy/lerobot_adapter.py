@@ -86,6 +86,11 @@ class LeRobotPolicyAdapter:
         self._camera_name = camera_name
         self._action_dim = action_dim
         self._image_size = image_size
+        # Lazily-allocated scratch buffer for the (1, n_dof + 1) state vector.
+        # Re-used across act() calls so the per-frame hot path doesn't
+        # allocate three intermediate arrays per step. Sized on first use
+        # once we see the actual robot_joints length.
+        self._state_buf: np.ndarray | None = None
 
     @property
     def camera_name(self) -> str:
@@ -109,20 +114,28 @@ class LeRobotPolicyAdapter:
     # -- internals ---------------------------------------------------------
 
     def _to_batch(self, obs: Observation) -> dict[str, Any]:
-        rgb = obs.rgb.astype(np.float32) / 255.0  # HWC uint8 -> HWC float32 [0,1]
+        # Image path: avoid a full HxWx3 float32 copy when rgb is already
+        # float32 (rare, but common after augmentation/resizing by callers).
+        if obs.rgb.dtype == np.float32:
+            rgb = obs.rgb if obs.rgb.max() <= 1.0 else obs.rgb / 255.0
+        else:
+            rgb = obs.rgb.astype(np.float32) / 255.0  # HWC uint8 -> HWC float32 [0,1]
         if self._image_size is not None:
             rgb = _resize_hw(rgb, self._image_size)
-        # LeRobot expects CHW (channels-first) + batch dim; reorder + unsqueeze.
         chw = np.transpose(rgb, (2, 0, 1))[np.newaxis, ...]
 
-        state = np.concatenate(
-            [np.asarray(obs.robot_joints, dtype=np.float32),
-             np.asarray([obs.gripper_width], dtype=np.float32)]
-        )[np.newaxis, :]
+        # State path: fill a pre-allocated (1, n_dof + 1) buffer in place so
+        # the hot loop doesn't churn three intermediate allocs per frame.
+        joints = np.asarray(obs.robot_joints)
+        state_dim = joints.shape[0] + 1
+        if self._state_buf is None or self._state_buf.shape != (1, state_dim):
+            self._state_buf = np.empty((1, state_dim), dtype=np.float32)
+        self._state_buf[0, :-1] = joints
+        self._state_buf[0, -1] = obs.gripper_width
 
         return {
             f"observation.images.{self._camera_name}": chw,
-            "observation.state": state,
+            "observation.state": self._state_buf,
         }
 
 

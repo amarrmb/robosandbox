@@ -15,23 +15,31 @@ the downloaded OBJs can be used directly (e.g. by a Three.js client
 renderer or a user-written MJCF edit).
 
 Source: https://github.com/google-deepmind/mujoco_menagerie (Apache 2.0).
-Pinned to a specific menagerie ref so downloads are reproducible.
+Pinned to a specific commit SHA so a given RoboSandbox release always
+fetches the same bytes. Bumping ``_MENAGERIE_REF`` requires re-verifying
+``VISUAL_OBJS`` against the new ``franka_emika_panda/assets/`` listing.
 """
 
 from __future__ import annotations
 
-import os
-import sys
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Literal
+
+from robosandbox import _cache_root
 
 
-_MENAGERIE_REF = "main"
+# Menagerie commit pinned for reproducibility. When bumping, regenerate
+# VISUAL_OBJS by diffing a checkout's assets/ directory against this list.
+_MENAGERIE_REF = "a03e87bf13502b0b48ebbf2808928fd96ebf9cf3"
 _BASE = (
     f"https://raw.githubusercontent.com/google-deepmind/mujoco_menagerie/"
     f"{_MENAGERIE_REF}/franka_emika_panda/assets"
 )
+
+_FetchStatus = Literal["cached", "downloaded", "missing"]
 
 # Canonical visual mesh set verified against ``_MENAGERIE_REF``. Regenerate
 # by listing ``assets/`` in a menagerie checkout and diffing against this
@@ -98,32 +106,30 @@ VISUAL_OBJS: tuple[str, ...] = (
 
 def default_cache_dir() -> Path:
     """Resolve the cache root, honoring ``ROBOSANDBOX_CACHE`` if set."""
-    root = os.environ.get("ROBOSANDBOX_CACHE")
-    if root:
-        return Path(root) / "franka_visuals"
-    return Path.home() / ".cache" / "robosandbox" / "franka_visuals"
+    return _cache_root("franka_visuals")
 
 
-def _fetch(url: str, dst: Path, *, force: bool) -> str:
+def _fetch(url: str, dst: Path, *, force: bool) -> tuple[_FetchStatus, int]:
     """Download ``url`` to ``dst``.
 
-    Returns ``"cached"`` if a copy already exists (and ``force`` is
-    ``False``), ``"downloaded"`` on success, or ``"missing"`` if the
-    source URL returned 404 (indicates the pinned menagerie layout
-    changed — the caller should surface this, not silently swallow).
+    Returns ``(status, bytes_on_disk)``:
+      - ``("cached", size)``  — ``dst`` already existed (and ``force`` is False).
+      - ``("downloaded", size)`` — newly written.
+      - ``("missing", 0)`` — source URL returned 404 (pinned menagerie
+        layout drift — caller surfaces this, never silently swallows).
     """
     if dst.exists() and not force:
-        return "cached"
+        return "cached", dst.stat().st_size
     dst.parent.mkdir(parents=True, exist_ok=True)
     try:
         with urllib.request.urlopen(url, timeout=30) as resp:
             data = resp.read()
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            return "missing"
+            return "missing", 0
         raise
     dst.write_bytes(data)
-    return "downloaded"
+    return "downloaded", len(data)
 
 
 def download_all(
@@ -131,52 +137,63 @@ def download_all(
     *,
     force: bool = False,
     verbose: bool = True,
-) -> dict[str, str]:
+    max_workers: int = 8,
+) -> dict[str, tuple[_FetchStatus, int]]:
     """Fetch every visual OBJ into ``cache_dir/assets/``.
 
-    Returns ``{filename: status}`` — statuses are ``"cached"``,
-    ``"downloaded"``, or ``"missing"``.
+    Downloads run in parallel (``max_workers`` threads) since the bottleneck
+    is GitHub CDN RTT, not CPU. ``mkdir(..., exist_ok=True)`` makes the
+    parent-dir creation safe under concurrent writers.
+
+    Returns ``{filename: (status, bytes)}`` ordered like ``VISUAL_OBJS``.
     """
     cache = cache_dir or default_cache_dir()
     assets = cache / "assets"
     assets.mkdir(parents=True, exist_ok=True)
-    out: dict[str, str] = {}
-    for name in VISUAL_OBJS:
-        dst = assets / name
-        status = _fetch(f"{_BASE}/{name}", dst, force=force)
-        out[name] = status
-        if verbose:
+
+    def _job(name: str) -> tuple[str, _FetchStatus, int]:
+        status, size = _fetch(f"{_BASE}/{name}", assets / name, force=force)
+        return name, status, size
+
+    out: dict[str, tuple[_FetchStatus, int]] = {}
+    # max_workers=1 == serial, useful for deterministic test order.
+    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as ex:
+        for name, status, size in ex.map(_job, VISUAL_OBJS):
+            out[name] = (status, size)
+    if verbose:
+        # Preserve VISUAL_OBJS order in the output.
+        for name in VISUAL_OBJS:
+            status, size = out[name]
             tag = {"cached": "·", "downloaded": "+", "missing": "!"}[status]
-            size = dst.stat().st_size // 1024 if status != "missing" else "—"
-            print(f"  {tag} {name}  ({size} KB)")
+            kb = size // 1024 if status != "missing" else "—"
+            print(f"  {tag} {name}  ({kb} KB)")
     return out
 
 
 def cli(cache_dir: str | None = None, *, force: bool = False) -> int:
     """Entry point wired to ``robo-sandbox download-franka-visuals``."""
+    import sys as _sys
+
     cache = Path(cache_dir) if cache_dir else default_cache_dir()
     print(f"Downloading Franka visuals to {cache}")
     print(f"Source: {_BASE}")
-    statuses = download_all(cache, force=force)
-    total_bytes = sum(
-        (cache / "assets" / n).stat().st_size
-        for n, s in statuses.items()
-        if s != "missing"
-    )
-    missing = [n for n, s in statuses.items() if s == "missing"]
-    downloaded = sum(1 for s in statuses.values() if s == "downloaded")
-    cached = sum(1 for s in statuses.values() if s == "cached")
+    results = download_all(cache, force=force)
+
+    total_bytes = sum(size for _, size in results.values())
+    missing = [n for n, (s, _) in results.items() if s == "missing"]
+    downloaded = sum(1 for s, _ in results.values() if s == "downloaded")
+    cached = sum(1 for s, _ in results.values() if s == "cached")
     print()
     print(f"  downloaded: {downloaded}, cached: {cached}, missing: {len(missing)}")
     print(f"  total on disk: {total_bytes / 1024 / 1024:.1f} MB")
     if missing:
         print(
             f"  WARN: {len(missing)} file(s) returned 404: {missing[:5]}...",
-            file=sys.stderr,
+            file=_sys.stderr,
         )
         print(
             f"  The menagerie layout at ref={_MENAGERIE_REF} may have changed — open an issue.",
-            file=sys.stderr,
+            file=_sys.stderr,
         )
         return 1
     return 0
