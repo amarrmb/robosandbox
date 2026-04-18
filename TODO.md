@@ -24,6 +24,19 @@ cut it.
 - **v0.2 slice 2 — browser live viewer** (2026-04-18). `robo-sandbox
   viewer` → FastAPI + WebSocket + SPA client. Watch the agent live,
   pick tasks from a dropdown, see events stream.
+- **v0.2 slice 3 — mesh object import** (2026-04-18). `SceneObject(kind=
+  "mesh")` spawns OBJ/STL as grippable free-bodies on both built-in-arm
+  and URDF paths. Per-object sidecar YAML carries visual + collision
+  mesh paths + mass + friction. BYO meshes decomposed via CoACD with
+  sha-keyed cache at `~/.cache/robosandbox/mesh_hulls/`; `collision:
+  hull` fallback for convex user meshes. `pick_ycb_mug` benchmark +
+  5× smoke test pass. Design spec: `docs/superpowers/specs/2026-04-18-
+  mesh-import-design.md`.
+- **v0.2 slice 4 — YCB object pack** (2026-04-18). 10 bundled YCB
+  objects (box, can, bottle, banana, apple, bowl, mug, drill, wrench,
+  baseball) pre-decomposed with CoACD. New `@ycb:<id>` shorthand in
+  task YAMLs + `list_builtin_ycb_objects()` catalog API. Pack-level
+  LICENSE at `assets/objects/ycb/LICENSE`.
 
 ---
 
@@ -31,27 +44,10 @@ cut it.
 
 > The "any object" tagline is a lie until we support meshes.
 
-### 1.1 — Mesh object import  **[next up]**
-`SceneObject(kind="mesh")` raises NotImplementedError today. We need
-OBJ/STL → V-HACD convex decomp → MuJoCo `<mesh>` asset + `<geom
-type="mesh">` in the body. Tool: `obj2mjcf` or a hand-rolled helper.
-- **Where:** `scene/mjcf_builder.py:_object_xml`,
-  `scene/robot_loader.py:inject_scene_objects`, new
-  `scene/mesh_conversion.py`.
-- **Done when:** `SceneObject(kind="mesh", mesh_path="bunny.obj")` spawns
-  a grippable bunny. Convex decomp stable enough that the agent's pick
-  skill succeeds ≥80 % on the YCB mug.
-- **Effort:** ~1 day.
+### ~~1.1 — Mesh object import~~ **[shipped 2026-04-18]**
+### ~~1.2 — YCB object pack~~ **[shipped 2026-04-18]**
 
-### 1.2 — YCB object pack
-Ship a small YCB subset (10 objects: mug, can, box, bowl, apple, banana,
-bottle, drill, wrench, ball). Vendored under `assets/objects/ycb/` with
-sidecar metadata (recommended grasp hints).
-- **Why:** single biggest credibility signal — people know YCB.
-- **Done when:** `SceneObject(kind="ycb", id="003_cracker_box")` resolves.
-- **Effort:** ~½ day (mostly licensing + trimming meshes).
-
-### 1.3 — Procedural scene generator
+### 1.3 — Procedural scene generator  **[next up]**
 `ScenePresets.tabletop_clutter(n_objects=5, seed=0)` → randomized scene
 with YCB distractors at feasible poses. Same API for `kitchen_drawer`,
 `desk_push`, etc.
