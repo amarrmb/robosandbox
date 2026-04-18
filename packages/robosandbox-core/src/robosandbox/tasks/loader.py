@@ -62,10 +62,44 @@ def _object_from_dict(d: dict[str, Any]) -> SceneObject:
     )
 
 
-def _scene_from_dict(d: dict[str, Any]) -> Scene:
+_BUILTIN_PREFIX = "@builtin:"
+
+
+def _resolve_asset_path(raw: str, base_dir: Path) -> Path:
+    """Resolve a task-YAML asset reference.
+
+    Order:
+      1. "@builtin:<rel>"  -> packaged assets (robosandbox/assets/<rel>)
+      2. absolute path     -> Path(raw) unchanged
+      3. relative path     -> (base_dir / raw).resolve()
+
+    Raises FileNotFoundError if the resolved path doesn't exist, so broken
+    task YAMLs fail loudly at load time rather than later during compile.
+    """
+    if raw.startswith(_BUILTIN_PREFIX):
+        from importlib.resources import files
+
+        rel = raw[len(_BUILTIN_PREFIX) :].lstrip("/")
+        resolved = Path(str(files("robosandbox").joinpath("assets", rel)))
+    else:
+        p = Path(raw)
+        resolved = p if p.is_absolute() else (base_dir / p).resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(
+            f"Asset reference {raw!r} resolved to {resolved} which does not exist"
+        )
+    return resolved
+
+
+def _scene_from_dict(d: dict[str, Any], base_dir: Path) -> Scene:
     objs = tuple(_object_from_dict(o) for o in d.get("objects", []))
+    robot_urdf = _resolve_asset_path(d["robot_urdf"], base_dir) if d.get("robot_urdf") else None
+    robot_config = (
+        _resolve_asset_path(d["robot_config"], base_dir) if d.get("robot_config") else None
+    )
     return Scene(
-        robot_urdf=None,
+        robot_urdf=robot_urdf,
+        robot_config=robot_config,
         objects=objs,
         table_height=float(d.get("table_height", 0.04)),
     )
@@ -74,7 +108,7 @@ def _scene_from_dict(d: dict[str, Any]) -> Scene:
 def load_task(path: Path) -> Task:
     with path.open() as fh:
         raw = yaml.safe_load(fh)
-    scene = _scene_from_dict(raw["scene"])
+    scene = _scene_from_dict(raw["scene"], base_dir=path.parent)
     return Task(
         name=str(raw.get("name", path.stem)),
         scene=scene,
