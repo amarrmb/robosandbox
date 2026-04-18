@@ -1,0 +1,36 @@
+{
+  "_comment": "HAND-AUTHORED cassette for VLMPointer smoke test. Not a real recording. Represents the response a well-behaved OpenAI-compatible VLM would return when asked to locate a 'red cube' in a 480x640 top-view rendered scene. The response body follows the VLMPointer JSON contract; the pixel values (cx=320, cy=240) are plausibly in-frame but are NOT the true cube centroid. See docstring at the top of robosandbox/vlm/cassette.py for how to record a fresh cassette against a live endpoint.",
+  "entries": [
+    {
+      "request": {
+        "model": "gpt-4o-mini",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a precise object locator for a robotics workspace.\nThe user will give you a text query and a top-side view of a table.\n\nRespond ONLY with a JSON object of the form:\n  {\"objects\": [{\"label\": \"...\", \"bbox\": [x1,y1,x2,y2], \"point\":[cx,cy], \"confidence\": 0.0-1.0}]}\n\n- Coordinates are pixels, origin top-left, x right, y down.\n- Return zero objects if no match is visible.\n- Prefer tight bounding boxes. `point` should be the visible centroid.\n- Do not wrap the JSON in prose or markdown fences."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Query: red cube"
+              },
+              {
+                "type": "image_url",
+                "image_url": "<image>"
+              }
+            ]
+          }
+        ],
+        "tools": null,
+        "tool_choice": null
+      },
+      "response": {
+        "content": "{\"objects\": [{\"label\": \"red cube\", \"bbox\": [310, 230, 330, 250], \"point\": [320, 240], \"confidence\": 0.92}]}",
+        "tool_calls": [],
+        "finish_reason": "stop"
+      }
+    }
+  ]
+}
