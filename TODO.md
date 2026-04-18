@@ -46,8 +46,11 @@ cut it.
 
 ### ~~1.1 — Mesh object import~~ **[shipped 2026-04-18]**
 ### ~~1.2 — YCB object pack~~ **[shipped 2026-04-18]**
-
-### 1.3 — Procedural scene generator  **[next up]**
+### ~~1.3 — Procedural scene generator~~ **[shipped 2026-04-18]**
+`scene/presets.py:tabletop_clutter(n_objects, seed)` returns a Scene
+with the bundled Franka + N non-overlapping YCB distractors. 16 tests
+cover determinism, seed variation, min-spacing, edge cases. Example:
+`examples/procedural_scene.py`.
 `ScenePresets.tabletop_clutter(n_objects=5, seed=0)` → randomized scene
 with YCB distractors at feasible poses. Same API for `kitchen_drawer`,
 `desk_push`, etc.

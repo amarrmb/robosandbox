@@ -16,6 +16,7 @@ Assumes `uv sync --package robosandbox --extra dev --extra viewer
 | `record_demo.py` | Record one episode (MP4 + events.jsonl + result.json). |
 | `headless_eval.py` | Run the 6 built-in benchmarks programmatically, print JSON. |
 | `llm_guided.py` | Drive the agent with VLMPlanner (OpenAI or Ollama). |
+| `procedural_scene.py` | `tabletop_clutter(n_objects, seed)` — reproducible randomized scene. |
 
-All 8 examples ship with TODO 5.1. Coming in future slices:
-`procedural_scene.py` (1.3) and policy-in-the-loop replay (4.3).
+All 9 examples ship with Sprint A. Coming in future slices:
+policy-in-the-loop replay (4.3), LeRobot export (4.2).
