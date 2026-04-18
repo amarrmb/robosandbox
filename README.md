@@ -94,9 +94,15 @@ vLLM, any OpenAI-compatible endpoint.
 
 ```bash
 uv run robo-sandbox-bench                    # run all default tasks
-uv run robo-sandbox-bench --seeds 5          # 5 seeds each
+uv run robo-sandbox-bench --seeds 50         # randomize and aggregate
 uv run robo-sandbox-bench --vlm-provider ollama   # use a real VLM
 ```
+
+Tasks that declare a `randomize:` block in their YAML get per-seed
+jitter (xy translation + yaw) applied to every object. Seed 0 is always
+the deterministic base layout (bit-exact with `--seeds 1`); seeds ≥ 1
+sample uniform perturbations keyed on the seed. The summary reports
+`mean ± stderr` per task when `--seeds > 1`.
 
 Five built-in tasks (YAML scenes + success criteria under
 `packages/robosandbox-core/src/robosandbox/tasks/definitions/`):

@@ -51,6 +51,13 @@ cut it.
 with the bundled Franka + N non-overlapping YCB distractors. 16 tests
 cover determinism, seed variation, min-spacing, edge cases. Example:
 `examples/procedural_scene.py`.
+
+### ~~2.2 — Randomized benchmark suite~~ **[shipped 2026-04-18]**
+Task YAMLs grow a `randomize: {xy_jitter, yaw_jitter}` block. Runner
+applies per-seed jitter (seed 0 = identity, seeds ≥ 1 random); prints
+`mean ± stderr` per task. `pick_ycb_mug --seeds 50` reports 50/50
+mean=1.00 ± 0.00 with ±3 cm xy + ±90° yaw jitter. 9 unit tests in
+`test_randomize.py`. Coverage of size/mass/rgba jitter deferred.
 `ScenePresets.tabletop_clutter(n_objects=5, seed=0)` → randomized scene
 with YCB distractors at feasible poses. Same API for `kitchen_drawer`,
 `desk_push`, etc.

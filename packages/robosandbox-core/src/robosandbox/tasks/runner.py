@@ -121,9 +121,13 @@ def _run_one(
     vlm_client: OpenAIVLMClient | None,
     max_replans: int,
     settle_steps: int,
+    seed: int = 0,
 ) -> TaskResult:
+    from robosandbox.tasks.randomize import jitter_scene
+
+    scene = jitter_scene(task.scene, task.randomize, seed)
     sim = MuJoCoBackend(render_size=(240, 320), camera="scene")
-    sim.load(task.scene)
+    sim.load(scene)
     try:
         for _ in range(settle_steps):
             sim.step()
@@ -235,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
                 vlm_client=vlm_client,
                 max_replans=args.max_replans,
                 settle_steps=args.settle_steps,
+                seed=seed,
             )
             detail_str = ", ".join(
                 f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}"
@@ -269,7 +274,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"SUMMARY: {overall_ok}/{len(all_results)} successful")
     for task_name, runs in by_task.items():
         ok = sum(1 for r in runs if r)
-        print(f"  {task_name:<20} {ok}/{len(runs)}")
+        n = len(runs)
+        mean = ok / n
+        # Bernoulli stderr: sqrt(p*(1-p)/n). Shown only when n>1.
+        if n > 1:
+            stderr = (mean * (1.0 - mean) / n) ** 0.5
+            print(f"  {task_name:<20} {ok}/{n}  mean={mean:.2f} ± {stderr:.2f}")
+        else:
+            print(f"  {task_name:<20} {ok}/{n}")
 
     out_path = Path(args.out or "benchmark_results.json")
     out_path.write_text(json.dumps({"runs": all_results}, indent=2))

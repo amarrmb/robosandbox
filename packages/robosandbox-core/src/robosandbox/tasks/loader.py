@@ -42,6 +42,7 @@ class Task:
     prompt: str
     success: SuccessCriterion
     seed_note: str = ""
+    randomize: dict[str, Any] | None = None
 
 
 def _pose_from_dict(d: dict[str, Any]) -> Pose:
@@ -196,12 +197,16 @@ def load_task(path: Path) -> Task:
     with path.open() as fh:
         raw = yaml.safe_load(fh)
     scene = _scene_from_dict(raw["scene"], base_dir=path.parent)
+    randomize = raw.get("randomize")
+    if randomize is not None and not isinstance(randomize, dict):
+        raise ValueError(f"task {path}: 'randomize:' must be a mapping")
     return Task(
         name=str(raw.get("name", path.stem)),
         scene=scene,
         prompt=str(raw["prompt"]),
         success=SuccessCriterion(data=raw["success"]),
         seed_note=str(raw.get("seed_note", "")),
+        randomize=randomize,
     )
 
 

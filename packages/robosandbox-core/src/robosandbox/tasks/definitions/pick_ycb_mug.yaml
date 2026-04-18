@@ -14,3 +14,6 @@ success:
   kind: lifted
   object: mug
   min_mm: 50
+randomize:
+  xy_jitter: 0.03      # ±3 cm in each of x, y (mug rim stays within Franka reach)
+  yaw_jitter: 1.57     # ±90° about z — mug handle orientation varies
