@@ -13,11 +13,13 @@ dependencies = [
     "pyyaml>=6.0",
     "openai>=1.40",
     "imageio[ffmpeg]>=2.34",
+    "trimesh>=4.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.4", "mypy>=1.10"]
 viewer = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+meshes = ["coacd>=1.0"]
 
 [project.scripts]
 robo-sandbox = "robosandbox.cli:main"
