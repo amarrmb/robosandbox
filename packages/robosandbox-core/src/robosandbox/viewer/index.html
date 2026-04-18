@@ -85,7 +85,7 @@
   <div class="group">
     <label>
       <input type="checkbox" id="teleop-toggle" style="vertical-align: middle; margin-right: 6px;">
-      Teleop <span class="muted" style="color:#6b7280; font-size:11px;">(WASD=xy, QE=z, Space=grip)</span>
+      Teleop <span class="muted" style="color:#6b7280; font-size:11px;">(WASD=xy, QE=z, Space=grip; gamepad sticks drive ee)</span>
     </label>
   </div>
   <div class="group" style="flex:1; min-height:0">
@@ -314,6 +314,74 @@ window.addEventListener("keydown", (e) => {
     default: handled = false;
   }
   if (handled) e.preventDefault();
+});
+
+// ------ Gamepad teleop ---------------------------------------------------
+// Analog sticks produce continuous motion: left stick = ee xy, right
+// stick Y = ee z, buttons A (0) toggle gripper. We scale each axis by
+// the stick magnitude so a half-pushed stick moves half as fast.
+//
+// The sendTeleop rate limiter (TELEOP_MIN_MS = 80 ms) caps the WS send
+// rate to ~12 Hz regardless of how fast we poll; the server's Cartesian
+// plan runs to completion between messages so motion is smooth.
+const GAMEPAD_DEADZONE = 0.15;
+const GAMEPAD_STEP_XY = 0.020;      // m per poll at full stick deflection
+const GAMEPAD_STEP_Z  = 0.020;
+let gamepadPollAnim = null;
+let lastGripperBtnDown = false;
+
+function applyDeadzone(v) {
+  if (Math.abs(v) < GAMEPAD_DEADZONE) return 0.0;
+  // Rescale magnitude back up so just-past-deadzone isn't a dead spot.
+  const sign = v < 0 ? -1 : 1;
+  return sign * (Math.abs(v) - GAMEPAD_DEADZONE) / (1.0 - GAMEPAD_DEADZONE);
+}
+
+function pollGamepad() {
+  if (!teleopEnabled) { gamepadPollAnim = null; return; }
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  const gp = Array.from(pads).find(p => p && p.connected);
+  if (gp) {
+    // Standard gamepad axes: 0=LX, 1=LY, 2=RX, 3=RY. Y is inverted on most.
+    const lx = applyDeadzone(gp.axes[0] ?? 0);
+    const ly = applyDeadzone(gp.axes[1] ?? 0);
+    const ry = applyDeadzone(gp.axes[3] ?? 0);
+    // ee +x is "forward" (away from robot base), gamepad forward is LY<0.
+    // Map LY → dx (invert), LX → dy (invert so right stick = right from operator pov).
+    const dx = -ly * GAMEPAD_STEP_XY;
+    const dy = -lx * GAMEPAD_STEP_XY;
+    const dz = -ry * GAMEPAD_STEP_Z;
+
+    let gripper = null;
+    const btn = gp.buttons[0];
+    const btnDown = !!(btn && btn.pressed);
+    if (btnDown && !lastGripperBtnDown) gripper = "toggle";  // edge-triggered
+    lastGripperBtnDown = btnDown;
+
+    if (dx || dy || dz || gripper) {
+      sendTeleop(dx, dy, dz, gripper);
+    }
+  }
+  gamepadPollAnim = requestAnimationFrame(pollGamepad);
+}
+
+function ensureGamepadPolling() {
+  if (!gamepadPollAnim) gamepadPollAnim = requestAnimationFrame(pollGamepad);
+}
+
+// Kick off the poll loop whenever teleop turns on; stop when off. We also
+// start it opportunistically on first gamepad connection so users don't
+// have to re-toggle after plugging in.
+const origToggle = teleopToggle;
+origToggle.addEventListener("change", () => {
+  if (teleopEnabled) ensureGamepadPolling();
+});
+window.addEventListener("gamepadconnected", (e) => {
+  addLog(`Gamepad connected: ${e.gamepad.id} — stick drives ee xy/z, A button toggles gripper`, "info");
+  if (teleopEnabled) ensureGamepadPolling();
+});
+window.addEventListener("gamepaddisconnected", () => {
+  addLog("Gamepad disconnected.", "info");
 });
 
 // ------ Trajectory inspector ----------------------------------------------
