@@ -42,11 +42,16 @@ from robosandbox.agent.planner import StubPlanner
 from robosandbox.grasp.analytic import AnalyticTopDown
 from robosandbox.motion.ik import DLSMotionPlanner
 from robosandbox.perception.ground_truth import GroundTruthPerception
+from robosandbox.recorder.local import LocalRecorder
 from robosandbox.sim.mujoco_backend import MuJoCoBackend
+from robosandbox.skills.drawer import CloseDrawer, OpenDrawer
 from robosandbox.skills.home import Home
 from robosandbox.skills.pick import Pick
 from robosandbox.skills.place import PlaceOn
+from robosandbox.skills.pour import Pour
 from robosandbox.skills.push import Push
+from robosandbox.skills.stack import Stack
+from robosandbox.skills.tap import Tap
 from robosandbox.tasks.loader import list_builtin_tasks, load_builtin_task
 
 
@@ -63,7 +68,7 @@ def _encode_jpeg(rgb: np.ndarray) -> bytes:
 
 
 class SimThread(threading.Thread):
-    def __init__(self) -> None:
+    def __init__(self, runs_dir: Path) -> None:
         super().__init__(daemon=True, name="robosandbox-viewer-sim")
         self._cmds: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.frames: queue.Queue[bytes] = queue.Queue(maxsize=2)
@@ -72,6 +77,12 @@ class SimThread(threading.Thread):
         self._task_name: str | None = None
         self._task_prompt: str | None = None
         self._stop = threading.Event()
+        # Recording state. LocalRecorder is reused across episodes; a fresh
+        # start_episode call resets it. ``_recording`` is the source of truth.
+        self._runs_dir = runs_dir
+        self._recorder = LocalRecorder(root=runs_dir)
+        self._recording = False
+        self._rec_episode_id: str | None = None
 
     def run(self) -> None:  # noqa: D401
         idle_dt = 1.0 / _IDLE_HZ
@@ -92,6 +103,10 @@ class SimThread(threading.Thread):
                     self._load_task(args)
                 elif kind == "run":
                     self._run_agent(args)
+                elif kind == "record_start":
+                    self._record_start()
+                elif kind == "record_stop":
+                    self._record_stop()
             except Exception as e:  # pragma: no cover - surfaced to client
                 self._emit({"type": "error", "message": str(e)})
 
@@ -104,6 +119,10 @@ class SimThread(threading.Thread):
         self._stop.set()
 
     def _load_task(self, task_name: str) -> None:
+        if self._recording:
+            # Switching tasks mid-record closes the current episode so we
+            # don't leak frames from task A into an episode labelled for B.
+            self._record_stop(reason="task switched")
         if self._sim is not None:
             self._sim.close()
             self._sim = None
@@ -146,10 +165,21 @@ class SimThread(threading.Thread):
             step_counter["n"] += 1
             if step_counter["n"] % _AGENT_RENDER_EVERY_N_STEPS == 0:
                 self._publish_frame()
+            # If a recording is active, capture every sim tick (the recorder
+            # itself subsamples to the target fps — we want to give it the
+            # full stream so timing is faithful).
+            if self._recording:
+                try:
+                    self._recorder.write_frame(sim.observe())
+                except Exception:  # pragma: no cover — don't crash the agent
+                    pass
 
         ctx.on_step = on_step
 
-        skills = [Pick(), PlaceOn(), Push(), Home()]
+        skills = [
+            Pick(), PlaceOn(), Push(), Home(), Pour(), Tap(),
+            OpenDrawer(), CloseDrawer(), Stack(),
+        ]
         planner = StubPlanner(skills=skills)
         agent = Agent(ctx, skills, planner, max_replans=3)
         episode = agent.run(effective_prompt)
@@ -166,6 +196,58 @@ class SimThread(threading.Thread):
                      "reason": s.result.reason}
                     for s in episode.steps
                 ],
+            }
+        )
+
+    # -- recording -----------------------------------------------------------
+
+    def _record_start(self) -> None:
+        if self._sim is None:
+            self._emit({"type": "error", "message": "load a task before recording"})
+            return
+        if self._recording:
+            self._emit({"type": "error", "message": "already recording"})
+            return
+        metadata = {
+            "sim_dt": float(self._sim.model.opt.timestep),
+            "task": self._task_name or "",
+            "source": "viewer",
+        }
+        episode_id = self._recorder.start_episode(
+            task=self._task_name or "unknown",
+            metadata=metadata,
+        )
+        self._recording = True
+        self._rec_episode_id = episode_id
+        # Write one immediate frame so the recorded video is not empty if the
+        # user stops quickly with no agent running.
+        try:
+            self._recorder.write_frame(self._sim.observe())
+        except Exception:  # pragma: no cover
+            pass
+        self._emit(
+            {
+                "type": "recording_started",
+                "episode_id": episode_id,
+                "runs_dir": str(self._runs_dir.resolve()),
+            }
+        )
+
+    def _record_stop(self, *, reason: str | None = None) -> None:
+        if not self._recording:
+            return
+        self._recording = False
+        ep_id = self._rec_episode_id or ""
+        self._rec_episode_id = None
+        self._recorder.end_episode(
+            success=False,  # viewer recording is open-ended; not a task
+            result={"reason": reason or "stopped_by_user"},
+        )
+        self._emit(
+            {
+                "type": "recording_stopped",
+                "episode_id": ep_id,
+                "runs_dir": str(self._runs_dir.resolve()),
             }
         )
 
@@ -204,7 +286,7 @@ _INDEX_PATH = Path(__file__).parent / "index.html"
 @app.on_event("startup")
 async def _startup() -> None:
     global _state
-    _state = SimThread()
+    _state = SimThread(runs_dir=_RUNS_DIR)
     _state.start()
     # Preload Franka for instant gratification.
     initial = _INITIAL_TASK or "pick_cube_franka"
@@ -245,6 +327,12 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             elif action == "run":
                 assert _state is not None
                 _state.submit("run", msg.get("prompt"))
+            elif action == "record_start":
+                assert _state is not None
+                _state.submit("record_start")
+            elif action == "record_stop":
+                assert _state is not None
+                _state.submit("record_stop")
             else:
                 await ws.send_json({"type": "error", "message": f"unknown action {action!r}"})
     except WebSocketDisconnect:
@@ -297,9 +385,15 @@ async def _event_broadcaster() -> None:
 
 
 _INITIAL_TASK: str | None = None
+_RUNS_DIR: Path = Path("runs")
 
 
-def run(host: str = "127.0.0.1", port: int = 8000, initial_task: str | None = None) -> None:
+def run(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    initial_task: str | None = None,
+    runs_dir: Path | str = "runs",
+) -> None:
     """Start the viewer (blocking)."""
     try:
         import uvicorn
@@ -307,6 +401,7 @@ def run(host: str = "127.0.0.1", port: int = 8000, initial_task: str | None = No
         raise ImportError(
             "Viewer requires uvicorn — install via `pip install 'robosandbox[viewer]'`"
         ) from e
-    global _INITIAL_TASK
+    global _INITIAL_TASK, _RUNS_DIR
     _INITIAL_TASK = initial_task
+    _RUNS_DIR = Path(runs_dir)
     uvicorn.run(app, host=host, port=port, log_level="info")

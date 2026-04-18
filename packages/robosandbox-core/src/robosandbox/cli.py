@@ -22,6 +22,11 @@ def main(argv: list[str] | None = None) -> int:
         default="pick_cube_franka",
         help="Built-in task to preload on startup",
     )
+    viewer_p.add_argument(
+        "--runs-dir",
+        default="runs",
+        help="Directory to write recorded episodes (default: ./runs)",
+    )
 
     run_p = sub.add_parser("run", help="Agent-driven run (stub / openai / ollama / custom)")
     run_p.add_argument("task", help="Natural-language task, e.g. 'pick up the red cube'")
@@ -46,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         from robosandbox.viewer.server import run as viewer_run
 
         print(f"RoboSandbox viewer — open http://{args.host}:{args.port}")
-        viewer_run(host=args.host, port=args.port, initial_task=args.task)
+        viewer_run(host=args.host, port=args.port, initial_task=args.task, runs_dir=args.runs_dir)
         return 0
     elif args.cmd == "run":
         from robosandbox.agentic_demo import main as agentic_main

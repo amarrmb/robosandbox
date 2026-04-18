@@ -24,6 +24,13 @@
   button { background: #3b82f6; border: none; font-weight: 600; cursor: pointer; color: white; }
   button:hover:not(:disabled) { background: #2563eb; }
   button:disabled { background: #374151; cursor: not-allowed; color: #6b7280; }
+  button.record { background: #1f2329; color: #d1d5db; border: 1px solid #2a2f38; }
+  button.record:hover:not(:disabled) { background: #2a2f38; }
+  button.record.recording { background: #dc2626; color: white; border-color: #dc2626; }
+  button.record.recording:hover:not(:disabled) { background: #b91c1c; }
+  .rec-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: middle; }
+  button.record.recording .rec-dot { animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
   .primary-row { display: flex; gap: 8px; }
   .primary-row button { flex: 1; }
   #log { flex: 1; overflow-y: auto; background: #0a0c10; border: 1px solid #1f2329; border-radius: 5px; padding: 8px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; display: flex; flex-direction: column; gap: 4px; }
@@ -63,6 +70,7 @@
   </div>
   <div class="primary-row">
     <button id="run">Run</button>
+    <button id="record" class="record" title="Start/stop recording to runs/"><span class="rec-dot"></span><span id="record-label">Record</span></button>
   </div>
   <div class="group" style="flex:1; min-height:0">
     <label>Events</label>
@@ -90,7 +98,11 @@ const log = document.getElementById("log");
 const taskSelect = document.getElementById("task-select");
 const promptInput = document.getElementById("prompt");
 const runBtn = document.getElementById("run");
+const recordBtn = document.getElementById("record");
+const recordLabel = document.getElementById("record-label");
 const fpsEl = document.getElementById("fps");
+
+let isRecording = false;
 
 let lastFrameUrl = null;
 let frameCount = 0;
@@ -183,6 +195,16 @@ function handleEvent(evt) {
       addLog(`  step: ${step.skill}(${JSON.stringify(step.args)}) → ${step.reason}`, tag);
     }
     if (evt.replans) addLog(`  ${evt.replans} replan(s)`, "info");
+  } else if (evt.type === "recording_started") {
+    isRecording = true;
+    recordBtn.classList.add("recording");
+    recordLabel.textContent = "Stop";
+    addLog(`Recording → episode ${evt.episode_id} (${evt.runs_dir})`, "info");
+  } else if (evt.type === "recording_stopped") {
+    isRecording = false;
+    recordBtn.classList.remove("recording");
+    recordLabel.textContent = "Record";
+    addLog(`Recording stopped — episode ${evt.episode_id} saved under ${evt.runs_dir}`, "success");
   } else if (evt.type === "error") {
     addLog(`Server error: ${evt.message}`, "error");
     runBtn.disabled = false;
@@ -204,6 +226,10 @@ function doRun() {
 runBtn.addEventListener("click", doRun);
 promptInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !runBtn.disabled) doRun();
+});
+
+recordBtn.addEventListener("click", () => {
+  ws.send(JSON.stringify({ action: isRecording ? "record_stop" : "record_start" }));
 });
 
 loadTasks().then(() => {
