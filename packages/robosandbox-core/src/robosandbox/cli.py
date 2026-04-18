@@ -26,6 +26,15 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--max-replans", type=int, default=3)
     run_p.add_argument("--log-level", default="INFO")
 
+    exp_p = sub.add_parser(
+        "export-lerobot",
+        help="Convert a recorded episode directory to LeRobot v3 dataset format",
+    )
+    exp_p.add_argument("src", help="Source episode dir (e.g. runs/20260101-120000-abcd1234)")
+    exp_p.add_argument("dst", help="Destination LeRobot dataset dir")
+    exp_p.add_argument("--task", default=None, help="Override task string")
+    exp_p.add_argument("--fps", type=int, default=30)
+
     args, rest = p.parse_known_args(argv)
     if args.cmd == "demo":
         from robosandbox.demo import main as demo_main
@@ -52,6 +61,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.perception is not None:
             forwarded += ["--perception", args.perception]
         return agentic_main(forwarded)
+    elif args.cmd == "export-lerobot":
+        from pathlib import Path
+
+        from robosandbox.export.lerobot import export_episode
+
+        out = export_episode(
+            Path(args.src),
+            Path(args.dst),
+            task=args.task,
+            fps=args.fps,
+        )
+        print(f"Exported LeRobot dataset to: {out}")
+        return 0
 
     p.print_help()
     return 2
