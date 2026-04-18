@@ -15,3 +15,4 @@ runs/
 .DS_Store
 MUJOCO_LOG.TXT
 .claude/
+docs/site/site/

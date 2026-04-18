@@ -24,6 +24,21 @@ user: "pick up the red cube and put it on the green cube"
  recorder writes runs/<id>/video.mp4 + events.jsonl
 ```
 
+## Documentation
+
+Full docs — concepts, tutorials (custom arm / task / skill / policy
+replay), and CLI + API reference — live under
+[`docs/site/`](docs/site/) and build with MkDocs-material:
+
+```bash
+uv pip install -e 'packages/robosandbox-core[docs]'
+mkdocs serve -f docs/site/mkdocs.yml          # live preview
+mkdocs build --strict -f docs/site/mkdocs.yml # one-shot build
+```
+
+Start at [`docs/site/docs/index.md`](docs/site/docs/index.md) if
+you're reading on GitHub.
+
 ## Status
 
 v0.1 in active development. The architecture is the product — the

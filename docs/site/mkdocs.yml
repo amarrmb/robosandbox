@@ -1,0 +1,81 @@
+site_name: RoboSandbox
+site_description: Sim-first agentic manipulation sandbox — any arm, any object, any command.
+site_url: https://example.com/robosandbox/
+repo_url: https://github.com/amarrmb/robosandbox
+repo_name: amarrmb/robosandbox
+edit_uri: edit/main/docs/site/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Concepts:
+      - Scenes & objects: concepts/scenes.md
+      - Skills & agents: concepts/skills-and-agents.md
+      - Perception & grasping: concepts/perception-and-grasping.md
+      - Recording & export: concepts/recording-and-export.md
+      - Real-robot bridge: concepts/real-robot.md
+  - Tutorials:
+      - Custom arm: tutorials/custom-arm.md
+      - Custom task: tutorials/custom-task.md
+      - Custom skill: tutorials/custom-skill.md
+      - Policy replay: tutorials/policy-replay.md
+  - Reference:
+      - CLI: reference/cli.md
+      - API: reference/api.md
+      - Roadmap: reference/roadmap.md
