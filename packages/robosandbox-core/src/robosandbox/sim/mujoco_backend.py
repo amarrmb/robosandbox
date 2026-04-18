@@ -52,6 +52,13 @@ class MuJoCoBackend:
         self._data: mujoco.MjData | None = None
         self._renderer: mujoco.Renderer | None = None
         self._depth_renderer: mujoco.Renderer | None = None
+        # Show geom groups 0-3 in the default render. Menagerie's Franka
+        # marks collision-only geoms as group=3 (MuJoCo's default renderer
+        # hides 3/4/5); without this, the bundled collision-only Franka
+        # would render as invisible. Group 2 covers our mesh visual geoms,
+        # group 3 covers collision. Groups 4/5 stay hidden (debug helpers).
+        self._render_opt = mujoco.MjvOption()
+        self._render_opt.geomgroup[:] = [1, 1, 1, 1, 0, 0]
         self._scene: Scene | None = None
         self._robot: RobotSpec | None = None
         self._arm_qpos_adr: list[int] = []
@@ -147,9 +154,9 @@ class MuJoCoBackend:
         assert self._model is not None and self._data is not None and self._renderer is not None
         assert self._depth_renderer is not None and self._robot is not None
 
-        self._renderer.update_scene(self._data, camera=self._camera)
+        self._renderer.update_scene(self._data, camera=self._camera, scene_option=self._render_opt)
         rgb = self._renderer.render().copy()
-        self._depth_renderer.update_scene(self._data, camera=self._camera)
+        self._depth_renderer.update_scene(self._data, camera=self._camera, scene_option=self._render_opt)
         depth = self._depth_renderer.render().copy()
 
         arm_joints = np.array(
