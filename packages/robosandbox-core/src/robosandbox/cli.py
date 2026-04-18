@@ -12,6 +12,17 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("demo", help="Scripted Pick — no VLM, no API key")
 
+    viewer_p = sub.add_parser(
+        "viewer", help="Browser live viewer (requires `pip install 'robosandbox[viewer]'`)"
+    )
+    viewer_p.add_argument("--host", default="127.0.0.1")
+    viewer_p.add_argument("--port", type=int, default=8000)
+    viewer_p.add_argument(
+        "--task",
+        default="pick_cube_franka",
+        help="Built-in task to preload on startup",
+    )
+
     run_p = sub.add_parser("run", help="Agent-driven run (stub / openai / ollama / custom)")
     run_p.add_argument("task", help="Natural-language task, e.g. 'pick up the red cube'")
     run_p.add_argument(
@@ -31,6 +42,12 @@ def main(argv: list[str] | None = None) -> int:
         from robosandbox.demo import main as demo_main
 
         return demo_main(rest)
+    elif args.cmd == "viewer":
+        from robosandbox.viewer.server import run as viewer_run
+
+        print(f"RoboSandbox viewer — open http://{args.host}:{args.port}")
+        viewer_run(host=args.host, port=args.port, initial_task=args.task)
+        return 0
     elif args.cmd == "run":
         from robosandbox.agentic_demo import main as agentic_main
 

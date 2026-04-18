@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RoboSandbox — Live Viewer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0c0e12; color: #e5e7eb; }
+  body { display: grid; grid-template-columns: 1fr 360px; grid-template-rows: 48px 1fr 36px; height: 100vh; }
+  header { grid-column: 1 / -1; display: flex; align-items: center; padding: 0 16px; background: #111418; border-bottom: 1px solid #1f2329; }
+  header h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #f3f4f6; }
+  header .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; margin-right: 10px; transition: background 0.2s; }
+  header .brand-dot.disconnected { background: #ef4444; }
+  header .spacer { flex: 1; }
+  header .badge { font-size: 11px; color: #9ca3af; padding: 3px 8px; border: 1px solid #2a2f38; border-radius: 4px; margin-left: 8px; }
+  main { grid-column: 1; grid-row: 2; display: flex; align-items: center; justify-content: center; background: #06080a; position: relative; overflow: hidden; }
+  #frame { max-width: 100%; max-height: 100%; background: #000; image-rendering: auto; display: block; }
+  #frame-placeholder { color: #4b5563; font-size: 14px; }
+  aside { grid-column: 2; grid-row: 2; background: #0f1217; border-left: 1px solid #1f2329; display: flex; flex-direction: column; padding: 16px; gap: 16px; overflow: hidden; }
+  .group { display: flex; flex-direction: column; gap: 6px; }
+  .group label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; }
+  select, input, button, textarea { font: inherit; font-size: 13px; color: #e5e7eb; background: #1a1e25; border: 1px solid #2a2f38; border-radius: 5px; padding: 8px 10px; outline: none; }
+  select:focus, input:focus, textarea:focus { border-color: #4b5563; }
+  button { background: #3b82f6; border: none; font-weight: 600; cursor: pointer; color: white; }
+  button:hover:not(:disabled) { background: #2563eb; }
+  button:disabled { background: #374151; cursor: not-allowed; color: #6b7280; }
+  .primary-row { display: flex; gap: 8px; }
+  .primary-row button { flex: 1; }
+  #log { flex: 1; overflow-y: auto; background: #0a0c10; border: 1px solid #1f2329; border-radius: 5px; padding: 8px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; display: flex; flex-direction: column; gap: 4px; }
+  .log-line { padding: 2px 0; color: #9ca3af; border-bottom: 1px solid transparent; }
+  .log-line.info { color: #93c5fd; }
+  .log-line.success { color: #6ee7b7; }
+  .log-line.error { color: #fca5a5; }
+  .log-line .t { color: #4b5563; margin-right: 6px; }
+  footer { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; padding: 0 16px; font-size: 11px; color: #6b7280; background: #0a0c10; border-top: 1px solid #1f2329; gap: 12px; }
+  footer .muted { opacity: 0.6; }
+  .kbd { font-family: ui-monospace, monospace; font-size: 10.5px; padding: 1px 5px; background: #1a1e25; border: 1px solid #2a2f38; border-bottom-width: 2px; border-radius: 3px; color: #d1d5db; }
+</style>
+</head>
+<body>
+<header>
+  <span id="conn" class="brand-dot disconnected" title="disconnected"></span>
+  <h1>RoboSandbox</h1>
+  <span class="badge">live viewer</span>
+  <div class="spacer"></div>
+  <span id="status" class="badge">idle</span>
+  <span id="dof-badge" class="badge" style="display:none"></span>
+</header>
+
+<main>
+  <img id="frame" alt="" style="display:none">
+  <div id="frame-placeholder">Waiting for first frame&hellip;</div>
+</main>
+
+<aside>
+  <div class="group">
+    <label for="task-select">Task</label>
+    <select id="task-select"></select>
+  </div>
+  <div class="group">
+    <label for="prompt">Prompt (override)</label>
+    <input id="prompt" type="text" placeholder="(uses task's default)">
+  </div>
+  <div class="primary-row">
+    <button id="run">Run</button>
+  </div>
+  <div class="group" style="flex:1; min-height:0">
+    <label>Events</label>
+    <div id="log"></div>
+  </div>
+</aside>
+
+<footer>
+  <span>Tip: press <span class="kbd">Enter</span> in the prompt to run.</span>
+  <span class="spacer" style="flex:1"></span>
+  <span class="muted" id="fps">0 fps</span>
+</footer>
+
+<script>
+const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+const ws = new WebSocket(`${wsProto}//${location.host}/ws`);
+ws.binaryType = "blob";
+
+const frame = document.getElementById("frame");
+const placeholder = document.getElementById("frame-placeholder");
+const conn = document.getElementById("conn");
+const statusEl = document.getElementById("status");
+const dofBadge = document.getElementById("dof-badge");
+const log = document.getElementById("log");
+const taskSelect = document.getElementById("task-select");
+const promptInput = document.getElementById("prompt");
+const runBtn = document.getElementById("run");
+const fpsEl = document.getElementById("fps");
+
+let lastFrameUrl = null;
+let frameCount = 0;
+let fpsTimer = setInterval(() => {
+  fpsEl.textContent = `${frameCount} fps`;
+  frameCount = 0;
+}, 1000);
+
+function stamp() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+}
+
+function addLog(text, kind = "info") {
+  const line = document.createElement("div");
+  line.className = `log-line ${kind}`;
+  line.innerHTML = `<span class="t">${stamp()}</span>${text}`;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function loadTasks() {
+  try {
+    const r = await fetch("/tasks");
+    const data = await r.json();
+    taskSelect.innerHTML = "";
+    for (const t of data.tasks) {
+      const opt = document.createElement("option");
+      opt.value = t;
+      opt.textContent = t;
+      taskSelect.appendChild(opt);
+    }
+    if (data.tasks.includes("pick_cube_franka")) taskSelect.value = "pick_cube_franka";
+  } catch (e) {
+    addLog(`Failed to load tasks: ${e}`, "error");
+  }
+}
+
+ws.addEventListener("open", () => {
+  conn.classList.remove("disconnected");
+  conn.title = "connected";
+  addLog("Connected to server.", "info");
+  // Kick initial task load via the dropdown selection after tasks are fetched
+});
+ws.addEventListener("close", () => {
+  conn.classList.add("disconnected");
+  conn.title = "disconnected";
+  addLog("Disconnected.", "error");
+});
+ws.addEventListener("error", () => {
+  addLog("WebSocket error.", "error");
+});
+ws.addEventListener("message", (ev) => {
+  if (typeof ev.data === "string") {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "event") handleEvent(msg.event);
+    return;
+  }
+  // binary JPEG
+  if (lastFrameUrl) URL.revokeObjectURL(lastFrameUrl);
+  lastFrameUrl = URL.createObjectURL(ev.data);
+  frame.src = lastFrameUrl;
+  if (frame.style.display === "none") {
+    frame.style.display = "block";
+    placeholder.style.display = "none";
+  }
+  frameCount++;
+});
+
+function handleEvent(evt) {
+  if (evt.type === "loaded") {
+    statusEl.textContent = `loaded: ${evt.task}`;
+    dofBadge.style.display = "inline-block";
+    dofBadge.textContent = `${evt.n_dof} DOF`;
+    promptInput.placeholder = evt.prompt || "(no prompt)";
+    addLog(`Loaded task ${evt.task}  (${evt.n_dof} DOF: ${evt.joint_names.join(", ")})`, "info");
+  } else if (evt.type === "running") {
+    statusEl.textContent = "running";
+    runBtn.disabled = true;
+    runBtn.textContent = "Running…";
+    addLog(`Running: "${evt.prompt}"`, "info");
+  } else if (evt.type === "done") {
+    statusEl.textContent = evt.success ? "success" : "failed";
+    runBtn.disabled = false;
+    runBtn.textContent = "Run";
+    const kind = evt.success ? "success" : "error";
+    addLog(`Done: ${evt.success ? "success" : "FAIL"} — ${evt.reason || "(no reason)"} ${evt.detail ? "— " + evt.detail : ""}`, kind);
+    for (const step of evt.steps) {
+      const tag = step.success ? "success" : "error";
+      addLog(`  step: ${step.skill}(${JSON.stringify(step.args)}) → ${step.reason}`, tag);
+    }
+    if (evt.replans) addLog(`  ${evt.replans} replan(s)`, "info");
+  } else if (evt.type === "error") {
+    addLog(`Server error: ${evt.message}`, "error");
+    runBtn.disabled = false;
+    runBtn.textContent = "Run";
+  } else {
+    addLog(JSON.stringify(evt));
+  }
+}
+
+taskSelect.addEventListener("change", () => {
+  ws.send(JSON.stringify({ action: "load", task: taskSelect.value }));
+});
+
+function doRun() {
+  const prompt = promptInput.value.trim();
+  ws.send(JSON.stringify({ action: "run", prompt: prompt || null }));
+}
+
+runBtn.addEventListener("click", doRun);
+promptInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !runBtn.disabled) doRun();
+});
+
+loadTasks().then(() => {
+  // If the server preloaded a task, great. Otherwise ask it to load the selected one.
+  // Let server-side preload settle first — dispatch explicit load after ~300ms.
+  setTimeout(() => {
+    if (taskSelect.value) ws.send(JSON.stringify({ action: "load", task: taskSelect.value }));
+  }, 300);
+});
+</script>
+</body>
+</html>

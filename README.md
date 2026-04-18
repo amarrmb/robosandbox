@@ -192,6 +192,22 @@ package that registers at the `robosandbox.skills` entry point.
 - **v0.3**: mesh-object import, `robosandbox-anygrasp` opt-in plugin,
   force-based control API, leaderboard.
 
+## Browser live viewer
+
+Install the optional extra and open a browser — you'll see MuJoCo render
+in real time and can kick off tasks from a dropdown.
+
+```bash
+pip install 'robosandbox[viewer]'
+robo-sandbox viewer
+# → open http://localhost:8000
+```
+
+Pick a task, click Run. Events log to the sidebar; frames stream at
+~15–50 fps depending on how fast the sim is stepping. Pass
+`--task pick_cube_franka` (or any other) to preload a specific scene.
+`--host 0.0.0.0` exposes it to other machines on your LAN.
+
 ## Bundled assets
 
 `assets/robots/franka_panda/` ships a trimmed copy of Franka Emika
