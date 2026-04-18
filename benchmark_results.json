@@ -5,7 +5,7 @@
       "seed": 0,
       "prompt": "go home",
       "success": true,
-      "wall_seconds": 0.02128434181213379,
+      "wall_seconds": 0.01801013946533203,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -24,7 +24,7 @@
       "seed": 0,
       "prompt": "open the drawer_a",
       "success": true,
-      "wall_seconds": 1.368034839630127,
+      "wall_seconds": 1.2679548263549805,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -46,7 +46,7 @@
       "seed": 0,
       "prompt": "pick up the red cube",
       "success": true,
-      "wall_seconds": 0.823439359664917,
+      "wall_seconds": 0.7240240573883057,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -68,7 +68,7 @@
       "seed": 0,
       "prompt": "pick up the red cube",
       "success": true,
-      "wall_seconds": 1.0794258117675781,
+      "wall_seconds": 0.9469728469848633,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -90,7 +90,7 @@
       "seed": 0,
       "prompt": "pick up the cube",
       "success": true,
-      "wall_seconds": 1.125408411026001,
+      "wall_seconds": 0.9591372013092041,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -112,7 +112,7 @@
       "seed": 0,
       "prompt": "pick up the green cube",
       "success": true,
-      "wall_seconds": 0.8621912002563477,
+      "wall_seconds": 0.7487616539001465,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -134,7 +134,7 @@
       "seed": 0,
       "prompt": "pick up the mug",
       "success": true,
-      "wall_seconds": 1.2829444408416748,
+      "wall_seconds": 1.0936033725738525,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -156,7 +156,7 @@
       "seed": 0,
       "prompt": "pour the tomato soup can into the bowl",
       "success": true,
-      "wall_seconds": 2.225947380065918,
+      "wall_seconds": 1.9389503002166748,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -186,7 +186,7 @@
       "seed": 0,
       "prompt": "push the red cube forward",
       "success": true,
-      "wall_seconds": 0.8022818565368652,
+      "wall_seconds": 0.7073314189910889,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [

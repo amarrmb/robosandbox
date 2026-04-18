@@ -34,8 +34,10 @@ from typing import Any, Callable, Protocol, runtime_checkable
 import numpy as np
 
 from robosandbox.types import Observation
+from robosandbox.policy.lerobot_adapter import LeRobotPolicyAdapter
 
 __all__ = [
+    "LeRobotPolicyAdapter",
     "Policy",
     "ReplayTrajectoryPolicy",
     "load_policy",
