@@ -1,9 +1,4 @@
-"""`robo-sandbox` CLI entry point.
-
-Dispatches to one of the top-level demos. A full YAML-driven `run`
-subcommand lands in v0.2; for v0.1 we just expose the two built-in
-demos that prove the plumbing end-to-end.
-"""
+"""`robo-sandbox` CLI entry point."""
 
 from __future__ import annotations
 
@@ -12,16 +7,22 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="robo-sandbox", description=__doc__)
+    p = argparse.ArgumentParser(prog="robo-sandbox")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("demo", help="Scripted Pick — no VLM, no API key")
-    run_p = sub.add_parser("run", help="VLM-driven agent")
+
+    run_p = sub.add_parser("run", help="Agent-driven run (stub / openai / ollama / custom)")
     run_p.add_argument("task", help="Natural-language task, e.g. 'pick up the red cube'")
-    run_p.add_argument("--model", default="gpt-4o-mini")
+    run_p.add_argument(
+        "--vlm-provider",
+        choices=["stub", "openai", "ollama", "custom"],
+        default="stub",
+    )
+    run_p.add_argument("--model", default=None)
     run_p.add_argument("--base-url", default=None)
-    run_p.add_argument("--api-key-env", default="OPENAI_API_KEY")
-    run_p.add_argument("--perception", choices=["vlm", "ground_truth"], default="vlm")
+    run_p.add_argument("--api-key-env", default=None)
+    run_p.add_argument("--perception", choices=["vlm", "ground_truth"], default=None)
     run_p.add_argument("--max-replans", type=int, default=3)
     run_p.add_argument("--log-level", default="INFO")
 
@@ -35,19 +36,21 @@ def main(argv: list[str] | None = None) -> int:
 
         forwarded = [
             args.task,
-            "--model",
-            args.model,
-            "--api-key-env",
-            args.api_key_env,
-            "--perception",
-            args.perception,
+            "--vlm-provider",
+            args.vlm_provider,
             "--max-replans",
             str(args.max_replans),
             "--log-level",
             args.log_level,
         ]
+        if args.model is not None:
+            forwarded += ["--model", args.model]
         if args.base_url is not None:
             forwarded += ["--base-url", args.base_url]
+        if args.api_key_env is not None:
+            forwarded += ["--api-key-env", args.api_key_env]
+        if args.perception is not None:
+            forwarded += ["--perception", args.perception]
         return agentic_main(forwarded)
 
     p.print_help()

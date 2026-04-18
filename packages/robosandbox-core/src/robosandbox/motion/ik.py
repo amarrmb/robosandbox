@@ -192,6 +192,42 @@ class DLSMotionPlanner:
         model: mujoco.MjModel = sim.model
         data: mujoco.MjData = sim.data
         qpos_backup = data.qpos.copy()
+
+        # ---- multi-seed escape from singular configurations ----------
+        # The built-in arm is prone to wrist-flip singularities from
+        # neutral. DLS from a single seed can oscillate and fail to
+        # converge. We try a few semi-deterministic seeds:
+        #   0. current joints (fastest path for sequential skills)
+        #   1. warm_seed — j1 rotated toward target (escapes vertical
+        #      plane singularity for targets away from the base axis)
+        #   2,3. warm_seed perturbed ±0.3 rad on j1 (breaks the
+        #      degeneracy when target_y is near 0)
+        #   4. same with j2/j4 biased to a bent-elbow pose
+        base_xyz = np.asarray(data.body("base").xpos)
+        dx = float(target_pose.xyz[0] - base_xyz[0])
+        dy = float(target_pose.xyz[1] - base_xyz[1])
+        j1_hint = float(np.arctan2(dy, dx))
+
+        start = np.asarray(start_joints, dtype=np.float64)
+        warm_seed = start.copy()
+        warm_seed[0] = j1_hint
+
+        def _bump(seed: np.ndarray, d_j1: float = 0.0, bent: bool = False) -> np.ndarray:
+            s = seed.copy()
+            s[0] = float(np.clip(s[0] + d_j1, -3.0, 3.0))
+            if bent:
+                s[1] = 0.3
+                s[2] = 1.0
+                s[3] = -0.5
+            return s
+
+        seed_candidates = [
+            start,
+            warm_seed,
+            _bump(warm_seed, 0.3),
+            _bump(warm_seed, -0.3),
+            _bump(warm_seed, 0.0, bent=True),
+        ]
         try:
             max_iters = int(constraints.get("max_iters", 400))
             damping = float(constraints.get("damping", 3e-2))
@@ -199,35 +235,48 @@ class DLSMotionPlanner:
             # For axis-constrained modes, warm-start from a position-only
             # solve. Full-orientation DLS gets trapped in local minima when
             # it tries to satisfy both at once from a bad seed.
-            if orientation in ("z_down", "z_up"):
-                pos_seed = solve_ik(
-                    sim,
-                    target_pose,
-                    seed_joints=start_joints,
-                    orientation="none",
-                    max_iters=max_iters,
-                    damping=damping,
-                    step_size=step_size,
-                )
-                goal = solve_ik(
-                    sim,
-                    target_pose,
-                    seed_joints=pos_seed,
-                    orientation=orientation,
-                    max_iters=max_iters,
-                    damping=damping,
-                    step_size=step_size,
-                )
-            else:
-                goal = solve_ik(
-                    sim,
-                    target_pose,
-                    seed_joints=start_joints,
-                    orientation=orientation,
-                    max_iters=max_iters,
-                    damping=damping,
-                    step_size=step_size,
-                )
+            goal: np.ndarray | None = None
+            last_err: UnreachableError | None = None
+            for seed in seed_candidates:
+                try:
+                    if orientation in ("z_down", "z_up"):
+                        pos_seed = solve_ik(
+                            sim,
+                            target_pose,
+                            seed_joints=seed,
+                            orientation="none",
+                            max_iters=max_iters,
+                            damping=damping,
+                            step_size=step_size,
+                        )
+                        goal = solve_ik(
+                            sim,
+                            target_pose,
+                            seed_joints=pos_seed,
+                            orientation=orientation,
+                            max_iters=max_iters,
+                            damping=damping,
+                            step_size=step_size,
+                        )
+                    else:
+                        goal = solve_ik(
+                            sim,
+                            target_pose,
+                            seed_joints=seed,
+                            orientation=orientation,
+                            max_iters=max_iters,
+                            damping=damping,
+                            step_size=step_size,
+                        )
+                    break
+                except UnreachableError as err:
+                    last_err = err
+                    # restore and retry from the next seed
+                    data.qpos[:] = qpos_backup
+                    mujoco.mj_forward(model, data)
+            if goal is None:
+                assert last_err is not None
+                raise last_err
         finally:
             data.qpos[:] = qpos_backup
             mujoco.mj_forward(model, data)

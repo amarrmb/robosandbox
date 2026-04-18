@@ -1,11 +1,11 @@
-"""Agent-loop tests with a stub VLM — no network.
+"""Agent-loop tests — planner-agnostic.
 
-Validates: plan parsing, skill dispatch, failure → replan, replan exhaustion.
+Uses a `MockPlanner` that returns canned plans. Validates plan dispatch,
+replan on failure, replan exhaustion, unknown-skill handling.
 """
 
 from __future__ import annotations
 
-import json
 from collections import deque
 from typing import Any
 
@@ -13,6 +13,7 @@ import pytest
 
 from robosandbox.agent.agent import Agent
 from robosandbox.agent.context import AgentContext
+from robosandbox.agent.planner import SkillCall, StubPlanner
 from robosandbox.grasp.analytic import AnalyticTopDown
 from robosandbox.motion.ik import DLSMotionPlanner
 from robosandbox.perception.ground_truth import GroundTruthPerception
@@ -20,21 +21,26 @@ from robosandbox.sim.mujoco_backend import MuJoCoBackend
 from robosandbox.skills.home import Home
 from robosandbox.skills.pick import Pick
 from robosandbox.skills.place import PlaceOn
-from robosandbox.types import Pose, Scene, SceneObject, SkillResult
+from robosandbox.types import Pose, Scene, SceneObject
 
 
-class StubVLM:
-    """Returns a queue of canned responses, one per chat() call."""
+class MockPlanner:
+    """Returns pre-canned plans; one per call."""
 
-    def __init__(self, responses: list[dict[str, Any]]) -> None:
-        self._q: deque[dict[str, Any]] = deque(responses)
-        self.calls: list[dict[str, Any]] = []
+    def __init__(self, plans: list[list[SkillCall]]) -> None:
+        self._q: deque[list[SkillCall]] = deque(plans)
+        self.calls = 0
 
-    def chat(self, messages, tools=None, tool_choice=None, **kw) -> dict[str, Any]:
-        self.calls.append({"messages": messages, "tools": tools})
+    def plan(
+        self,
+        task: str,
+        obs: Any,
+        prior_attempts: list[dict[str, Any]],
+    ) -> tuple[list[SkillCall], int]:
+        self.calls += 1
         if not self._q:
-            raise RuntimeError("StubVLM ran out of canned responses")
-        return self._q.popleft()
+            raise RuntimeError("MockPlanner ran out of canned plans")
+        return self._q.popleft(), 1
 
 
 def _scene() -> Scene:
@@ -66,32 +72,17 @@ def _ctx() -> tuple[AgentContext, MuJoCoBackend]:
     return ctx, sim
 
 
-def _tool_call(name: str, args: dict[str, Any], id_: str = "tc_1") -> dict[str, Any]:
-    return {"id": id_, "name": name, "arguments": json.dumps(args)}
-
-
-def test_agent_executes_pick_from_vlm_plan() -> None:
+def test_agent_executes_pick_from_plan() -> None:
     ctx, sim = _ctx()
     try:
-        vlm = StubVLM(
-            [
-                {
-                    "content": None,
-                    "tool_calls": [_tool_call("pick", {"object": "red cube"})],
-                    "finish_reason": "tool_calls",
-                    "raw": None,
-                }
-            ]
-        )
-        agent = Agent(ctx, [Pick(), PlaceOn(), Home()], vlm)
+        planner = MockPlanner([[SkillCall("pick", {"object": "red cube"})]])
+        agent = Agent(ctx, [Pick(), PlaceOn(), Home()], planner)
         ep = agent.run("pick up the red cube")
     finally:
         sim.close()
 
     assert ep.success, (ep.final_reason, ep.final_detail)
-    assert len(ep.plan) == 1
-    assert ep.plan[0].name == "pick"
-    assert ep.plan[0].arguments == {"object": "red cube"}
+    assert ep.plan == [SkillCall("pick", {"object": "red cube"})]
     assert ep.replans == 0
     assert ep.vlm_calls == 1
 
@@ -99,24 +90,13 @@ def test_agent_executes_pick_from_vlm_plan() -> None:
 def test_agent_replans_on_skill_failure() -> None:
     ctx, sim = _ctx()
     try:
-        # First plan tries a non-existent object, fails; second plan uses the right name.
-        vlm = StubVLM(
+        planner = MockPlanner(
             [
-                {
-                    "content": None,
-                    "tool_calls": [_tool_call("pick", {"object": "nonexistent gadget"})],
-                    "finish_reason": "tool_calls",
-                    "raw": None,
-                },
-                {
-                    "content": None,
-                    "tool_calls": [_tool_call("pick", {"object": "red cube"}, "tc_2")],
-                    "finish_reason": "tool_calls",
-                    "raw": None,
-                },
+                [SkillCall("pick", {"object": "nonexistent gadget"})],
+                [SkillCall("pick", {"object": "red cube"})],
             ]
         )
-        agent = Agent(ctx, [Pick(), PlaceOn(), Home()], vlm, max_replans=2)
+        agent = Agent(ctx, [Pick(), PlaceOn(), Home()], planner, max_replans=2)
         ep = agent.run("pick whatever")
     finally:
         sim.close()
@@ -124,7 +104,6 @@ def test_agent_replans_on_skill_failure() -> None:
     assert ep.success
     assert ep.replans == 1
     assert ep.vlm_calls == 2
-    # First attempt failed with object_not_found; second succeeded.
     assert ep.steps[0].result.success is False
     assert ep.steps[0].result.reason == "object_not_found"
     assert ep.steps[1].result.success is True
@@ -133,18 +112,8 @@ def test_agent_replans_on_skill_failure() -> None:
 def test_agent_gives_up_after_max_replans() -> None:
     ctx, sim = _ctx()
     try:
-        vlm = StubVLM(
-            [
-                {
-                    "content": None,
-                    "tool_calls": [_tool_call("pick", {"object": "ghost"})],
-                    "finish_reason": "tool_calls",
-                    "raw": None,
-                }
-            ]
-            * 5
-        )
-        agent = Agent(ctx, [Pick()], vlm, max_replans=2)
+        planner = MockPlanner([[SkillCall("pick", {"object": "ghost"})]] * 5)
+        agent = Agent(ctx, [Pick()], planner, max_replans=2)
         ep = agent.run("pick ghost")
     finally:
         sim.close()
@@ -154,20 +123,11 @@ def test_agent_gives_up_after_max_replans() -> None:
     assert ep.replans == 2
 
 
-def test_agent_respects_done_tool() -> None:
+def test_agent_treats_empty_plan_as_done() -> None:
     ctx, sim = _ctx()
     try:
-        vlm = StubVLM(
-            [
-                {
-                    "content": None,
-                    "tool_calls": [{"id": "x", "name": "done", "arguments": "{}"}],
-                    "finish_reason": "tool_calls",
-                    "raw": None,
-                }
-            ]
-        )
-        agent = Agent(ctx, [Pick()], vlm)
+        planner = MockPlanner([[]])
+        agent = Agent(ctx, [Pick()], planner)
         ep = agent.run("already done")
     finally:
         sim.close()
@@ -179,21 +139,88 @@ def test_agent_respects_done_tool() -> None:
 def test_agent_rejects_unknown_skill() -> None:
     ctx, sim = _ctx()
     try:
-        vlm = StubVLM(
-            [
-                {
-                    "content": None,
-                    "tool_calls": [_tool_call("fly", {})],
-                    "finish_reason": "tool_calls",
-                    "raw": None,
-                }
-            ]
-            * 5
-        )
-        agent = Agent(ctx, [Pick()], vlm, max_replans=2)
+        planner = MockPlanner([[SkillCall("fly", {})]] * 5)
+        agent = Agent(ctx, [Pick()], planner, max_replans=2)
         ep = agent.run("fly to the moon")
     finally:
         sim.close()
 
     assert ep.success is False
     assert ep.steps[0].result.reason == "unknown_skill"
+
+
+def test_stub_planner_parses_simple_pick() -> None:
+    ctx, sim = _ctx()
+    try:
+        sp = StubPlanner(skills=[Pick(), PlaceOn(), Home()])
+        obs = ctx.sim.observe()
+        plan, calls = sp.plan("pick up the red cube", obs, [])
+    finally:
+        sim.close()
+    assert calls == 0  # zero model calls — it's rule-based
+    assert plan == [SkillCall("pick", {"object": "red_cube"})]
+
+
+def test_stub_planner_parses_pick_and_place() -> None:
+    # Scene with two cubes so 'on the green cube' resolves.
+    scene = Scene(
+        objects=(
+            SceneObject(
+                id="red_cube",
+                kind="box",
+                size=(0.012, 0.012, 0.012),
+                pose=Pose(xyz=(0.03, 0.0, 0.07)),
+                mass=0.05,
+                rgba=(0.85, 0.2, 0.2, 1.0),
+            ),
+            SceneObject(
+                id="green_cube",
+                kind="box",
+                size=(0.012, 0.012, 0.012),
+                pose=Pose(xyz=(0.07, 0.0, 0.07)),
+                mass=0.05,
+                rgba=(0.2, 0.8, 0.2, 1.0),
+            ),
+        ),
+    )
+    sim = MuJoCoBackend(render_size=(240, 320))
+    sim.load(scene)
+    try:
+        for _ in range(50):
+            sim.step()
+        obs = sim.observe()
+        sp = StubPlanner(skills=[Pick(), PlaceOn(), Home()])
+        for phrasing in [
+            "pick up the red cube and put it on the green cube",
+            "pick the red cube, then place it on the green cube",
+            "stack red cube on green cube",
+        ]:
+            plan, _ = sp.plan(phrasing, obs, [])
+            assert plan == [
+                SkillCall("pick", {"object": "red_cube"}),
+                SkillCall("place_on", {"target": "green_cube"}),
+            ], f"failed on: {phrasing!r}"
+    finally:
+        sim.close()
+
+
+def test_stub_planner_home() -> None:
+    ctx, sim = _ctx()
+    try:
+        obs = ctx.sim.observe()
+        sp = StubPlanner(skills=[Pick(), PlaceOn(), Home()])
+        plan, _ = sp.plan("go home", obs, [])
+        assert plan == [SkillCall("home", {})]
+    finally:
+        sim.close()
+
+
+def test_stub_planner_returns_empty_for_unknown_task() -> None:
+    ctx, sim = _ctx()
+    try:
+        obs = ctx.sim.observe()
+        sp = StubPlanner(skills=[Pick(), PlaceOn(), Home()])
+        plan, _ = sp.plan("dance the macarena", obs, [])
+        assert plan == []
+    finally:
+        sim.close()
