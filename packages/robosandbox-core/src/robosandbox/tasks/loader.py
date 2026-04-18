@@ -51,12 +51,46 @@ def _pose_from_dict(d: dict[str, Any]) -> Pose:
     return Pose(xyz=xyz, quat_xyzw=(qx, qy, qz, qw))
 
 
-def _object_from_dict(d: dict[str, Any]) -> SceneObject:
+def _object_from_dict(d: dict[str, Any], base_dir: Path) -> SceneObject:
+    kind = str(d.get("kind", "box"))
+    pose = _pose_from_dict(d.get("pose", {}))
+
+    if kind == "mesh":
+        # Mesh objects set exactly one of mesh (bundled sidecar ref) or
+        # mesh_path (bring-your-own). mass=0 means "use sidecar default";
+        # callers can override per-task with an explicit mass.
+        mesh_ref = d.get("mesh")
+        mesh_path_ref = d.get("mesh_path")
+        if bool(mesh_ref) == bool(mesh_path_ref):
+            raise ValueError(
+                f"Mesh SceneObject {d.get('id')!r} must set exactly one of "
+                f"'mesh' (bundled sidecar) or 'mesh_path' (BYO); got "
+                + ("both" if mesh_ref else "neither")
+            )
+        mesh_sidecar: Path | None = None
+        mesh_path: Path | None = None
+        if mesh_ref:
+            mesh_sidecar = _resolve_asset_path(str(mesh_ref), base_dir)
+        else:
+            mesh_path = _resolve_asset_path(str(mesh_path_ref), base_dir)
+        return SceneObject(
+            id=str(d["id"]),
+            kind="mesh",
+            size=(0.0,),  # unused for mesh; present so the dataclass is valid
+            pose=pose,
+            mass=float(d["mass"]) if "mass" in d else 0.0,
+            rgba=tuple(float(v) for v in d.get("rgba", [0.7, 0.7, 0.7, 1.0])),
+            mesh_sidecar=mesh_sidecar,
+            mesh_path=mesh_path,
+            collision=str(d.get("collision", "coacd")),
+        )
+
+    # Primitive objects (unchanged behaviour).
     return SceneObject(
         id=str(d["id"]),
-        kind=str(d.get("kind", "box")),
+        kind=kind,
         size=tuple(float(v) for v in d.get("size", [0.012, 0.012, 0.012])),
-        pose=_pose_from_dict(d.get("pose", {})),
+        pose=pose,
         mass=float(d.get("mass", 0.05)),
         rgba=tuple(float(v) for v in d.get("rgba", [0.7, 0.7, 0.7, 1.0])),
     )
@@ -92,7 +126,7 @@ def _resolve_asset_path(raw: str, base_dir: Path) -> Path:
 
 
 def _scene_from_dict(d: dict[str, Any], base_dir: Path) -> Scene:
-    objs = tuple(_object_from_dict(o) for o in d.get("objects", []))
+    objs = tuple(_object_from_dict(o, base_dir) for o in d.get("objects", []))
     robot_urdf = _resolve_asset_path(d["robot_urdf"], base_dir) if d.get("robot_urdf") else None
     robot_config = (
         _resolve_asset_path(d["robot_config"], base_dir) if d.get("robot_config") else None

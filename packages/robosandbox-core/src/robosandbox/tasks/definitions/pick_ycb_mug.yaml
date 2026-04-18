@@ -1,0 +1,16 @@
+name: pick_ycb_mug
+prompt: "pick up the mug"
+seed_note: "Acceptance test for the mesh-import slice. Bundled YCB 025_mug sits in Franka's reach (base at x=-0.3). Mug is ~8 cm tall, ~9 cm wide — within Franka's 8 cm finger opening when gripped off the rim."
+scene:
+  robot_urdf: "@builtin:robots/franka_panda/panda.xml"
+  robot_config: "@builtin:robots/franka_panda/panda.robosandbox.yaml"
+  objects:
+    - id: mug
+      kind: mesh
+      mesh: "@builtin:objects/ycb/025_mug/mug.robosandbox.yaml"
+      pose:
+        xyz: [0.42, 0.0, 0.045]
+success:
+  kind: lifted
+  object: mug
+  min_mm: 50
