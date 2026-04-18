@@ -210,6 +210,20 @@ def load_task(path: Path) -> Task:
     randomize = raw.get("randomize")
     if randomize is not None and not isinstance(randomize, dict):
         raise ValueError(f"task {path}: 'randomize:' must be a mapping")
+    if randomize is not None:
+        for key in ("xy_jitter", "yaw_jitter", "rgba_jitter", "size_jitter", "mass_jitter"):
+            if key not in randomize:
+                continue
+            val = randomize[key]
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                raise ValueError(
+                    f"task {path}: 'randomize.{key}' must be a non-negative number, "
+                    f"got {val!r}"
+                )
+            if val < 0:
+                raise ValueError(
+                    f"task {path}: 'randomize.{key}' must be >= 0, got {val}"
+                )
     return Task(
         name=str(raw.get("name", path.stem)),
         scene=scene,
