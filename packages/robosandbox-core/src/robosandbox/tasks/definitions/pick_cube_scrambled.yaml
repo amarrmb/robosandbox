@@ -1,0 +1,23 @@
+name: pick_cube_scrambled
+prompt: "pick up the cube"
+seed_note: "Visual+physical invariance check. Primitive cube with pose, colour, size, and mass all jittered per seed. Success criterion is unchanged: lifted >= 50 mm."
+scene:
+  robot_urdf: "@builtin:robots/franka_panda/panda.xml"
+  robot_config: "@builtin:robots/franka_panda/panda.robosandbox.yaml"
+  objects:
+    - id: red_cube
+      kind: box
+      size: [0.012, 0.012, 0.012]
+      pose:
+        xyz: [0.4, 0.0, 0.06]
+      rgba: [0.85, 0.2, 0.2, 1.0]
+      mass: 0.05
+success:
+  kind: lifted
+  object: red_cube
+  min_mm: 50
+randomize:
+  xy_jitter: 0.025      # ±2.5 cm
+  rgba_jitter: 0.25     # ±0.25 per (r,g,b)
+  size_jitter: 0.2      # size *= 1 ± 0.2  (cube 9.6–14.4 mm edges)
+  mass_jitter: 0.4      # mass *= 1 ± 0.4  (30–70 g)
