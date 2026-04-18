@@ -21,6 +21,8 @@ import asyncio
 import io
 import queue
 import threading
+from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +69,30 @@ def _encode_jpeg(rgb: np.ndarray) -> bytes:
     return buf.getvalue()
 
 
+@dataclass(frozen=True)
+class FrameSnapshot:
+    """One in-RAM trajectory frame for the post-hoc inspector.
+
+    ``rgb_jpeg`` is the already-encoded JPEG (same bytes we sent to the
+    client) so memory stays bounded — a 480x360 JPEG at quality 80 is
+    typically 20-40 kB, giving a 900-frame ceiling of ~30 MB.
+    """
+
+    timestamp: float
+    robot_joints: np.ndarray  # (n_dof,) float64
+    ee_xyz: tuple[float, float, float]
+    ee_quat_xyzw: tuple[float, float, float, float]
+    gripper_width: float
+    scene_objects: dict[str, tuple[tuple[float, float, float], tuple[float, float, float, float]]]
+    rgb_jpeg: bytes
+
+
 class SimThread(threading.Thread):
+    # Cap the in-RAM trajectory buffer. 900 frames ≈ 60 s at the agent's
+    # observed publish cadence (every 3rd sim step ~= 15 Hz wall-clock for a
+    # 200 Hz physics sim); ~30 MB at JPEG quality 80. Drop-oldest on overflow.
+    _TRAJ_MAX_FRAMES = 900
+
     def __init__(self, runs_dir: Path) -> None:
         super().__init__(daemon=True, name="robosandbox-viewer-sim")
         self._cmds: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -85,6 +110,12 @@ class SimThread(threading.Thread):
         self._rec_episode_id: str | None = None
         # Teleop persists a gripper state (0=open, 1=closed) between clicks.
         self._teleop_gripper = 0.0
+        # In-RAM trajectory buffer for the inspector. Reset on each load_task.
+        # A deque with maxlen naturally drops the oldest snapshot on overflow.
+        self._trajectory: deque[FrameSnapshot] = deque(maxlen=self._TRAJ_MAX_FRAMES)
+        # While inspecting a past frame we freeze the idle publisher so the
+        # scrubbed frame doesn't get stomped by the live render.
+        self._inspecting = False
 
     def run(self) -> None:  # noqa: D401
         idle_dt = 1.0 / _IDLE_HZ
@@ -95,8 +126,10 @@ class SimThread(threading.Thread):
                 cmd = None
             if cmd is None:
                 # Idle: publish current frame so the browser sees the scene
-                # even when nothing's happening. Cheap (no mj_step).
-                if self._sim is not None:
+                # even when nothing's happening. Cheap (no mj_step). Skipped
+                # while the user is inspecting a past frame so the scrub
+                # result isn't overwritten.
+                if self._sim is not None and not self._inspecting:
                     self._publish_frame()
                 continue
             kind, args = cmd
@@ -111,6 +144,10 @@ class SimThread(threading.Thread):
                     self._record_stop()
                 elif kind == "teleop":
                     self._teleop(args)
+                elif kind == "inspect_at":
+                    self._inspect_at(args)
+                elif kind == "inspect_clear":
+                    self._inspect_clear()
             except Exception as e:  # pragma: no cover - surfaced to client
                 self._emit({"type": "error", "message": str(e)})
 
@@ -130,6 +167,9 @@ class SimThread(threading.Thread):
         if self._sim is not None:
             self._sim.close()
             self._sim = None
+        # Fresh task → fresh trajectory. Any prior inspection is invalid now.
+        self._trajectory.clear()
+        self._inspecting = False
         task = load_builtin_task(task_name)
         sim = MuJoCoBackend(render_size=_RENDER_SIZE)
         sim.load(task.scene)
@@ -167,8 +207,14 @@ class SimThread(threading.Thread):
 
         def on_step() -> None:
             step_counter["n"] += 1
-            if step_counter["n"] % _AGENT_RENDER_EVERY_N_STEPS == 0:
-                self._publish_frame()
+            render_tick = step_counter["n"] % _AGENT_RENDER_EVERY_N_STEPS == 0
+            if render_tick:
+                # Render once, reuse the JPEG for the live stream and the
+                # in-RAM trajectory snapshot. ``observe()`` renders the RGB.
+                obs = sim.observe()
+                jpg = _encode_jpeg(obs.rgb)
+                self._enqueue_jpeg(jpg)
+                self._append_snapshot(obs, jpg)
             # If a recording is active, capture every sim tick (the recorder
             # itself subsamples to the target fps — we want to give it the
             # full stream so timing is faithful).
@@ -195,6 +241,7 @@ class SimThread(threading.Thread):
                 "reason": episode.final_reason,
                 "detail": episode.final_detail,
                 "replans": episode.replans,
+                "trajectory_frames": len(self._trajectory),
                 "steps": [
                     {"skill": s.skill, "args": s.args, "success": s.result.success,
                      "reason": s.result.reason}
@@ -328,13 +375,58 @@ class SimThread(threading.Thread):
             }
         )
 
+    # -- inspector -----------------------------------------------------------
+
+    def _inspect_at(self, args: dict[str, Any]) -> None:
+        """Seek to ``frame_idx`` in the in-RAM trajectory, if available."""
+        if not self._trajectory:
+            self._emit({"type": "error", "message": "no trajectory to inspect"})
+            return
+        try:
+            idx = int(args.get("frame_idx", 0))
+        except (TypeError, ValueError):
+            self._emit({"type": "error", "message": "frame_idx must be an int"})
+            return
+        total = len(self._trajectory)
+        # Clamp instead of erroring — slider at the end is a normal case.
+        idx = max(0, min(idx, total - 1))
+        snap = self._trajectory[idx]
+        self._inspecting = True
+        self._enqueue_jpeg(snap.rgb_jpeg)
+        self._emit(
+            {
+                "type": "inspect_frame",
+                "frame_idx": idx,
+                "total": total,
+                "timestamp": snap.timestamp,
+                "robot_joints": snap.robot_joints.tolist(),
+                "ee_pose": {"xyz": list(snap.ee_xyz), "quat_xyzw": list(snap.ee_quat_xyzw)},
+                "gripper_width": snap.gripper_width,
+                "scene_objects": {
+                    k: {"xyz": list(xyz), "quat_xyzw": list(q)}
+                    for k, (xyz, q) in snap.scene_objects.items()
+                },
+            }
+        )
+
+    def _inspect_clear(self) -> None:
+        """Exit inspection mode; resume live streaming."""
+        self._inspecting = False
+        self._emit({"type": "inspect_cleared"})
+        # Push one fresh live frame so the viewer snaps back immediately.
+        if self._sim is not None:
+            self._publish_frame()
+
     # -- helpers -------------------------------------------------------------
 
     def _publish_frame(self) -> None:
+        """Render current sim state and enqueue as the live JPEG."""
         assert self._sim is not None
         obs = self._sim.observe()
-        jpg = _encode_jpeg(obs.rgb)
-        # latest-wins: drop older frame if queue is full
+        self._enqueue_jpeg(_encode_jpeg(obs.rgb))
+
+    def _enqueue_jpeg(self, jpg: bytes) -> None:
+        """Latest-wins publish to the frame queue."""
         try:
             self.frames.put_nowait(jpg)
         except queue.Full:
@@ -343,6 +435,22 @@ class SimThread(threading.Thread):
             except queue.Empty:
                 pass
             self.frames.put_nowait(jpg)
+
+    def _append_snapshot(self, obs, jpg: bytes) -> None:
+        """Add one trajectory snapshot (deque drops oldest at cap)."""
+        snap = FrameSnapshot(
+            timestamp=float(obs.timestamp),
+            robot_joints=np.asarray(obs.robot_joints, dtype=np.float64).copy(),
+            ee_xyz=tuple(obs.ee_pose.xyz),
+            ee_quat_xyzw=tuple(obs.ee_pose.quat_xyzw),
+            gripper_width=float(obs.gripper_width),
+            scene_objects={
+                k: (tuple(p.xyz), tuple(p.quat_xyzw))
+                for k, p in obs.scene_objects.items()
+            },
+            rgb_jpeg=jpg,
+        )
+        self._trajectory.append(snap)
 
     def _emit(self, event: dict) -> None:
         self.events.put(event)
@@ -418,6 +526,12 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     "dz": float(msg.get("dz", 0.0)),
                     "gripper": msg.get("gripper"),
                 })
+            elif action == "inspect_at":
+                assert _state is not None
+                _state.submit("inspect_at", {"frame_idx": msg.get("frame_idx", 0)})
+            elif action == "inspect_clear":
+                assert _state is not None
+                _state.submit("inspect_clear")
             else:
                 await ws.send_json({"type": "error", "message": f"unknown action {action!r}"})
     except WebSocketDisconnect:

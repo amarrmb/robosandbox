@@ -42,6 +42,16 @@
   footer { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; padding: 0 16px; font-size: 11px; color: #6b7280; background: #0a0c10; border-top: 1px solid #1f2329; gap: 12px; }
   footer .muted { opacity: 0.6; }
   .kbd { font-family: ui-monospace, monospace; font-size: 10.5px; padding: 1px 5px; background: #1a1e25; border: 1px solid #2a2f38; border-bottom-width: 2px; border-radius: 3px; color: #d1d5db; }
+  /* Trajectory inspector */
+  #inspector { display: none; flex-direction: column; gap: 6px; border-top: 1px solid #1f2329; padding-top: 10px; }
+  #inspector.active { display: flex; }
+  #inspector .row { display: flex; align-items: center; gap: 8px; }
+  #inspector input[type=range] { flex: 1; accent-color: #3b82f6; }
+  #inspector .frame-label { font-family: ui-monospace, monospace; font-size: 11.5px; color: #9ca3af; min-width: 88px; text-align: right; }
+  #inspector button.step { flex: 0 0 auto; padding: 4px 8px; font-size: 12px; background: #1f2329; border: 1px solid #2a2f38; color: #d1d5db; }
+  #inspector button.step:hover:not(:disabled) { background: #2a2f38; }
+  #inspector-meta { font-family: ui-monospace, monospace; font-size: 11px; color: #9ca3af; background: #0a0c10; border: 1px solid #1f2329; border-radius: 5px; padding: 6px 8px; line-height: 1.5; white-space: pre-wrap; max-height: 110px; overflow-y: auto; }
+  #inspector .hint { font-size: 10.5px; color: #6b7280; }
 </style>
 </head>
 <body>
@@ -81,6 +91,21 @@
   <div class="group" style="flex:1; min-height:0">
     <label>Events</label>
     <div id="log"></div>
+  </div>
+
+  <div id="inspector">
+    <label>Inspector</label>
+    <div class="row">
+      <button id="insp-prev" class="step" title="Previous frame">&#x25C0;</button>
+      <input id="insp-slider" type="range" min="0" max="0" value="0" step="1" disabled>
+      <button id="insp-next" class="step" title="Next frame">&#x25B6;</button>
+    </div>
+    <div class="row">
+      <span class="frame-label" id="insp-frame-label">frame 0 / 0</span>
+      <span class="spacer" style="flex:1"></span>
+      <span class="hint">arrows: &plusmn;1, shift: &plusmn;10, dblclick: resume live</span>
+    </div>
+    <pre id="inspector-meta">(no frame)</pre>
   </div>
 </aside>
 
@@ -185,11 +210,13 @@ function handleEvent(evt) {
     dofBadge.textContent = `${evt.n_dof} DOF`;
     promptInput.placeholder = evt.prompt || "(no prompt)";
     addLog(`Loaded task ${evt.task}  (${evt.n_dof} DOF: ${evt.joint_names.join(", ")})`, "info");
+    resetInspector();
   } else if (evt.type === "running") {
     statusEl.textContent = "running";
     runBtn.disabled = true;
     runBtn.textContent = "Running…";
     addLog(`Running: "${evt.prompt}"`, "info");
+    resetInspector();
   } else if (evt.type === "done") {
     statusEl.textContent = evt.success ? "success" : "failed";
     runBtn.disabled = false;
@@ -201,6 +228,14 @@ function handleEvent(evt) {
       addLog(`  step: ${step.skill}(${JSON.stringify(step.args)}) → ${step.reason}`, tag);
     }
     if (evt.replans) addLog(`  ${evt.replans} replan(s)`, "info");
+    if (typeof evt.trajectory_frames === "number" && evt.trajectory_frames > 0) {
+      enableInspector(evt.trajectory_frames);
+      addLog(`  trajectory: ${evt.trajectory_frames} frames captured — scrub below`, "info");
+    }
+  } else if (evt.type === "inspect_frame") {
+    onInspectFrame(evt);
+  } else if (evt.type === "inspect_cleared") {
+    // Live resumed — no UI change needed beyond clearing the meta readout hint.
   } else if (evt.type === "recording_started") {
     isRecording = true;
     recordBtn.classList.add("recording");
@@ -279,6 +314,100 @@ window.addEventListener("keydown", (e) => {
     default: handled = false;
   }
   if (handled) e.preventDefault();
+});
+
+// ------ Trajectory inspector ----------------------------------------------
+const inspector = document.getElementById("inspector");
+const inspSlider = document.getElementById("insp-slider");
+const inspPrev = document.getElementById("insp-prev");
+const inspNext = document.getElementById("insp-next");
+const inspLabel = document.getElementById("insp-frame-label");
+const inspMeta = document.getElementById("inspector-meta");
+
+let inspectorTotal = 0;
+let inspectorActive = false;  // user is currently scrubbing a past frame
+
+function enableInspector(total) {
+  inspectorTotal = total;
+  inspector.classList.add("active");
+  inspSlider.disabled = false;
+  inspSlider.max = String(total - 1);
+  inspSlider.value = String(total - 1);
+  inspLabel.textContent = `frame ${total} / ${total}`;
+  inspMeta.textContent = "(drag slider to scrub)";
+}
+
+function resetInspector() {
+  // Clear the slider between episodes so stale frame counts never confuse.
+  inspectorTotal = 0;
+  inspectorActive = false;
+  inspector.classList.remove("active");
+  inspSlider.disabled = true;
+  inspSlider.max = "0";
+  inspSlider.value = "0";
+  inspLabel.textContent = "frame 0 / 0";
+  inspMeta.textContent = "(no frame)";
+}
+
+function sendInspectAt(idx) {
+  if (inspectorTotal === 0) return;
+  const clamped = Math.max(0, Math.min(idx, inspectorTotal - 1));
+  inspSlider.value = String(clamped);
+  inspectorActive = true;
+  ws.send(JSON.stringify({ action: "inspect_at", frame_idx: clamped }));
+}
+
+function sendInspectClear() {
+  if (!inspectorActive) return;
+  inspectorActive = false;
+  ws.send(JSON.stringify({ action: "inspect_clear" }));
+  inspMeta.textContent = "(live)";
+}
+
+function fmtVec(v, digits = 3) {
+  return "[" + v.map((x) => x.toFixed(digits)).join(", ") + "]";
+}
+
+function onInspectFrame(evt) {
+  inspectorTotal = evt.total;
+  inspSlider.max = String(evt.total - 1);
+  inspSlider.value = String(evt.frame_idx);
+  inspLabel.textContent = `frame ${evt.frame_idx + 1} / ${evt.total}`;
+  const lines = [];
+  lines.push(`t = ${evt.timestamp.toFixed(3)} s`);
+  lines.push(`joints = ${fmtVec(evt.robot_joints)}`);
+  lines.push(`ee.xyz = ${fmtVec(evt.ee_pose.xyz)}`);
+  lines.push(`ee.quat = ${fmtVec(evt.ee_pose.quat_xyzw, 4)}`);
+  lines.push(`gripper = ${evt.gripper_width.toFixed(4)}`);
+  const objs = Object.keys(evt.scene_objects);
+  if (objs.length) {
+    for (const k of objs) {
+      lines.push(`${k}.xyz = ${fmtVec(evt.scene_objects[k].xyz)}`);
+    }
+  }
+  inspMeta.textContent = lines.join("\n");
+}
+
+inspSlider.addEventListener("input", () => {
+  sendInspectAt(parseInt(inspSlider.value, 10));
+});
+inspSlider.addEventListener("dblclick", sendInspectClear);
+inspPrev.addEventListener("click", () => {
+  sendInspectAt(parseInt(inspSlider.value, 10) - 1);
+});
+inspNext.addEventListener("click", () => {
+  sendInspectAt(parseInt(inspSlider.value, 10) + 1);
+});
+inspSlider.addEventListener("keydown", (e) => {
+  if (inspectorTotal === 0) return;
+  const step = e.shiftKey ? 10 : 1;
+  if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+    sendInspectAt(parseInt(inspSlider.value, 10) - step);
+    e.preventDefault();
+  } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+    sendInspectAt(parseInt(inspSlider.value, 10) + step);
+    e.preventDefault();
+  }
 });
 
 loadTasks().then(() => {
