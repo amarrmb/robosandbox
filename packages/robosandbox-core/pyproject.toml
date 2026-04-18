@@ -46,6 +46,8 @@ pick = "robosandbox.skills.pick:Pick"
 place_on = "robosandbox.skills.place:PlaceOn"
 push = "robosandbox.skills.push:Push"
 home = "robosandbox.skills.home:Home"
+pour = "robosandbox.skills.pour:Pour"
+tap = "robosandbox.skills.tap:Tap"
 
 [build-system]
 requires = ["hatchling"]

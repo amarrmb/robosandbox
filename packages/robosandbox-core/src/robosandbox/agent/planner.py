@@ -213,6 +213,18 @@ _RE_PUSH = re.compile(
     re.IGNORECASE,
 )
 
+# "pour the mustard into the bowl" / "pour the mug over the apple"
+_RE_POUR = re.compile(
+    rf"pour\s+(?:the\s+)?({_WORD})\s+(?:into|over|on|onto|in)\s+(?:the\s+)?({_WORD})\b",
+    re.IGNORECASE,
+)
+
+# "tap the red button" / "press the cube"
+_RE_TAP = re.compile(
+    rf"(?:tap|press|poke|touch)\s+(?:the\s+)?({_WORD})\b",
+    re.IGNORECASE,
+)
+
 
 def _fuzzy_object_match(query: str, candidates: list[str]) -> str | None:
     """Map a natural-language object phrase to a scene_object id.
@@ -287,6 +299,24 @@ class StubPlanner:
             direction = m.group(2).lower()
             if o1:
                 return [SkillCall("push", {"object": o1, "direction": direction})], 0
+
+        # "pour X into Y" decomposes to: pick X, then pour into Y.
+        m = _RE_POUR.search(t)
+        if m and "pour" in self._available:
+            o1 = _fuzzy_object_match(m.group(1), objs)
+            o2 = _fuzzy_object_match(m.group(2), objs)
+            if o1 and o2:
+                plan: list[SkillCall] = []
+                if "pick" in self._available:
+                    plan.append(SkillCall("pick", {"object": o1}))
+                plan.append(SkillCall("pour", {"target": o2}))
+                return plan, 0
+
+        m = _RE_TAP.search(t)
+        if m and "tap" in self._available:
+            o1 = _fuzzy_object_match(m.group(1), objs)
+            if o1:
+                return [SkillCall("tap", {"object": o1})], 0
 
         m = _RE_PICK.search(t)
         if m:
