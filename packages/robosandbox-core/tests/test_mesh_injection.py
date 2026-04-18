@@ -171,3 +171,56 @@ def test_resolve_mesh_asset_rejects_non_mesh_kind(tmp_path: Path) -> None:
     )
     with pytest.raises(MeshConfigError):
         resolve_mesh_asset(obj)
+
+
+def test_builtin_arm_plus_mesh_compiles(tmp_path: Path) -> None:
+    """Built-in arm routes through MjSpec when a mesh object is present."""
+    from robosandbox.scene.mjcf_builder import build_model
+
+    sidecar = _make_bundled_mug_fixture(tmp_path)
+    scene = Scene(
+        objects=(
+            SceneObject(
+                id="widget",
+                kind="mesh",
+                size=(0.0,),
+                pose=Pose(xyz=(0.2, 0.0, 0.1)),
+                mass=0.0,
+                mesh_sidecar=sidecar,
+            ),
+        ),
+    )
+    model, robot_spec = build_model(scene)
+    assert robot_spec.arm_joint_names == ("j1", "j2", "j3", "j4", "j5", "j6")
+    assert model.body("widget").id > 0
+    assert float(model.body("widget").mass[0]) == pytest.approx(0.15, rel=1e-4)
+
+
+def test_builtin_arm_plus_primitive_and_mesh(tmp_path: Path) -> None:
+    """Both primitives and meshes coexist when routed through MjSpec."""
+    from robosandbox.scene.mjcf_builder import build_model
+
+    sidecar = _make_bundled_mug_fixture(tmp_path)
+    scene = Scene(
+        objects=(
+            SceneObject(
+                id="red_cube",
+                kind="box",
+                size=(0.012, 0.012, 0.012),
+                pose=Pose(xyz=(0.3, 0.1, 0.05)),
+                mass=0.05,
+                rgba=(0.85, 0.2, 0.2, 1.0),
+            ),
+            SceneObject(
+                id="widget",
+                kind="mesh",
+                size=(0.0,),
+                pose=Pose(xyz=(0.3, -0.1, 0.1)),
+                mass=0.0,
+                mesh_sidecar=sidecar,
+            ),
+        ),
+    )
+    model, _ = build_model(scene)
+    assert model.body("red_cube").id > 0
+    assert model.body("widget").id > 0

@@ -1,18 +1,27 @@
 """Build a MuJoCo model from a Scene description.
 
-Two paths:
-  - Scene.robot_urdf is None: emit the built-in 6-DOF arm MJCF string
-    (zero external deps) and compile.
-  - Scene.robot_urdf is set: delegate to scene.robot_loader which uses
-    MjSpec to absorb the URDF/MJCF + sidecar YAML, inject objects and
-    decor, and compile.
+Three paths, pre-ranked by how much they touch the physics compile:
 
-Both paths return (MjModel, RobotSpec) so sim backends can stay robot-
-agnostic — they cache names from RobotSpec, no hardcoded joint strings.
+  1. Scene.robot_urdf is None AND no mesh objects: the fast path. Emit
+     the built-in 6-DOF arm MJCF string (zero external deps) and compile.
+     Bit-exact with previous releases for existing tests/benchmarks.
+  2. Scene.robot_urdf is None AND at least one mesh object: render the
+     arm template with an empty ``__OBJECTS__`` placeholder, absorb into
+     MjSpec, and use the URDF-path's ``inject_scene_objects`` for every
+     object (primitives and meshes). Activated only when meshes are
+     present so the fast path stays numerically untouched.
+  3. Scene.robot_urdf is set: delegate to scene.robot_loader which uses
+     MjSpec to absorb the URDF/MJCF + sidecar YAML, inject objects and
+     decor, and compile.
+
+All three paths return (MjModel, RobotSpec) so sim backends can stay
+robot-agnostic — they cache names from RobotSpec, no hardcoded joint
+strings.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from xml.sax.saxutils import escape
 
 import mujoco
@@ -173,19 +182,44 @@ def build_mjcf(scene: Scene) -> str:
 """
 
 
+def _has_mesh_objects(scene: Scene) -> bool:
+    return any(o.kind == "mesh" for o in scene.objects)
+
+
 def build_model(scene: Scene) -> tuple[mujoco.MjModel, RobotSpec]:
     """Compile a Scene into a MuJoCo model + RobotSpec pair.
 
-    Built-in path: renders the string template, compiles, returns with
-    BUILTIN_ROBOT_SPEC. URDF/MJCF path: delegates to robot_loader (which
-    uses MjSpec to compose the final model programmatically).
+    See module docstring for the three-path routing.
     """
-    if scene.robot_urdf is None:
+    if scene.robot_urdf is not None:
+        from robosandbox.scene.robot_loader import load_and_compile
+
+        return load_and_compile(scene)
+
+    if not _has_mesh_objects(scene):
+        # Fast path: string template, bit-exact with previous releases.
         mjcf = build_mjcf(scene)
         model = mujoco.MjModel.from_xml_string(mjcf)
         return model, BUILTIN_ROBOT_SPEC
 
-    # Lazy import avoids forcing MjSpec / yaml on the built-in path.
-    from robosandbox.scene.robot_loader import load_and_compile
+    # Built-in arm + meshes: render the arm without inline <body> objects,
+    # absorb into MjSpec, and inject every object (primitives + meshes)
+    # programmatically via the same entry point as the URDF path.
+    from robosandbox.scene.robot_loader import (
+        RobotModelCompileError,
+        inject_scene_objects,
+    )
 
-    return load_and_compile(scene)
+    arm_only = replace(scene, objects=())
+    mjcf = build_mjcf(arm_only)
+    try:
+        spec = mujoco.MjSpec.from_string(mjcf)
+    except (ValueError, RuntimeError) as e:
+        raise RobotModelCompileError(__file__, e) from e  # pragma: no cover — defensive
+
+    inject_scene_objects(spec, scene)
+    try:
+        model = spec.compile()
+    except (ValueError, RuntimeError) as e:
+        raise RobotModelCompileError(__file__, e) from e
+    return model, BUILTIN_ROBOT_SPEC
