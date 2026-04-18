@@ -69,6 +69,19 @@ def main(argv: list[str] | None = None) -> int:
     exp_p.add_argument("--task", default=None, help="Override task string")
     exp_p.add_argument("--fps", type=int, default=30)
 
+    viz_p = sub.add_parser(
+        "download-franka-visuals",
+        help="Download full-resolution Franka visual meshes from mujoco_menagerie "
+             "(~33 MB) to ~/.cache/robosandbox/franka_visuals/",
+    )
+    viz_p.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Override cache root (default: $ROBOSANDBOX_CACHE/franka_visuals "
+             "or ~/.cache/robosandbox/franka_visuals)",
+    )
+    viz_p.add_argument("--force", action="store_true", help="Re-download even if cached")
+
     args, rest = p.parse_known_args(argv)
     if args.cmd == "demo":
         from robosandbox.demo import main as demo_main
@@ -119,6 +132,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"Exported LeRobot dataset to: {out}")
         return 0
+    elif args.cmd == "download-franka-visuals":
+        from robosandbox.assets.franka_visuals import cli as download_cli
+
+        return download_cli(cache_dir=args.cache_dir, force=args.force)
 
     p.print_help()
     return 2
