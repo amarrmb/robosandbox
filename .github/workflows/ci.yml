@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            packages/robosandbox-core/pyproject.toml
+            uv.lock
+
+      - name: Pin Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install project + dev + viewer + meshes + lerobot extras
+        run: |
+          uv sync --python ${{ matrix.python-version }} --package robosandbox \
+            --extra dev --extra viewer --extra meshes --extra lerobot
+
+      - name: Ruff (lint)
+        run: uv run --python ${{ matrix.python-version }} ruff check packages/
+
+      - name: Pytest
+        env:
+          # Headless MuJoCo rendering needs this in CI.
+          MUJOCO_GL: osmesa
+        run: |
+          uv run --python ${{ matrix.python-version }} pytest \
+            packages/robosandbox-core/tests/ -q --maxfail=3
+
+      - name: Benchmark smoke
+        env:
+          MUJOCO_GL: osmesa
+        run: |
+          uv run --python ${{ matrix.python-version }} robo-sandbox-bench \
+            --tasks pick_cube pick_cube_franka home pick_ycb_mug
