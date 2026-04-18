@@ -17,6 +17,8 @@ a single exception type and surface the cause cleanly.
 
 from __future__ import annotations
 
+import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -173,21 +175,156 @@ def load_bundled_mesh(sidecar_path: Path, obj_id: str) -> MeshAsset:
     )
 
 
+_DEFAULT_CACHE_DIR = Path.home() / ".cache" / "robosandbox" / "mesh_hulls"
+
+_BYO_VALID_MODES = ("coacd", "hull")
+
+
+def _byo_cache_key(mesh_path: Path, mode: str) -> str:
+    """Deterministic cache key: sha256(mesh bytes) + mode."""
+    h = hashlib.sha256()
+    with mesh_path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return f"{h.hexdigest()[:32]}_{mode}"
+
+
+def _read_hulls_from_cache(cache_subdir: Path) -> list[Path] | None:
+    """If ``cache_subdir`` holds a complete cached decomposition, return hull
+    paths in order. Otherwise return None (caller should recompute).
+    """
+    manifest = cache_subdir / "manifest.yaml"
+    if not manifest.exists():
+        return None
+    try:
+        data = yaml.safe_load(manifest.read_text()) or {}
+    except yaml.YAMLError:
+        return None
+    names = data.get("collision_meshes")
+    if not isinstance(names, list) or not names:
+        return None
+    paths = [cache_subdir / n for n in names]
+    if not all(p.exists() for p in paths):
+        return None
+    return paths
+
+
+def _write_hulls_to_cache(cache_subdir: Path, hull_paths: list[Path]) -> None:
+    manifest = cache_subdir / "manifest.yaml"
+    manifest.write_text(
+        yaml.safe_dump(
+            {"collision_meshes": [p.name for p in hull_paths]},
+            sort_keys=False,
+        )
+    )
+
+
+def _decompose_coacd(mesh_path: Path, out_dir: Path) -> list[Path]:
+    """Run CoACD and write per-hull OBJs into ``out_dir``. Requires ``coacd``."""
+    try:
+        import coacd  # type: ignore
+        import numpy as np
+        import trimesh
+    except ImportError as e:  # pragma: no cover — covered by installed-deps check
+        raise MeshConfigError(
+            "BYO mesh collision='coacd' requires the 'robosandbox[meshes]' extra. "
+            f"Install with: pip install 'robosandbox[meshes]'  ({e})"
+        ) from e
+
+    mesh = trimesh.load(str(mesh_path), force="mesh")
+    if not isinstance(mesh, trimesh.Trimesh):
+        raise MeshConfigError(f"mesh file did not load as a single mesh: {mesh_path}")
+
+    co = coacd.Mesh(np.asarray(mesh.vertices), np.asarray(mesh.faces))
+    parts = coacd.run_coacd(co, threshold=0.2)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    for i, (verts, faces) in enumerate(parts):
+        hull = trimesh.Trimesh(
+            vertices=np.asarray(verts), faces=np.asarray(faces), process=False
+        )
+        p = out_dir / f"hull_{i}.obj"
+        hull.export(str(p), file_type="obj")
+        paths.append(p)
+    if not paths:
+        raise MeshConfigError(f"CoACD produced no hulls for {mesh_path}")
+    return paths
+
+
+def _decompose_hull_passthrough(mesh_path: Path, out_dir: Path) -> list[Path]:
+    """Single-hull passthrough: copy the input mesh as the one collision mesh.
+
+    Honest contract: the user asserts the mesh is already convex. No hull
+    computation happens here — MuJoCo will treat the mesh as-is for contact.
+    This is the no-CoACD-needed fallback for convex BYO meshes.
+    """
+    import shutil
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Preserve the original file's suffix so MuJoCo's loader picks the right
+    # parser (.obj / .stl / .ply).
+    dest = out_dir / f"hull_0{mesh_path.suffix.lower()}"
+    shutil.copyfile(mesh_path, dest)
+    return [dest]
+
+
 def load_byo_mesh(
     mesh_path: Path,
     obj_id: str,
     collision_mode: str = "coacd",
     cache_dir: Path | None = None,
+    mass: float = 0.1,
+    friction: tuple[float, float, float] = (1.5, 0.1, 0.01),
+    rgba: tuple[float, float, float, float] = (0.7, 0.7, 0.7, 1.0),
+    scale: float | tuple[float, float, float] = 1.0,
 ) -> MeshAsset:
-    """Load a user-provided OBJ/STL and decompose its collision geometry.
+    """Load a user-provided OBJ/STL and resolve its collision meshes.
 
-    Step 6 in the mesh slice — not yet implemented. Placeholder raises so
-    the task loader has a symbol to call and a clear error until this lands.
+    ``collision_mode``:
+      - ``"coacd"``: run CoACD for convex decomposition (requires the
+        ``robosandbox[meshes]`` extra). Multi-hull; correct for concave objects.
+      - ``"hull"``: passthrough — treat the input mesh as already convex.
+        Fast, no extra dep, but silently broken for concave meshes. Use only
+        when you know the mesh is convex.
+
+    Decomposition result is cached at
+    ``~/.cache/robosandbox/mesh_hulls/<sha32>_<mode>/`` keyed by the mesh
+    file's sha256 so re-runs skip the expensive CoACD call. Set
+    ``cache_dir`` to override (tests use ``tmp_path``).
     """
-    raise NotImplementedError(
-        "BYO mesh loading (collision_mode=%r) lands in step 6 of the mesh slice; "
-        "use a bundled sidecar via mesh: '@builtin:objects/...' for now."
-        % collision_mode
+    mesh_path = Path(mesh_path)
+    if not mesh_path.exists():
+        raise MeshConfigNotFoundError(mesh_path, what="mesh file")
+    if collision_mode not in _BYO_VALID_MODES:
+        raise MeshConfigValidationError(
+            "collision", f"must be one of {_BYO_VALID_MODES}, got {collision_mode!r}"
+        )
+
+    cache_root = Path(cache_dir) if cache_dir is not None else _DEFAULT_CACHE_DIR
+    key = _byo_cache_key(mesh_path, collision_mode)
+    cache_subdir = cache_root / key
+
+    cached = _read_hulls_from_cache(cache_subdir)
+    if cached is None:
+        cache_subdir.mkdir(parents=True, exist_ok=True)
+        if collision_mode == "coacd":
+            hull_paths = _decompose_coacd(mesh_path, cache_subdir)
+        else:
+            hull_paths = _decompose_hull_passthrough(mesh_path, cache_subdir)
+        _write_hulls_to_cache(cache_subdir, hull_paths)
+    else:
+        hull_paths = cached
+
+    scale3 = _as_scale3(scale if not isinstance(scale, (int, float)) else float(scale), "scale")
+
+    return MeshAsset(
+        obj_id=obj_id,
+        visual_files=(mesh_path.resolve(),),
+        collision_files=tuple(p.resolve() for p in hull_paths),
+        scale=scale3,
+        mass=float(mass),
+        friction=tuple(float(v) for v in friction),
+        rgba=tuple(float(v) for v in rgba),
     )
 
 
@@ -217,4 +354,14 @@ def resolve_mesh_asset(obj: "SceneObject") -> MeshAsset:  # type: ignore[name-de
         assert obj.mesh_sidecar is not None
         return load_bundled_mesh(obj.mesh_sidecar, obj_id=obj.id)
     assert obj.mesh_path is not None
-    return load_byo_mesh(obj.mesh_path, obj_id=obj.id, collision_mode=obj.collision)
+    # BYO: use the SceneObject's colour/mass as the asset defaults. mass=0
+    # means "unspecified", so fall back to a sensible default — inject_mesh_
+    # object applies obj.mass later anyway when > 0.
+    byo_mass = obj.mass if obj.mass and obj.mass > 0 else 0.1
+    return load_byo_mesh(
+        obj.mesh_path,
+        obj_id=obj.id,
+        collision_mode=obj.collision,
+        mass=byo_mass,
+        rgba=obj.rgba,
+    )

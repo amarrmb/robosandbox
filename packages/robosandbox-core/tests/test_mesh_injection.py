@@ -196,6 +196,45 @@ def test_builtin_arm_plus_mesh_compiles(tmp_path: Path) -> None:
     assert float(model.body("widget").mass[0]) == pytest.approx(0.15, rel=1e-4)
 
 
+def test_byo_hull_compiles_on_builtin_arm(tmp_path: Path) -> None:
+    """End-to-end BYO: raw mesh_path + collision='hull' reaches MuJoCo."""
+    from robosandbox.scene.mjcf_builder import build_model
+
+    mesh_path = tmp_path / "cube.obj"
+    trimesh.creation.box(extents=[0.02, 0.02, 0.02]).export(
+        str(mesh_path), file_type="obj"
+    )
+
+    # Point the BYO cache at tmp_path so repeated test runs don't pollute
+    # the user's real ~/.cache. We do this via monkey-patching the default
+    # cache dir — simplest is to preload the cache once.
+    import robosandbox.scene.mesh_conversion as mc
+
+    orig = mc._DEFAULT_CACHE_DIR
+    mc._DEFAULT_CACHE_DIR = tmp_path / "cache"  # type: ignore[assignment]
+    try:
+        scene = Scene(
+            objects=(
+                SceneObject(
+                    id="byo",
+                    kind="mesh",
+                    size=(0.0,),
+                    pose=Pose(xyz=(0.2, 0.0, 0.05)),
+                    mass=0.04,
+                    mesh_path=mesh_path,
+                    collision="hull",
+                ),
+            ),
+        )
+        model, _ = build_model(scene)
+    finally:
+        mc._DEFAULT_CACHE_DIR = orig  # type: ignore[assignment]
+
+    body_id = model.body("byo").id
+    assert body_id > 0
+    assert float(model.body("byo").mass[0]) == pytest.approx(0.04, rel=1e-4)
+
+
 def test_builtin_arm_plus_primitive_and_mesh(tmp_path: Path) -> None:
     """Both primitives and meshes coexist when routed through MjSpec."""
     from robosandbox.scene.mjcf_builder import build_model
