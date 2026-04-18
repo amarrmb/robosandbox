@@ -192,6 +192,31 @@ package that registers at the `robosandbox.skills` entry point.
 - **v0.3**: mesh-object import, `robosandbox-anygrasp` opt-in plugin,
   force-based control API, leaderboard.
 
+## Bundled assets
+
+`assets/robots/franka_panda/` ships a trimmed copy of Franka Emika
+Panda adapted from [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie)
+under Apache 2.0. Visual meshes removed (collision-only, ~160 KB); the
+tendon-driven gripper actuator was replaced with a simple position
+actuator on `finger_joint1` so the standard RobotSpec interface
+(open_qpos / closed_qpos) applies directly. See `LICENSE` in that
+directory for menagerie's attribution.
+
+To bring your own robot:
+
+```python
+Scene(
+    robot_urdf=Path("/path/to/ur5.urdf"),     # .urdf or .xml
+    robot_config=Path("/path/to/ur5.robosandbox.yaml"),  # optional — sibling auto-discovered
+    objects=(...),
+)
+```
+
+The sidecar YAML tells RoboSandbox which joint is the primary finger,
+where the end-effector TCP sits, the home pose, and gripper open/closed
+qpos. See `packages/robosandbox-core/src/robosandbox/assets/robots/franka_panda/panda.robosandbox.yaml`
+for the schema.
+
 ## License
 
 Core: Apache 2.0.
