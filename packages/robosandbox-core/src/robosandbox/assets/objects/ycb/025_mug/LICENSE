@@ -1,0 +1,19 @@
+Source: YCB Object and Model Set, Google scan, object 025_mug.
+Upstream archive: https://ycb-benchmarks.s3.amazonaws.com/data/google/025_mug_google_16k.tgz
+Project page: https://www.ycbbenchmarks.com/
+
+The YCB Object and Model Set is made available under terms described at
+https://www.ycbbenchmarks.com/ for research and educational use. The
+nontextured STL geometry shipped here is derived from the Google-scanned
+16k-polygon variant, re-centered (xy-centroid at origin, bottom at z=0),
+exported as OBJ, and CoACD-decomposed into convex hulls for MuJoCo
+contact simulation.
+
+If you are using RoboSandbox for commercial purposes or redistribution,
+please consult the YCB project's terms directly.
+
+Reference:
+  Calli, B., Singh, A., Walsman, A., Srinivasa, S., Abbeel, P., and
+  Dollar, A. M. "The YCB Object and Model Set: Towards Common Benchmarks
+  for Manipulation Research." International Conference on Advanced
+  Robotics (ICAR), 2015.

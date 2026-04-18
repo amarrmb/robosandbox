@@ -1,0 +1,28 @@
+visual_mesh: mug_visual.obj
+collision_meshes:
+- mug_hull_0.obj
+- mug_hull_1.obj
+- mug_hull_2.obj
+- mug_hull_3.obj
+- mug_hull_4.obj
+- mug_hull_5.obj
+- mug_hull_6.obj
+- mug_hull_7.obj
+- mug_hull_8.obj
+- mug_hull_9.obj
+- mug_hull_10.obj
+- mug_hull_11.obj
+- mug_hull_12.obj
+- mug_hull_13.obj
+- mug_hull_14.obj
+scale: 1.0
+mass: 0.118
+friction:
+- 1.5
+- 0.1
+- 0.01
+rgba:
+- 0.85
+- 0.85
+- 0.9
+- 1.0
