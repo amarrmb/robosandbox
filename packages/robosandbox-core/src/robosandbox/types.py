@@ -56,6 +56,7 @@ class Scene:
     """A loadable scene description — robot + objects + workspace."""
 
     robot_urdf: Path | None = None  # None = use built-in simple arm
+    robot_config: Path | None = None  # sidecar YAML; None = look for sibling <stem>.robosandbox.yaml
     objects: tuple[SceneObject, ...] = ()
     workspace_aabb: tuple[XYZ, XYZ] = ((-0.5, -0.5, 0.0), (0.5, 0.5, 0.8))
     table_height: float = 0.0  # z of table surface
