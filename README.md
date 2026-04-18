@@ -105,7 +105,9 @@ Five built-in tasks (YAML scenes + success criteria under
 |---|---|
 | `home` | Skill dispatch with no spatial reasoning |
 | `pick_cube` | Single-object pick (core reliability) |
+| `pick_cube_franka` | URDF-import path — bundled Franka picks a cube |
 | `pick_from_three` | Perception disambiguation by colour name |
+| `pick_ycb_mug` | Mesh-import path — bundled YCB mug (15 convex hulls) picked by Franka |
 | `push_forward` | Non-pick manipulation, verifies directional displacement |
 | `_experimental_stack_two` | Multi-step plan. Excluded from default run — needs force-controlled grip (v0.2). |
 
@@ -128,8 +130,8 @@ packages/robosandbox-core/
 │   ├── types.py          Pose, Scene, Observation, Grasp, SkillResult
 │   ├── protocols.py      SimBackend, Perception, GraspPlanner,
 │   │                     MotionPlanner, RecordSink, VLMClient, Skill
-│   ├── sim/              MuJoCo backend (built-in 6-DOF arm, no meshes)
-│   ├── scene/            MJCF builder — spawns any Scene into MuJoCo
+│   ├── sim/              MuJoCo backend (built-in 6-DOF arm + URDF robots)
+│   ├── scene/            MJCF builder + URDF/mesh loaders — spawns any Scene into MuJoCo
 │   ├── perception/       ground_truth (sim cheat), vlm_pointer (VLM)
 │   ├── grasp/            analytic top-down (v0.1)
 │   ├── motion/           DLS Jacobian IK + Cartesian interpolation
@@ -142,8 +144,9 @@ packages/robosandbox-core/
 │   ├── cli.py            `robo-sandbox` entry point
 │   ├── demo.py           Scripted pick (no VLM, no API)
 │   └── agentic_demo.py   Full agent loop
-└── tests/                21 tests covering types, IK, skills, agent,
-                          planner, JSON recovery, VLM pointer projection
+└── tests/                64 tests covering types, IK, skills, agent,
+                          planner, JSON recovery, VLM pointer projection,
+                          URDF import (Franka), mesh import (YCB mug)
 ```
 
 ### Agent loop
@@ -189,8 +192,8 @@ package that registers at the `robosandbox.skills` entry point.
   curobo` plugin for GPU motion planning, `robosandbox-molmo`
   dedicated pointing model, real-robot bridge (LeRobot adapter), web
   UI for scene authoring.
-- **v0.3**: mesh-object import, `robosandbox-anygrasp` opt-in plugin,
-  force-based control API, leaderboard.
+- **v0.3**: `robosandbox-anygrasp` opt-in plugin, force-based control
+  API, leaderboard.
 
 ## Browser live viewer
 
@@ -209,6 +212,8 @@ Pick a task, click Run. Events log to the sidebar; frames stream at
 `--host 0.0.0.0` exposes it to other machines on your LAN.
 
 ## Bundled assets
+
+### Robots
 
 `assets/robots/franka_panda/` ships a trimmed copy of Franka Emika
 Panda adapted from [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie)
@@ -232,6 +237,54 @@ The sidecar YAML tells RoboSandbox which joint is the primary finger,
 where the end-effector TCP sits, the home pose, and gripper open/closed
 qpos. See `packages/robosandbox-core/src/robosandbox/assets/robots/franka_panda/panda.robosandbox.yaml`
 for the schema.
+
+### Objects (mesh import)
+
+`assets/objects/ycb/025_mug/` ships a pre-decomposed copy of the YCB
+benchmark mug: one visual OBJ + 15 CoACD convex hulls + sidecar YAML.
+Drop it into any task:
+
+```yaml
+objects:
+  - id: mug
+    kind: mesh
+    mesh: "@builtin:objects/ycb/025_mug/mug.robosandbox.yaml"
+    pose: {xyz: [0.42, 0.0, 0.045]}
+```
+
+See `assets/objects/ycb/025_mug/LICENSE` for the YCB project's terms.
+
+**Bring-your-own meshes.** The sandbox decomposes user OBJ/STL files
+with CoACD and caches the hulls at `~/.cache/robosandbox/mesh_hulls/`:
+
+```bash
+pip install 'robosandbox[meshes]'    # pulls in coacd
+```
+
+```python
+SceneObject(
+    id="widget",
+    kind="mesh",
+    mesh_path=Path("/abs/path/to/widget.obj"),
+    collision="coacd",                # or "hull" (skip decomp if mesh is already convex)
+    pose=Pose(xyz=(0.4, 0.0, 0.05)),
+    mass=0.1,
+)
+```
+
+`collision="hull"` is a cheap fallback for already-convex meshes — no
+CoACD install required, but the sandbox does not compute a hull for
+you; it trusts the mesh is convex. For concave objects, always use
+`collision="coacd"`.
+
+Pre-decompose a mesh once for a bundled asset with the authoring tool:
+
+```bash
+python scripts/decompose_mesh.py \
+  --input /path/to/drill.obj \
+  --out-dir assets/objects/custom/drill \
+  --name drill --mass 0.3 --center-bottom
+```
 
 ## License
 
