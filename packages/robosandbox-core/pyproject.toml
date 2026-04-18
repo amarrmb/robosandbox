@@ -6,6 +6,26 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "RoboSandbox contributors" }]
+keywords = [
+    "robotics", "manipulation", "simulation", "mujoco", "franka",
+    "llm", "vlm", "agent", "lerobot", "benchmark",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
 dependencies = [
     "mujoco>=3.2",
     "numpy>=1.24",
@@ -21,6 +41,12 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.4", "mypy>=1.10"]
 viewer = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 meshes = ["coacd>=1.0"]
 lerobot = ["pyarrow>=15"]
+docs = ["mkdocs>=1.6", "mkdocs-material>=9.5"]
+
+[project.urls]
+Homepage = "https://github.com/amarrmb/robosandbox"
+Repository = "https://github.com/amarrmb/robosandbox"
+Issues = "https://github.com/amarrmb/robosandbox/issues"
 
 [project.scripts]
 robo-sandbox = "robosandbox.cli:main"
@@ -60,5 +86,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/robosandbox"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"assets" = "robosandbox/assets"
+[tool.hatch.build.targets.sdist]
+# Include the in-tree examples + tests + docs specs in the sdist but
+# NOT the top-level dev artifacts (runs/, MUJOCO_LOG.TXT). Wheel uses
+# the default (just src/robosandbox/).
+include = [
+    "src/robosandbox/**",
+    "tests/**",
+    "README.md",
+]
