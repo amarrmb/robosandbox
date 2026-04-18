@@ -25,6 +25,7 @@ from robosandbox.grasp.analytic import AnalyticTopDown
 from robosandbox.motion.ik import DLSMotionPlanner
 from robosandbox.perception.ground_truth import GroundTruthPerception
 from robosandbox.sim.mujoco_backend import MuJoCoBackend
+from robosandbox.skills.drawer import CloseDrawer, OpenDrawer
 from robosandbox.skills.home import Home
 from robosandbox.skills.pick import Pick
 from robosandbox.skills.place import PlaceOn
@@ -136,7 +137,10 @@ def _run_one(
         initial = sim.observe()
 
         perception = GroundTruthPerception()
-        skills = [Pick(), PlaceOn(), Push(), Home(), Pour(), Tap()]
+        skills = [
+            Pick(), PlaceOn(), Push(), Home(), Pour(), Tap(),
+            OpenDrawer(), CloseDrawer(),
+        ]
         if vlm_provider == "stub":
             planner = StubPlanner(skills=skills)
         else:

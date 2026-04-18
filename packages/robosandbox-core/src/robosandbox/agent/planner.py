@@ -225,6 +225,16 @@ _RE_TAP = re.compile(
     re.IGNORECASE,
 )
 
+# "open the drawer" / "pull open drawer_a"
+_RE_OPEN_DRAWER = re.compile(
+    rf"\bopen\s+(?:the\s+)?({_WORD})\b",
+    re.IGNORECASE,
+)
+_RE_CLOSE_DRAWER = re.compile(
+    rf"\b(?:close|shut)\s+(?:the\s+)?({_WORD})\b",
+    re.IGNORECASE,
+)
+
 
 def _fuzzy_object_match(query: str, candidates: list[str]) -> str | None:
     """Map a natural-language object phrase to a scene_object id.
@@ -317,6 +327,19 @@ class StubPlanner:
             o1 = _fuzzy_object_match(m.group(1), objs)
             if o1:
                 return [SkillCall("tap", {"object": o1})], 0
+
+        # Drawer open/close — match first, since "open the drawer" would
+        # otherwise fall through to pick patterns.
+        m = _RE_OPEN_DRAWER.search(t)
+        if m and "open_drawer" in self._available:
+            o1 = _fuzzy_object_match(m.group(1), objs)
+            if o1:
+                return [SkillCall("open_drawer", {"drawer": o1})], 0
+        m = _RE_CLOSE_DRAWER.search(t)
+        if m and "close_drawer" in self._available:
+            o1 = _fuzzy_object_match(m.group(1), objs)
+            if o1:
+                return [SkillCall("close_drawer", {"drawer": o1})], 0
 
         m = _RE_PICK.search(t)
         if m:

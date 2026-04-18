@@ -5,7 +5,7 @@
       "seed": 0,
       "prompt": "go home",
       "success": true,
-      "wall_seconds": 0.028095483779907227,
+      "wall_seconds": 0.02049088478088379,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -20,11 +20,33 @@
       }
     },
     {
+      "task": "open_drawer",
+      "seed": 0,
+      "prompt": "open the drawer_a",
+      "success": true,
+      "wall_seconds": 1.318096399307251,
+      "replans": 0,
+      "vlm_calls": 0,
+      "plan": [
+        {
+          "skill": "open_drawer",
+          "args": {
+            "drawer": "drawer_a"
+          }
+        }
+      ],
+      "final_reason": "plan_complete",
+      "success_detail": {
+        "displacement_mm": 62.67887692103946,
+        "min_mm": 50.0
+      }
+    },
+    {
       "task": "pick_cube",
       "seed": 0,
       "prompt": "pick up the red cube",
       "success": true,
-      "wall_seconds": 0.9165811538696289,
+      "wall_seconds": 0.7729923725128174,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -42,11 +64,33 @@
       }
     },
     {
+      "task": "pick_cube_franka",
+      "seed": 0,
+      "prompt": "pick up the red cube",
+      "success": true,
+      "wall_seconds": 1.021740198135376,
+      "replans": 0,
+      "vlm_calls": 0,
+      "plan": [
+        {
+          "skill": "pick",
+          "args": {
+            "object": "red_cube"
+          }
+        }
+      ],
+      "final_reason": "plan_complete",
+      "success_detail": {
+        "dz_mm": 166.90539310900908,
+        "min_mm": 50.0
+      }
+    },
+    {
       "task": "pick_from_three",
       "seed": 0,
       "prompt": "pick up the green cube",
       "success": true,
-      "wall_seconds": 1.0331885814666748,
+      "wall_seconds": 0.7912611961364746,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [
@@ -64,11 +108,63 @@
       }
     },
     {
+      "task": "pick_ycb_mug",
+      "seed": 0,
+      "prompt": "pick up the mug",
+      "success": true,
+      "wall_seconds": 1.1961345672607422,
+      "replans": 0,
+      "vlm_calls": 0,
+      "plan": [
+        {
+          "skill": "pick",
+          "args": {
+            "object": "mug"
+          }
+        }
+      ],
+      "final_reason": "plan_complete",
+      "success_detail": {
+        "dz_mm": 105.27151457939759,
+        "min_mm": 50.0
+      }
+    },
+    {
+      "task": "pour_can_into_bowl",
+      "seed": 0,
+      "prompt": "pour the tomato soup can into the bowl",
+      "success": true,
+      "wall_seconds": 2.03913950920105,
+      "replans": 0,
+      "vlm_calls": 0,
+      "plan": [
+        {
+          "skill": "pick",
+          "args": {
+            "object": "tomato_soup_can"
+          }
+        },
+        {
+          "skill": "pour",
+          "args": {
+            "target": "bowl"
+          }
+        }
+      ],
+      "final_reason": "plan_complete",
+      "success_detail": {
+        "xy": 0.0038273948064863708,
+        "dz": 0.13340910130159744,
+        "xy_tol": 0.1,
+        "min_dz": 0.06
+      }
+    },
+    {
       "task": "push_forward",
       "seed": 0,
       "prompt": "push the red cube forward",
       "success": true,
-      "wall_seconds": 1.0578885078430176,
+      "wall_seconds": 0.7997803688049316,
       "replans": 0,
       "vlm_calls": 0,
       "plan": [

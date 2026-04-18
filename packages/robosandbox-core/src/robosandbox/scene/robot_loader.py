@@ -370,6 +370,9 @@ def inject_scene_objects(spec: mujoco.MjSpec, scene: Scene) -> None:
             asset = resolve_mesh_asset(obj)
             inject_mesh_object(spec, obj, asset)
             continue
+        if obj.kind == "drawer":
+            _inject_drawer(spec, obj)
+            continue
         body = world.add_body(
             name=obj.id,
             pos=list(obj.pose.xyz),
@@ -406,6 +409,114 @@ def inject_scene_objects(spec: mujoco.MjSpec, scene: Scene) -> None:
             )
         else:
             raise ValueError(f"unknown SceneObject.kind: {obj.kind}")
+
+
+def _inject_drawer(spec: mujoco.MjSpec, obj: SceneObject) -> None:
+    """Inject a static cabinet + prismatic-jointed inner drawer + handle.
+
+    Layout convention (robot at x<0, drawer at x>0, drawer opens toward robot):
+
+        world
+          └── drawer_outer_<id>   (static, fixed to worldbody)
+                ├── floor, back, left, right, top geoms (5 cabinet walls)
+                └── <id>   (body with slide joint along -x)
+                      ├── inner drawer geom
+                      └── <id>_handle   (child body with handle geom)
+
+    The inner drawer body's MuJoCo name is ``obj.id`` so that the existing
+    observation loop (``{id: body_pose}``) picks up its pose directly. The
+    ``displaced`` success criterion compares initial/final pose and
+    reports ≥ min_mm in a direction; pulling the drawer open displaces it
+    in ``-x`` (direction: "back"), so no new criterion kind is needed.
+
+    size = (width_y, depth_x, height_z) of the inner drawer.
+    drawer_max_open caps the slide travel in metres.
+    """
+    if len(obj.size) < 3:
+        raise ValueError(
+            f"drawer SceneObject {obj.id!r} requires size=(width_y, depth_x, height_z); "
+            f"got {obj.size}"
+        )
+    w_y = float(obj.size[0])
+    d_x = float(obj.size[1])
+    h_z = float(obj.size[2])
+    wall = 0.006   # cabinet wall thickness
+    gap = 0.003    # air gap between inner drawer and cabinet walls
+
+    # Handle dimensions. Generous protrusion + vertical bar gives the
+    # gripper clear space to descend in front of the cabinet top without
+    # colliding with the cabinet walls.
+    handle_h = 0.030
+    handle_w = 0.035
+    handle_protrusion = 0.050  # how far the handle sticks out in -x
+
+    rgba_cabinet = list(obj.rgba)
+    # Slightly darker handle so vision-in-the-loop has a consistent target.
+    rgba_handle = [max(0.0, c * 0.4) for c in obj.rgba[:3]] + [1.0]
+
+    # 1. Outer cabinet — static body, no joint, fixed to worldbody.
+    outer = spec.worldbody.add_body(
+        name=f"{obj.id}__cabinet",
+        pos=list(obj.pose.xyz),
+        quat=_xyzw_to_wxyz(obj.pose.quat_xyzw),
+    )
+    # Cabinet floor (below inner drawer).
+    outer.add_geom(
+        type=mujoco.mjtGeom.mjGEOM_BOX,
+        size=[d_x / 2 + wall, w_y / 2 + wall, wall / 2],
+        pos=[0.0, 0.0, -h_z / 2 - wall / 2],
+        rgba=rgba_cabinet,
+    )
+    # Cabinet back (behind inner drawer, +x side).
+    outer.add_geom(
+        type=mujoco.mjtGeom.mjGEOM_BOX,
+        size=[wall / 2, w_y / 2 + wall, h_z / 2],
+        pos=[d_x / 2 + wall / 2, 0.0, 0.0],
+        rgba=rgba_cabinet,
+    )
+    # Cabinet left + right walls. (No top — drawer is open at the top so
+    # a top-down gripper can reach the handle without colliding with a
+    # roof. Semantically a "box organizer" shape rather than a sealed
+    # cabinet.)
+    for sign in (-1.0, 1.0):
+        outer.add_geom(
+            type=mujoco.mjtGeom.mjGEOM_BOX,
+            size=[d_x / 2 + wall, wall / 2, h_z / 2],
+            pos=[0.0, sign * (w_y / 2 + wall / 2), 0.0],
+            rgba=rgba_cabinet,
+        )
+
+    # 2. Inner drawer — slides along world -x (cabinet at +x, handle at -x).
+    inner = outer.add_body(name=obj.id, pos=[0.0, 0.0, 0.0])
+    inner.add_joint(
+        name=f"{obj.id}__slide",
+        type=mujoco.mjtJoint.mjJNT_SLIDE,
+        axis=[-1.0, 0.0, 0.0],
+        range=[0.0, float(obj.drawer_max_open)],
+        damping=0.5,     # light damping: easy to pull, stays put when released
+        armature=0.01,
+    )
+    inner_half = [d_x / 2 - gap, w_y / 2 - gap, h_z / 2 - gap]
+    inner.add_geom(
+        type=mujoco.mjtGeom.mjGEOM_BOX,
+        size=inner_half,
+        rgba=rgba_cabinet,
+        mass=0.2,
+        friction=[1.5, 0.1, 0.01],
+    )
+
+    # 3. Handle: child body of the drawer, at its front face (-x end).
+    handle_x = -(d_x / 2 - gap) - handle_protrusion / 2
+    handle = inner.add_body(name=f"{obj.id}_handle", pos=[handle_x, 0.0, 0.0])
+    # Vertical grip bar: short in x, narrow in y, tall in z so fingers
+    # wrap around it from front.
+    handle.add_geom(
+        type=mujoco.mjtGeom.mjGEOM_BOX,
+        size=[handle_protrusion / 2, handle_w / 2, handle_h / 2],
+        rgba=rgba_handle,
+        mass=0.05,
+        friction=[2.5, 0.2, 0.01],
+    )
 
 
 def inject_scene_decor(spec: mujoco.MjSpec, scene: Scene) -> None:

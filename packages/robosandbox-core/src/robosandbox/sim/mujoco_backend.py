@@ -79,7 +79,15 @@ class MuJoCoBackend:
         self._arm_ctrl_adr = [self._model.actuator(a).id for a in spec.arm_actuator_names]
         self._gripper_ctrl_adr = self._model.actuator(spec.gripper_actuator_name).id
         self._ee_site_id = self._model.site(spec.ee_site_name).id
-        self._obj_body_ids = {o.id: self._model.body(o.id).id for o in scene.objects}
+        # Map scene-object id -> body id. For articulated objects (drawer),
+        # also register the handle body so perception can locate it by name.
+        body_ids: dict[str, int] = {}
+        for o in scene.objects:
+            body_ids[o.id] = self._model.body(o.id).id
+            if o.kind == "drawer":
+                handle_name = f"{o.id}_handle"
+                body_ids[handle_name] = self._model.body(handle_name).id
+        self._obj_body_ids = body_ids
         self.reset()
 
     def reset(self) -> None:

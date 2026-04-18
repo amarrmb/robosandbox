@@ -38,24 +38,28 @@ class Pose:
 class SceneObject:
     """One object in the scene, described abstractly.
 
-    Kind is the MJCF geom primitive (box/sphere/cylinder) OR 'mesh' for
-    user-supplied or bundled OBJ/STL. Mesh-specific fields:
+    Kinds:
 
-    - ``mesh_sidecar``: path to a ``<name>.robosandbox.yaml`` describing a
-      bundled, pre-decomposed mesh (visual + list of convex hulls + mass
-      + friction + rgba defaults).
-    - ``mesh_path``: path to a raw OBJ/STL for the bring-your-own flow.
-      Decomposed at load time via ``collision`` policy.
-    - ``collision``: ``"coacd"`` (default; requires ``robosandbox[meshes]``)
-      or ``"hull"`` (single convex hull, no extra dep). Ignored for the
-      bundled path.
+    - Primitive ``box`` / ``sphere`` / ``cylinder``: simple geom bodies
+      that spawn as free-bodies (freejoint) at the given pose. ``size``
+      carries the dimensions.
+    - ``mesh``: OBJ/STL — bundled (set ``mesh_sidecar``) or bring-your-own
+      (set ``mesh_path``). Decomposed via ``collision`` policy. See the
+      mesh-import spec for the sidecar schema.
+    - ``drawer``: articulated cabinet with a sliding inner box + handle.
+      Cabinet is static; inner drawer slides along ``-x`` when pulled.
+      The SceneObject's id names the sliding body (observable as
+      ``obs.scene_objects[id]``); a sibling ``<id>_handle`` body is also
+      tracked so skills can grasp it. ``size`` = (width, depth, height)
+      of the inner drawer. ``drawer_max_open`` caps the slide travel.
 
     A mesh object sets exactly one of ``mesh_sidecar`` / ``mesh_path``.
     ``mass == 0`` on a mesh object means "use the sidecar's default".
+    Drawer uses its own geometry; ``mesh_*`` / ``collision`` ignored.
     """
 
     id: str
-    kind: str  # 'box' | 'sphere' | 'cylinder' | 'mesh'
+    kind: str  # 'box' | 'sphere' | 'cylinder' | 'mesh' | 'drawer'
     size: tuple[float, ...]  # semantics depend on kind (box: xyz half-extents)
     pose: Pose
     mass: float = 0.1
@@ -63,6 +67,7 @@ class SceneObject:
     mesh_path: Path | None = None
     mesh_sidecar: Path | None = None
     collision: str = "coacd"
+    drawer_max_open: float = 0.12
 
 
 @dataclass(frozen=True)

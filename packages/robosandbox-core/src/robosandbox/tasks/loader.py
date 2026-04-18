@@ -86,6 +86,16 @@ def _object_from_dict(d: dict[str, Any], base_dir: Path) -> SceneObject:
             collision=str(d.get("collision", "coacd")),
         )
 
+    if kind == "drawer":
+        return SceneObject(
+            id=str(d["id"]),
+            kind="drawer",
+            size=tuple(float(v) for v in d.get("size", [0.15, 0.12, 0.05])),
+            pose=pose,
+            rgba=tuple(float(v) for v in d.get("rgba", [0.55, 0.35, 0.2, 1.0])),
+            drawer_max_open=float(d.get("drawer_max_open", 0.12)),
+        )
+
     # Primitive objects (unchanged behaviour).
     return SceneObject(
         id=str(d["id"]),

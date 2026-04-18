@@ -48,6 +48,8 @@ push = "robosandbox.skills.push:Push"
 home = "robosandbox.skills.home:Home"
 pour = "robosandbox.skills.pour:Pour"
 tap = "robosandbox.skills.tap:Tap"
+open_drawer = "robosandbox.skills.drawer:OpenDrawer"
+close_drawer = "robosandbox.skills.drawer:CloseDrawer"
 
 [build-system]
 requires = ["hatchling"]

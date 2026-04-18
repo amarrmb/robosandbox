@@ -1,0 +1,19 @@
+name: open_drawer
+prompt: "open the drawer_a"
+seed_note: "Sprint B 2.1 acceptance — articulated drawer + OpenDrawer skill. Drawer sits at x=0.42, opens toward the robot at -x. Fingertip gripper descends onto the handle (open-top cabinet) and pulls toward the base."
+scene:
+  robot_urdf: "@builtin:robots/franka_panda/panda.xml"
+  robot_config: "@builtin:robots/franka_panda/panda.robosandbox.yaml"
+  objects:
+    - id: drawer_a
+      kind: drawer
+      size: [0.15, 0.12, 0.05]       # (width_y, depth_x, height_z) of inner drawer
+      pose:
+        xyz: [0.42, 0.0, 0.08]
+      rgba: [0.55, 0.35, 0.2, 1.0]
+      drawer_max_open: 0.12
+success:
+  kind: displaced
+  object: drawer_a
+  direction: back
+  min_mm: 50
