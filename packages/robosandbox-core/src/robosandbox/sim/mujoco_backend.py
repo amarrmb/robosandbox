@@ -254,3 +254,8 @@ class MuJoCoBackend:
     @property
     def arm_qpos_adr(self) -> list[int]:
         return list(self._arm_qpos_adr)
+
+    @property
+    def base_body_name(self) -> str:
+        assert self._robot is not None
+        return self._robot.base_body_name

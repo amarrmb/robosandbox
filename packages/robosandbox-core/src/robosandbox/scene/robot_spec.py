@@ -18,6 +18,7 @@ class RobotSpec:
     gripper_primary_joint: str
     gripper_actuator_name: str
     ee_site_name: str
+    base_body_name: str  # Robot root body; motion planner needs its world xpos
     home_qpos: tuple[float, ...]
     gripper_open_qpos: float
     gripper_closed_qpos: float

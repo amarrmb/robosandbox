@@ -27,6 +27,7 @@ BUILTIN_ROBOT_SPEC = RobotSpec(
     gripper_primary_joint="left_finger_joint",
     gripper_actuator_name="a_gripper",
     ee_site_name="ee_site",
+    base_body_name="base",
     home_qpos=(0.0, -0.4, 1.2, -0.8, 0.0, 0.0),
     gripper_open_qpos=-0.035,
     gripper_closed_qpos=0.0,

@@ -67,6 +67,7 @@ def solve_ik(
     site_id = int(sim.ee_site_id)
     qpos_adr = list(sim.arm_qpos_adr)
     n = len(qpos_adr)
+    arm_joint_names = list(sim.joint_names)
 
     if seed_joints is not None:
         seed = np.asarray(seed_joints, dtype=np.float64).ravel()
@@ -79,19 +80,16 @@ def solve_ik(
     target_xyz = np.asarray(target_pose.xyz, dtype=np.float64)
     target_quat_wxyz = _quat_xyzw_to_wxyz(target_pose.quat_xyzw)
 
-    # Joint limits for the arm joints.
-    lower = np.array([model.jnt_range[model.joint(f"j{i}").id][0] for i in range(1, n + 1)])
-    upper = np.array([model.jnt_range[model.joint(f"j{i}").id][1] for i in range(1, n + 1)])
+    # Joint limits for the arm joints (names from the backend, not hardcoded).
+    lower = np.array([model.jnt_range[model.joint(name).id][0] for name in arm_joint_names])
+    upper = np.array([model.jnt_range[model.joint(name).id][1] for name in arm_joint_names])
 
     jacp = np.zeros((3, model.nv), dtype=np.float64)
     jacr = np.zeros((3, model.nv), dtype=np.float64)
 
     # Map qpos_adr → qvel dof indices. For hinge/slide joints, dofadr==qposadr
     # is NOT guaranteed, so look it up via the joint API.
-    dof_adrs = []
-    for i in range(1, n + 1):
-        j = model.joint(f"j{i}")
-        dof_adrs.append(int(j.dofadr[0]))
+    dof_adrs = [int(model.joint(name).dofadr[0]) for name in arm_joint_names]
 
     # Pre-compute the world-frame target axis for z_down / z_up modes.
     axis_world_target: np.ndarray | None = None
@@ -262,7 +260,8 @@ class DLSMotionPlanner:
         #   2,3. warm_seed perturbed ±0.3 rad on j1 (breaks the
         #      degeneracy when target_y is near 0)
         #   4. same with j2/j4 biased to a bent-elbow pose
-        base_xyz = np.asarray(data.body("base").xpos)
+        base_body = getattr(sim, "base_body_name", "base")
+        base_xyz = np.asarray(data.body(base_body).xpos)
         dx = float(target_pose.xyz[0] - base_xyz[0])
         dy = float(target_pose.xyz[1] - base_xyz[1])
         j1_hint = float(np.arctan2(dy, dx))

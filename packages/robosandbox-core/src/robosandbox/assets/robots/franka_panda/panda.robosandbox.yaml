@@ -1,0 +1,30 @@
+# RoboSandbox role-to-element map for the bundled Franka Panda.
+# Consumed by scene/robot_loader.py alongside panda.xml.
+
+arm:
+  joints: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+  actuators: [actuator1, actuator2, actuator3, actuator4, actuator5, actuator6, actuator7]
+  # Home pose from menagerie's keyframe. Moves the hand to a well-conditioned
+  # workspace above and in front of link0, z-down orientation reachable.
+  home_qpos: [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853]
+
+gripper:
+  joints: [finger_joint1, finger_joint2]
+  primary_joint: finger_joint1
+  actuator: actuator8
+  open_qpos: 0.04    # ~80 mm between fingertips (40 mm each)
+  closed_qpos: 0.0
+
+ee_site:
+  inject:
+    attach_body: hand
+    # Menagerie's hand origin sits at the hand-flange; the Franka TCP (tool
+    # center point) is 0.1034 m down the z-axis of that frame. This is the
+    # published Franka convention for "point between closed fingertips".
+    xyz: [0.0, 0.0, 0.1034]
+
+base_pose:
+  # Position the robot so its workspace overlaps the RoboSandbox table area.
+  # link0's top surface sits at ~0.14 m above this pos, giving reach from
+  # (-0.5..0.5) x (-0.5..0.5) at table height ~0.04 m.
+  xyz: [-0.3, 0.0, 0.0]
