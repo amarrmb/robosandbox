@@ -20,6 +20,7 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.4", "mypy>=1.10"]
 
 [project.scripts]
 robo-sandbox = "robosandbox.cli:main"
+robo-sandbox-bench = "robosandbox.tasks.runner:main"
 
 [project.entry-points."robosandbox.sim"]
 mujoco = "robosandbox.sim.mujoco_backend:MuJoCoBackend"
@@ -40,6 +41,7 @@ local_mcap = "robosandbox.recorder.local:LocalRecorder"
 [project.entry-points."robosandbox.skills"]
 pick = "robosandbox.skills.pick:Pick"
 place_on = "robosandbox.skills.place:PlaceOn"
+push = "robosandbox.skills.push:Push"
 home = "robosandbox.skills.home:Home"
 
 [build-system]

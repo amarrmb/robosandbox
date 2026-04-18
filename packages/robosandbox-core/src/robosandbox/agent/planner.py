@@ -208,6 +208,11 @@ _RE_PICK = re.compile(
 )
 _RE_HOME = re.compile(r"\b(?:go\s+home|home|return\s+home|neutral\s+pose)\b", re.IGNORECASE)
 
+_RE_PUSH = re.compile(
+    rf"push\s+(?:the\s+)?({_WORD})\s+(forward|back(?:ward)?|left|right|north|south|east|west)\b",
+    re.IGNORECASE,
+)
+
 
 def _fuzzy_object_match(query: str, candidates: list[str]) -> str | None:
     """Map a natural-language object phrase to a scene_object id.
@@ -275,6 +280,13 @@ class StubPlanner:
                     ],
                     0,
                 )
+
+        m = _RE_PUSH.search(t)
+        if m and "push" in self._available:
+            o1 = _fuzzy_object_match(m.group(1), objs)
+            direction = m.group(2).lower()
+            if o1:
+                return [SkillCall("push", {"object": o1, "direction": direction})], 0
 
         m = _RE_PICK.search(t)
         if m:

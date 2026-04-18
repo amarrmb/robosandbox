@@ -1,0 +1,90 @@
+{
+  "runs": [
+    {
+      "task": "home",
+      "seed": 0,
+      "prompt": "go home",
+      "success": true,
+      "wall_seconds": 0.028095483779907227,
+      "replans": 0,
+      "vlm_calls": 0,
+      "plan": [
+        {
+          "skill": "home",
+          "args": {}
+        }
+      ],
+      "final_reason": "plan_complete",
+      "success_detail": {
+        "sub": []
+      }
+    },
+    {
+      "task": "pick_cube",
+      "seed": 0,
+      "prompt": "pick up the red cube",
+      "success": true,
+      "wall_seconds": 0.9165811538696289,
+      "replans": 0,
+      "vlm_calls": 0,
+      "plan": [
+        {
+          "skill": "pick",
+          "args": {
+            "object": "red_cube"
+          }
+        }
+      ],
+      "final_reason": "plan_complete",
+      "success_detail": {
+        "dz_mm": 159.79820959010857,
+        "min_mm": 50.0
+      }
+    },
+    {
+      "task": "pick_from_three",
+      "seed": 0,
+      "prompt": "pick up the green cube",
+      "success": true,
+      "wall_seconds": 1.0331885814666748,
+      "replans": 0,
+      "vlm_calls": 0,
+      "plan": [
+        {
+          "skill": "pick",
+          "args": {
+            "object": "green_cube"
+          }
+        }
+      ],
+      "final_reason": "plan_complete",
+      "success_detail": {
+        "dz_mm": 160.04796921004825,
+        "min_mm": 50.0
+      }
+    },
+    {
+      "task": "push_forward",
+      "seed": 0,
+      "prompt": "push the red cube forward",
+      "success": true,
+      "wall_seconds": 1.0578885078430176,
+      "replans": 0,
+      "vlm_calls": 0,
+      "plan": [
+        {
+          "skill": "push",
+          "args": {
+            "object": "red_cube",
+            "direction": "forward"
+          }
+        }
+      ],
+      "final_reason": "plan_complete",
+      "success_detail": {
+        "displacement_mm": 76.49612183714899,
+        "min_mm": 30.0
+      }
+    }
+  ]
+}

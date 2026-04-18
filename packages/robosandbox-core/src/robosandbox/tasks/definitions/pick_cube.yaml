@@ -1,0 +1,16 @@
+name: pick_cube
+prompt: "pick up the red cube"
+seed_note: "Single cube at a known-reliable reach."
+scene:
+  objects:
+    - id: red_cube
+      kind: box
+      size: [0.012, 0.012, 0.012]
+      pose:
+        xyz: [0.05, 0.0, 0.07]
+      rgba: [0.85, 0.2, 0.2, 1.0]
+      mass: 0.05
+success:
+  kind: lifted
+  object: red_cube
+  min_mm: 50
