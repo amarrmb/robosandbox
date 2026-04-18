@@ -1,0 +1,24 @@
+visual_mesh: bowl_visual.obj
+collision_meshes:
+- bowl_hull_0.obj
+- bowl_hull_1.obj
+- bowl_hull_2.obj
+- bowl_hull_3.obj
+- bowl_hull_4.obj
+- bowl_hull_5.obj
+- bowl_hull_6.obj
+- bowl_hull_7.obj
+- bowl_hull_8.obj
+- bowl_hull_9.obj
+- bowl_hull_10.obj
+scale: 1.0
+mass: 0.147
+friction:
+- 1.5
+- 0.1
+- 0.01
+rgba:
+- 0.2
+- 0.4
+- 0.8
+- 1.0

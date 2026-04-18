@@ -144,9 +144,9 @@ packages/robosandbox-core/
 │   ├── cli.py            `robo-sandbox` entry point
 │   ├── demo.py           Scripted pick (no VLM, no API)
 │   └── agentic_demo.py   Full agent loop
-└── tests/                64 tests covering types, IK, skills, agent,
+└── tests/                65 tests covering types, IK, skills, agent,
                           planner, JSON recovery, VLM pointer projection,
-                          URDF import (Franka), mesh import (YCB mug)
+                          URDF import (Franka), mesh import (YCB pack)
 ```
 
 ### Agent loop
@@ -240,19 +240,45 @@ for the schema.
 
 ### Objects (mesh import)
 
-`assets/objects/ycb/025_mug/` ships a pre-decomposed copy of the YCB
-benchmark mug: one visual OBJ + 15 CoACD convex hulls + sidecar YAML.
-Drop it into any task:
+`assets/objects/ycb/` ships 10 pre-decomposed YCB benchmark objects: a
+visual OBJ + N CoACD convex hulls + per-object sidecar YAML each.
+
+| YCB id | Description | Mass (kg) |
+|---|---|---|
+| `003_cracker_box` | cracker box | 0.411 |
+| `005_tomato_soup_can` | tomato soup can | 0.349 |
+| `006_mustard_bottle` | mustard bottle | 0.603 |
+| `011_banana` | banana | 0.066 |
+| `013_apple` | apple | 0.068 |
+| `024_bowl` | bowl (hollow; 11 hulls) | 0.147 |
+| `025_mug` | mug (handled; 15 hulls) | 0.118 |
+| `035_power_drill` | power drill | 0.895 |
+| `042_adjustable_wrench` | adjustable wrench | 0.252 |
+| `055_baseball` | baseball | 0.148 |
+
+Drop any of them into a task with the `@ycb:` shorthand:
 
 ```yaml
 objects:
-  - id: mug
+  - id: box_1
     kind: mesh
-    mesh: "@builtin:objects/ycb/025_mug/mug.robosandbox.yaml"
-    pose: {xyz: [0.42, 0.0, 0.045]}
+    mesh: "@ycb:003_cracker_box"
+    pose: {xyz: [0.4, 0.0, 0.08]}
+  - id: soup
+    kind: mesh
+    mesh: "@ycb:005_tomato_soup_can"
+    pose: {xyz: [0.4, 0.15, 0.06]}
 ```
 
-See `assets/objects/ycb/025_mug/LICENSE` for the YCB project's terms.
+Or discover the bundled catalog from Python:
+
+```python
+from robosandbox.tasks.loader import list_builtin_ycb_objects
+list_builtin_ycb_objects()
+# ['003_cracker_box', '005_tomato_soup_can', ..., '055_baseball']
+```
+
+See `assets/objects/ycb/LICENSE` for the YCB project's terms.
 
 **Bring-your-own meshes.** The sandbox decomposes user OBJ/STL files
 with CoACD and caches the hulls at `~/.cache/robosandbox/mesh_hulls/`:

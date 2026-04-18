@@ -97,22 +97,50 @@ def _object_from_dict(d: dict[str, Any], base_dir: Path) -> SceneObject:
 
 
 _BUILTIN_PREFIX = "@builtin:"
+_YCB_PREFIX = "@ycb:"
+
+
+def _ycb_short_name(ycb_id: str) -> str:
+    """Convention: YCB ids are ``NNN_<short_name>`` (e.g. ``025_mug``).
+
+    The sidecar for each bundled YCB object lives at
+    ``assets/objects/ycb/<ycb_id>/<short_name>.robosandbox.yaml``. The
+    short name is everything after the first underscore.
+    """
+    parts = ycb_id.split("_", 1)
+    if len(parts) != 2 or not parts[0].isdigit():
+        raise ValueError(
+            f"YCB id must look like 'NNN_short_name' (e.g. '025_mug'), got {ycb_id!r}"
+        )
+    return parts[1]
 
 
 def _resolve_asset_path(raw: str, base_dir: Path) -> Path:
     """Resolve a task-YAML asset reference.
 
     Order:
-      1. "@builtin:<rel>"  -> packaged assets (robosandbox/assets/<rel>)
-      2. absolute path     -> Path(raw) unchanged
-      3. relative path     -> (base_dir / raw).resolve()
+      1. ``@ycb:<ycb_id>`` -> bundled YCB sidecar
+         (``assets/objects/ycb/<ycb_id>/<short_name>.robosandbox.yaml``)
+      2. ``@builtin:<rel>``  -> packaged assets (``robosandbox/assets/<rel>``)
+      3. absolute path       -> ``Path(raw)`` unchanged
+      4. relative path       -> ``(base_dir / raw).resolve()``
 
     Raises FileNotFoundError if the resolved path doesn't exist, so broken
     task YAMLs fail loudly at load time rather than later during compile.
     """
-    if raw.startswith(_BUILTIN_PREFIX):
-        from importlib.resources import files
+    from importlib.resources import files
 
+    if raw.startswith(_YCB_PREFIX):
+        ycb_id = raw[len(_YCB_PREFIX) :].lstrip("/")
+        short = _ycb_short_name(ycb_id)
+        resolved = Path(
+            str(
+                files("robosandbox").joinpath(
+                    "assets", "objects", "ycb", ycb_id, f"{short}.robosandbox.yaml"
+                )
+            )
+        )
+    elif raw.startswith(_BUILTIN_PREFIX):
         rel = raw[len(_BUILTIN_PREFIX) :].lstrip("/")
         resolved = Path(str(files("robosandbox").joinpath("assets", rel)))
     else:
@@ -123,6 +151,31 @@ def _resolve_asset_path(raw: str, base_dir: Path) -> Path:
             f"Asset reference {raw!r} resolved to {resolved} which does not exist"
         )
     return resolved
+
+
+def list_builtin_ycb_objects() -> list[str]:
+    """List all bundled YCB object ids (``NNN_short_name``).
+
+    Scans the packaged assets directory for per-object sidecars. Useful
+    for documentation, demos, and "what can I grasp?" discovery from
+    notebooks.
+    """
+    from importlib.resources import files
+
+    ycb_root = Path(str(files("robosandbox").joinpath("assets", "objects", "ycb")))
+    if not ycb_root.exists():
+        return []
+    out: list[str] = []
+    for child in ycb_root.iterdir():
+        if not child.is_dir():
+            continue
+        try:
+            short = _ycb_short_name(child.name)
+        except ValueError:
+            continue
+        if (child / f"{short}.robosandbox.yaml").exists():
+            out.append(child.name)
+    return sorted(out)
 
 
 def _scene_from_dict(d: dict[str, Any], base_dir: Path) -> Scene:

@@ -1,0 +1,15 @@
+visual_mesh: apple_visual.obj
+collision_meshes:
+- apple_hull_0.obj
+- apple_hull_1.obj
+scale: 1.0
+mass: 0.068
+friction:
+- 1.5
+- 0.1
+- 0.01
+rgba:
+- 0.85
+- 0.15
+- 0.15
+- 1.0

@@ -1,16 +1,29 @@
-Source: YCB Object and Model Set, Google scan, object 025_mug.
-Upstream archive: https://ycb-benchmarks.s3.amazonaws.com/data/google/025_mug_google_16k.tgz
+Source: YCB Object and Model Set, Google scans (16k polygon variants).
+Upstream: https://ycb-benchmarks.s3.amazonaws.com/data/google/<id>_google_16k.tgz
 Project page: https://www.ycbbenchmarks.com/
 
 The YCB Object and Model Set is made available under terms described at
 https://www.ycbbenchmarks.com/ for research and educational use. The
 nontextured STL geometry shipped here is derived from the Google-scanned
-16k-polygon variant, re-centered (xy-centroid at origin, bottom at z=0),
+16k-polygon variants, re-centered (xy-centroid at origin, bottom at z=0),
 exported as OBJ, and CoACD-decomposed into convex hulls for MuJoCo
-contact simulation.
+contact simulation. Masses are sourced from the YCB project's
+published object metadata.
 
 If you are using RoboSandbox for commercial purposes or redistribution,
 please consult the YCB project's terms directly.
+
+Bundled objects (see each sub-directory's .robosandbox.yaml sidecar):
+  003_cracker_box
+  005_tomato_soup_can
+  006_mustard_bottle
+  011_banana
+  013_apple
+  024_bowl
+  025_mug
+  035_power_drill
+  042_adjustable_wrench
+  055_baseball
 
 Reference:
   Calli, B., Singh, A., Walsman, A., Srinivasa, S., Abbeel, P., and

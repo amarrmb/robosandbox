@@ -260,6 +260,32 @@ def test_byo_cache_key_depends_on_mode(tmp_path: Path) -> None:
     assert _byo_cache_key(mesh_path, "hull") != _byo_cache_key(mesh_path, "coacd")
 
 
+def test_every_bundled_ycb_sidecar_loads() -> None:
+    """Catch typos in any of the N bundled YCB sidecars at test time.
+
+    Iterates list_builtin_ycb_objects(), resolves each via @ycb:<id>,
+    and verifies load_bundled_mesh returns a well-formed MeshAsset.
+    Also verifies the promised visual + collision files exist on disk.
+    """
+    from robosandbox.tasks.loader import (
+        _resolve_asset_path,
+        _ycb_short_name,
+        list_builtin_ycb_objects,
+    )
+
+    ids = list_builtin_ycb_objects()
+    assert ids, "no bundled YCB objects found — expected at least 025_mug"
+
+    for ycb_id in ids:
+        sidecar = _resolve_asset_path(f"@ycb:{ycb_id}", Path("."))
+        asset = load_bundled_mesh(sidecar, obj_id=_ycb_short_name(ycb_id))
+        assert asset.visual_files, f"{ycb_id}: no visual files"
+        assert asset.collision_files, f"{ycb_id}: no collision files"
+        assert asset.mass > 0, f"{ycb_id}: mass must be > 0 (got {asset.mass})"
+        for p in asset.visual_files + asset.collision_files:
+            assert p.exists(), f"{ycb_id}: referenced mesh missing at {p}"
+
+
 def test_mesh_asset_requires_nonempty_collision() -> None:
     with pytest.raises(MeshConfigValidationError):
         MeshAsset(

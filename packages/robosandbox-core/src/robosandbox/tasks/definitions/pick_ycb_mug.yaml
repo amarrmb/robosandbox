@@ -7,7 +7,7 @@ scene:
   objects:
     - id: mug
       kind: mesh
-      mesh: "@builtin:objects/ycb/025_mug/mug.robosandbox.yaml"
+      mesh: "@ycb:025_mug"
       pose:
         xyz: [0.42, 0.0, 0.045]
 success:

@@ -1,0 +1,15 @@
+visual_mesh: banana_visual.obj
+collision_meshes:
+- banana_hull_0.obj
+- banana_hull_1.obj
+scale: 1.0
+mass: 0.066
+friction:
+- 1.5
+- 0.1
+- 0.01
+rgba:
+- 0.95
+- 0.9
+- 0.3
+- 1.0
