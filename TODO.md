@@ -59,20 +59,30 @@ applies per-seed jitter (seed 0 = identity, seeds ≥ 1 random); prints
 mean=1.00 ± 0.00 with ±3 cm xy + ±90° yaw jitter. 9 unit tests in
 `test_randomize.py`. Coverage of size/mass/rgba jitter deferred.
 
-### 2.1 — More skills  **[partial: shipped 2/6 on 2026-04-18]**
-Shipped: **Pour** (move held object above target, dwell, retreat —
-pose pantomime; physics doesn't simulate fluids) and **Tap** (touch
-target top and retreat — serves the button_press role without a
-dedicated button primitive). Both have unit + agent-loop tests and
-StubPlanner regex routing. Registered as entry points.
+### 2.1 — More skills  **[shipped 5/6 on 2026-04-18]**
+Shipped:
+- **Pour** — move held object above target, dwell, retreat. Pose
+  pantomime; physics doesn't simulate fluids (real wrist tilt needs
+  quaternion-interpolating IK; deferred to v0.2).
+- **Tap** — touch target top with closed gripper and retreat. Serves
+  the button_press role without a dedicated button primitive.
+- **OpenDrawer** / **CloseDrawer** — hover, descend, grip handle,
+  translate ±x, release. Works on the new drawer scene primitive
+  (see below). Top-down orientation keeps IK stable.
+- **Stack** — pick one or more sources and place each on the growing
+  top of a stack. Reduces to repeated (Pick, PlaceOn).
+
+All five have unit + agent-loop tests and StubPlanner regex routing
+(where applicable). Registered as entry points.
+
+Articulated scene primitive **drawer**: `SceneObject(kind="drawer")`
+builds a static U-shaped cabinet + a sliding inner body + a handle
+child. The sliding body is named `<id>` (observable in
+`scene_objects`) and the handle is `<id>_handle`; the existing
+`displaced` success criterion handles drawer state.
 
 Deferred:
-- `open_drawer` / `close_drawer` — need an articulated scene primitive
-  (prismatic-jointed body) and a perception/query API to read joint
-  state. Larger architectural slice.
-- `stack_n` — composite of existing pick + place_on; reduces to
-  long-horizon planning (2.3).
-- `insert_peg` — needs a peg-hole scene primitive.
+- **insert_peg** — needs a peg-hole scene primitive; its own slice.
 
 ### 2.3 — Long-horizon composites  **[partial: 1 task shipped]**
 `pour_can_into_bowl` benchmark task chains pick -> pour. StubPlanner's
