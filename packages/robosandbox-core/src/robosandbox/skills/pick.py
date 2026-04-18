@@ -1,14 +1,20 @@
-"""Pick skill: locate → grasp → approach → descend → close → lift.
+"""Pick skill: locate → approach → descend → close → lift.
 
-Returns a SkillResult that the agent's EVALUATE state consumes.
+Single-attempt. On transient grasp failure the agent's replan loop
+calls us again from a fresh state — that's the correct layer for
+recovery (each replan retries with updated observations, not a blind
+retry from a potentially-wedged sim state).
 """
 
 from __future__ import annotations
 
 from robosandbox.agent.context import AgentContext
-from robosandbox.motion.ik import UnreachableError
+from robosandbox.motion.ik import UnreachableError, plan_linear_cartesian
 from robosandbox.skills._common import execute_trajectory, pose_offset_z, set_gripper
 from robosandbox.types import SkillResult
+
+_LIFT_HEIGHT = 0.18
+_VERIFY_LIFT_MM = 50.0
 
 
 class Pick:
@@ -29,7 +35,6 @@ class Pick:
     }
 
     def __call__(self, ctx: AgentContext, *, object: str) -> SkillResult:
-        # ---- 1. Perceive ------------------------------------------------
         obs = ctx.sim.observe()
         detected = ctx.perception.locate(object, obs)
         if not detected:
@@ -39,18 +44,14 @@ class Pick:
                 reason_detail=f"perception returned zero matches for query '{object}'",
             )
         target = max(detected, key=lambda d: d.confidence)
-
-        # Record the starting object z so we can verify it was lifted.
-        target_pose_0 = target.pose_3d
-        if target_pose_0 is None:
+        if target.pose_3d is None:
             return SkillResult(
                 success=False,
                 reason="object_not_found",
                 reason_detail="detected object has no 3D pose",
             )
-        z0 = target_pose_0.xyz[2]
+        z0 = target.pose_3d.xyz[2]
 
-        # ---- 2. Propose a grasp ----------------------------------------
         grasps = ctx.grasp.plan(obs, target)
         if not grasps:
             return SkillResult(
@@ -61,7 +62,7 @@ class Pick:
         grasp = grasps[0]
         approach_pose = pose_offset_z(grasp.pose, grasp.approach_offset)
 
-        # ---- 3. Approach pre-grasp (gripper open) ----------------------
+        # Approach (joint-space is fine for long traversals).
         try:
             traj = ctx.motion.plan(
                 ctx.sim,
@@ -70,19 +71,20 @@ class Pick:
                 constraints={"orientation": "z_down"},
             )
         except UnreachableError as e:
-            return SkillResult(
-                success=False, reason="unreachable", reason_detail=str(e)
-            )
-        execute_trajectory(ctx, traj, gripper=0.0)  # 0.0 = open
+            return SkillResult(success=False, reason="unreachable", reason_detail=str(e))
+        execute_trajectory(ctx, traj, gripper=0.0)
 
-        # ---- 4. Descend to grasp pose (still open) ---------------------
+        # Descend (straight-line Cartesian — avoids sideways swing from
+        # arbitrary joint-space interpolation into a top-down grasp).
         obs_now = ctx.sim.observe()
         try:
-            traj = ctx.motion.plan(
+            traj = plan_linear_cartesian(
                 ctx.sim,
                 start_joints=obs_now.robot_joints,
                 target_pose=grasp.pose,
-                constraints={"orientation": "z_down"},
+                n_waypoints=60,
+                dt=0.005,
+                orientation="z_down",
             )
         except UnreachableError as e:
             return SkillResult(
@@ -90,17 +92,19 @@ class Pick:
             )
         execute_trajectory(ctx, traj, gripper=0.0)
 
-        # ---- 5. Close gripper and hold ---------------------------------
+        # Close gripper.
         set_gripper(ctx, closed=1.0, hold_steps=60)
 
-        # ---- 6. Lift ----------------------------------------------------
+        # Lift straight up.
         obs_now = ctx.sim.observe()
         try:
-            traj = ctx.motion.plan(
+            traj = plan_linear_cartesian(
                 ctx.sim,
                 start_joints=obs_now.robot_joints,
-                target_pose=pose_offset_z(grasp.pose, 0.18),
-                constraints={"orientation": "z_down"},
+                target_pose=pose_offset_z(grasp.pose, _LIFT_HEIGHT),
+                n_waypoints=80,
+                dt=0.005,
+                orientation="z_down",
             )
         except UnreachableError as e:
             return SkillResult(
@@ -108,22 +112,22 @@ class Pick:
             )
         execute_trajectory(ctx, traj, gripper=1.0)
 
-        # ---- 7. Verify --------------------------------------------------
+        # Verify.
         obs_final = ctx.sim.observe()
-        obj_pose_final = obs_final.scene_objects.get(target.label)
-        if obj_pose_final is None:
+        obj_final = obs_final.scene_objects.get(target.label)
+        if obj_final is None:
             return SkillResult(
                 success=False,
                 reason="verification_failed",
-                reason_detail="target object vanished from sim state",
+                reason_detail="target vanished",
             )
-        z_final = obj_pose_final.xyz[2]
+        z_final = obj_final.xyz[2]
         lifted_by = z_final - z0
-        if lifted_by < 0.05:
+        if lifted_by * 1000 < _VERIFY_LIFT_MM:
             return SkillResult(
                 success=False,
                 reason="verification_failed",
-                reason_detail=f"object only rose {lifted_by*1000:.1f}mm, expected >50mm",
+                reason_detail=f"rose {lifted_by*1000:.1f}mm; need >{_VERIFY_LIFT_MM:.0f}mm",
                 artifacts={"z_initial": z0, "z_final": z_final},
             )
         return SkillResult(

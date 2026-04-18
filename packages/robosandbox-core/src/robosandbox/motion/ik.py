@@ -166,6 +166,65 @@ def solve_ik(
     return np.array([data.qpos[adr] for adr in qpos_adr], dtype=np.float64)
 
 
+def plan_linear_cartesian(
+    sim: Any,
+    start_joints: np.ndarray,
+    target_pose: Pose,
+    n_waypoints: int = 40,
+    dt: float = 0.005,
+    orientation: OrientationMode = "z_down",
+) -> JointTrajectory:
+    """Interpolate the end-effector in *Cartesian* space, solving IK at each
+    waypoint. Produces smooth straight-line motions (e.g. for lift/descend)
+    where pure joint-space interpolation would arc the arm sideways when IK
+    picks a goal with a different wrist configuration than the start.
+    """
+    model: mujoco.MjModel = sim.model
+    data: mujoco.MjData = sim.data
+    qpos_backup = data.qpos.copy()
+
+    # Put sim at start_joints to read the current ee position.
+    for adr, q in zip(sim.arm_qpos_adr, np.asarray(start_joints, dtype=np.float64)):
+        data.qpos[adr] = q
+    mujoco.mj_forward(model, data)
+    start_xyz = np.asarray(data.site_xpos[sim.ee_site_id]).copy()
+
+    waypoints: list[np.ndarray] = []
+    current = np.asarray(start_joints, dtype=np.float64).copy()
+    try:
+        for i in range(n_waypoints):
+            alpha = (i + 1) / n_waypoints
+            interp_xyz = (1.0 - alpha) * start_xyz + alpha * np.asarray(target_pose.xyz)
+            interp_pose = Pose(
+                xyz=tuple(float(v) for v in interp_xyz),
+                quat_xyzw=target_pose.quat_xyzw,
+            )
+            try:
+                current = solve_ik(
+                    sim,
+                    interp_pose,
+                    seed_joints=current,
+                    orientation=orientation,
+                    max_iters=80,
+                    damping=2e-2,
+                    step_size=0.4,
+                )
+            except UnreachableError:
+                # Stop short; caller will execute what we have and fail later if short.
+                break
+            waypoints.append(current.copy())
+    finally:
+        data.qpos[:] = qpos_backup
+        mujoco.mj_forward(model, data)
+
+    if not waypoints:
+        # Degenerate — can't even move one step along the line.
+        raise UnreachableError(
+            f"Cartesian IK could not advance a single step toward {target_pose.xyz}"
+        )
+    return JointTrajectory(waypoints=np.asarray(waypoints), dt=dt)
+
+
 class DLSMotionPlanner:
     """MotionPlanner that linearly interpolates between start and IK goal.
 
