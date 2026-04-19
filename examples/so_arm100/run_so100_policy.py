@@ -143,36 +143,31 @@ def main() -> int:
     for _ in range(100):
         sim.step()
 
-    print("[4/4] rollout — 80 policy steps")
+    print("[4/4] rollout via robosandbox.policy.run_policy")
+    from robosandbox.policy import run_policy
+
     recorder = LocalRecorder(Path("runs"))
     recorder.start_episode(
         task="pick up the red cube (so100 + public ACT checkpoint)",
         metadata={"checkpoint": _CHECKPOINT, "embodiment": "trs_so_arm100", "note": "dim-shim demo"},
     )
-    _orig_step = sim.step
-
-    def _step_and_record(*a: Any, **kw: Any) -> None:
-        _orig_step(*a, **kw)
-        try:
-            recorder.write_frame(sim.observe())
-        except Exception:
-            pass
-    sim.step = _step_and_record  # type: ignore[method-assign]
+    # run_policy handles the observe → act → step loop; wiring the
+    # recorder here hooks frame capture onto the same callback the
+    # viewer uses for live streaming. No monkey-patching of sim.step.
+    def _frame_hook(obs: Observation, action: np.ndarray) -> None:
+        recorder.write_frame(obs)
 
     t0 = time.time()
-    for i in range(80):
-        obs = sim.observe()
-        action = adapter.act(obs)
-        sim.step(target_joints=action[:-1], gripper=float(action[-1]))
+    out = run_policy(sim, adapter, max_steps=80, on_step=_frame_hook)
     wall = time.time() - t0
-    obs_final = sim.observe()
+    obs_final = out["final_obs"]
     cube_dz_mm = (obs_final.scene_objects["red_cube"].xyz[2] - 0.06) * 1000
     recorder.end_episode(
         success=False,  # cross-embodiment shim — not a real success claim
-        result={"wall": wall, "cube_dz_mm": cube_dz_mm, "note": "plumbing-only demo"},
+        result={"wall": wall, "cube_dz_mm": cube_dz_mm, "steps": out["steps"]},
     )
     sim.close()
-    print(f"  rollout wall: {wall:.1f}s")
+    print(f"  rollout wall: {wall:.1f}s  (run_policy steps={out['steps']})")
     print(f"  cube vertical delta: {cube_dz_mm:+.1f}mm  (not expected to succeed)")
     print()
     print("DEMO 2 VERDICT: non-bundled SO-ARM100 + public ACT checkpoint ran end-to-end")
