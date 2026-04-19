@@ -26,6 +26,7 @@ from robosandbox.skills.home import Home
 from robosandbox.skills.pick import Pick
 from robosandbox.skills.place import PlaceOn
 from robosandbox.skills.push import Push
+from robosandbox.scene.reachability import check_scene_reachability, format_warnings
 from robosandbox.tasks.loader import load_task
 from robosandbox.tasks.randomize import jitter_scene
 
@@ -63,7 +64,12 @@ def main() -> int:
     print(f"Task: {task.name}")
     print(f"Prompt: {task.prompt}")
     print(f"Success: {task.success.data.get('kind')} (object={task.success.data.get('object')})")
-    print(f"Seeds: {args.seeds}\n")
+    print(f"Seeds: {args.seeds}")
+
+    warnings = check_scene_reachability(task.scene)
+    if warnings:
+        print(format_warnings(warnings))
+    print()
 
     wins = 0
     for seed in range(args.seeds):

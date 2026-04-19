@@ -21,6 +21,7 @@ fine-tune your own policies.
 - [Bring your own task](docs/site/docs/guides/bring-your-own-task.md) — author a task YAML, randomize, score
 - [Add a skill](docs/site/docs/guides/add-a-skill.md) — extend the agent's vocabulary
 - [VLM tool-calling](docs/site/docs/guides/vlm-tool-calling.md) — how text becomes `SkillCall`s (runnable walkthrough, no API key needed)
+- [Reachability pre-flight](docs/site/docs/guides/reachability.md) — catch bad object placements before physics runs
 - [Replan loop](docs/site/docs/guides/replan-loop.md) — ReAct recovery when skills fail
 
 ```

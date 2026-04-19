@@ -232,12 +232,25 @@ def main(argv: list[str] | None = None) -> int:
     all_results: list[dict[str, Any]] = []
     print(f"{'TASK':<18} {'SEED':<5} {'RESULT':<6} {'SECS':>6} {'REPLANS':>8} {'DETAIL'}")
     print("-" * 90)
+    from robosandbox.scene.reachability import check_scene_reachability
+
     for name in task_names:
         try:
             task = load_builtin_task(name)
         except FileNotFoundError as e:
             print(f"[bench] skipping unknown task {name!r}: {e}", file=sys.stderr)
             continue
+        # Pre-flight: warn (once per task) about objects the Pick pipeline
+        # can't reach from the home pose. Doesn't abort — surprises are
+        # valid test cases — but users see them early.
+        _warn = check_scene_reachability(task.scene)
+        for w in _warn:
+            print(
+                f"[bench] {name}: {w.id} unreachable at {w.first_failed_phase} "
+                f"— target ({w.target_xyz[0]:.2f}, {w.target_xyz[1]:.2f}, "
+                f"{w.target_xyz[2]:.2f})",
+                file=sys.stderr,
+            )
         for seed in range(args.seeds):
             r = _run_one(
                 task,

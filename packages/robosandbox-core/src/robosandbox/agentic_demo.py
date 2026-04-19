@@ -147,6 +147,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---- assemble planner + perception ---------------------------------
     scene = build_three_cube_scene()
+
+    # Pre-flight kinematic check. Warnings print here so users see them
+    # before any physics runs — infeasible picks surface instantly
+    # instead of after 4 replans.
+    from robosandbox.scene.reachability import check_scene_reachability, format_warnings
+    _warn = check_scene_reachability(scene)
+    if _warn:
+        print(format_warnings(_warn))
+
     sim = MuJoCoBackend(render_size=(480, 640), camera="scene")
     sim.load(scene)
     recorder = LocalRecorder(root=Path("runs"), video_fps=30)

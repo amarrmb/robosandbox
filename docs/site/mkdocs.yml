@@ -72,6 +72,7 @@ nav:
       - Bring your own task: guides/bring-your-own-task.md
       - Add a skill: guides/add-a-skill.md
       - VLM tool-calling: guides/vlm-tool-calling.md
+      - Reachability pre-flight: guides/reachability.md
       - Replan loop: guides/replan-loop.md
   - Concepts:
       - Scenes & objects: concepts/scenes.md
