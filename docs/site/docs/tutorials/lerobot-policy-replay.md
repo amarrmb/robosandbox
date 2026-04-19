@@ -7,6 +7,23 @@ public ACT checkpoint** through RoboSandbox's
 with the core, so you can see what the policy seam actually looks
 like in code.
 
+!!! warning "What this tutorial is — and isn't"
+    **This is an advanced seam-validation demo under cross-embodiment
+    mismatch.** It proves RoboSandbox's policy runtime plumbing
+    (`LeRobotPolicyAdapter` + `run_policy` + the `LocalRecorder`
+    loop-back) holds against a real public checkpoint whose
+    observation/action contract doesn't match our sim exactly.
+
+    **It is NOT ready-made policy replay support** for arbitrary
+    checkpoints. The reusable product path is
+    `LeRobotPolicyAdapter(policy) → run_policy(sim, adapter)` **when
+    the checkpoint's embodiment matches your sim's** (same joint
+    count, matching camera keys, compatible normalization). Anything
+    else — including the `DimShimAdapter` in this tutorial's example
+    script — is user-level glue, not a stable API. When your
+    checkpoint and sim line up, skip the shim and drop the vanilla
+    adapter into `run_policy` directly.
+
 ![so100 policy rollout](../assets/demos/so100_policy_run.gif){ loading=lazy }
 
 The non-bundled SO-ARM100 (from

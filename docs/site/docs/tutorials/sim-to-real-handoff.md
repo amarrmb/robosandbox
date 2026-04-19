@@ -163,7 +163,13 @@ tests:
 uv run pytest packages/robosandbox-core/tests/test_real_backend_contract.py
 ```
 
-If all five pass, the skills layer holds for your backend.
+If all five pass, the **observation + step contract** holds for your
+backend — the minimum surface `Home`, teleop primitives, custom
+open-loop skills, and `LeRobotPolicyAdapter`-wrapped policies rely on
+via `run_policy`. They do **not** certify motion-planning skills
+(`Pick`, `PlaceOn`, `Push`); those still depend on the MuJoCo
+kinematic model per "What does NOT carry over" above. Plan in sim,
+execute on real is the standard pattern for that class of skill.
 
 ## Where this tutorial fits
 
