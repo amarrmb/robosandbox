@@ -1,0 +1,25 @@
+Output "/home/amar/robosandbox/docs/site/docs/assets/demos/so100_policy.gif"
+
+Set FontSize 14
+Set Width 1200
+Set Height 540
+Set Theme "Catppuccin Mocha"
+Set TypingSpeed 30ms
+Set Padding 18
+
+Hide
+Type "cd /home/amar/robosandbox"
+Enter
+Type "clear"
+Enter
+Show
+
+Type "# Non-bundled SO-ARM100 + public LeRobot ACT checkpoint, end to end"
+Sleep 900ms
+Enter
+Sleep 300ms
+Type "uv run --quiet python examples/so_arm100/run_so100_policy.py 2>&1 | grep -vE 'WARNING|INFO|Fetching|Loading weights'"
+Sleep 400ms
+Enter
+Sleep 12000ms
+Sleep 1500ms

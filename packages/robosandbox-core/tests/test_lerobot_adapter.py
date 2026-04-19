@@ -143,3 +143,44 @@ def test_image_resize_downsamples_to_target() -> None:
     adapter.act(_obs(rgb_hw=(240, 320)))
     img = policy.last_batch["observation.images.scene"]
     assert img.shape == (1, 3, 16, 20)
+
+
+def test_torch_module_policy_receives_tensors() -> None:
+    """Regression for codex finding: the adapter must feed torch.Tensors
+    when the wrapped policy is a torch.nn.Module, but keep numpy for
+    mock policies even when torch happens to be installed.
+    """
+    torch = pytest.importorskip("torch")
+
+    # Torch module that records whatever it received.
+    class _TorchPolicyModule(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            # Register a real parameter so `parameters()` yields torch params.
+            self._p = torch.nn.Parameter(torch.zeros(1))
+            self.last_batch: dict | None = None
+
+        def select_action(self, batch):  # pragma: no cover - exercised below
+            self.last_batch = batch
+            return torch.zeros(1, 8, dtype=torch.float32)
+
+    policy = _TorchPolicyModule()
+    adapter = LeRobotPolicyAdapter(policy, camera_name="scene")
+    adapter.act(_obs(n_dof=7))
+    assert policy.last_batch is not None
+    img = policy.last_batch["observation.images.scene"]
+    state = policy.last_batch["observation.state"]
+    assert isinstance(img, torch.Tensor), f"expected torch.Tensor, got {type(img)!r}"
+    assert isinstance(state, torch.Tensor), f"expected torch.Tensor, got {type(state)!r}"
+
+
+def test_mock_policy_still_receives_numpy_when_torch_is_importable() -> None:
+    """The numpy contract for non-torch mocks must not depend on whether
+    torch is present in the environment."""
+    pytest.importorskip("torch")  # ensure torch IS importable
+    policy = _FakeLeRobotPolicy(np.zeros(8, dtype=np.float32))
+    adapter = LeRobotPolicyAdapter(policy, camera_name="scene")
+    adapter.act(_obs(n_dof=7))
+    img = policy.last_batch["observation.images.scene"]
+    assert isinstance(img, np.ndarray), f"mock policy should get numpy, got {type(img)!r}"
+    assert img.dtype == np.float32

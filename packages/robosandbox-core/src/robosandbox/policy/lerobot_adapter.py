@@ -91,6 +91,11 @@ class LeRobotPolicyAdapter:
         # allocate three intermediate arrays per step. Sized on first use
         # once we see the actual robot_joints length.
         self._state_buf: np.ndarray | None = None
+        # Whether to convert batch values to torch.Tensor in _to_batch().
+        # Keyed on the *wrapped policy's* type (is it a torch.nn.Module?),
+        # not on ambient torch availability — so non-torch mock policies
+        # keep receiving numpy arrays even when torch is installed.
+        self._use_torch_batch = _policy_wants_torch(policy)
 
     @property
     def camera_name(self) -> str:
@@ -135,14 +140,14 @@ class LeRobotPolicyAdapter:
 
         # LeRobot's PreTrainedPolicy forward passes call nn.Linear on the
         # state tensor directly, so the batch values must be torch.Tensors
-        # (not numpy). Convert when torch is available; fall back to numpy
-        # so callers using non-torch mock policies (tests, docs demos) still
-        # work without pulling torch into the optional-deps graph.
-        try:
-            import torch  # local import: torch is optional for the adapter
+        # (not numpy). Only convert when the wrapped policy is actually a
+        # torch module — non-torch mocks keep receiving numpy so their
+        # tests/examples don't break when torch happens to be in the env.
+        if self._use_torch_batch:
+            import torch  # deferred import: only reached for torch policies
             img_val: Any = torch.from_numpy(chw)
             state_val: Any = torch.from_numpy(self._state_buf)
-        except ImportError:
+        else:
             img_val = chw
             state_val = self._state_buf
 
@@ -150,6 +155,27 @@ class LeRobotPolicyAdapter:
             f"observation.images.{self._camera_name}": img_val,
             "observation.state": state_val,
         }
+
+
+def _policy_wants_torch(policy: Any) -> bool:
+    """Decide whether to hand ``policy.select_action`` torch.Tensors.
+
+    True when the wrapped object is (or smells like) a torch.nn.Module.
+    False otherwise — preserves the numpy batch contract for test mocks,
+    docs-demo policies, and any custom callable that doesn't need tensors.
+    """
+    if type(policy).__name__ in ("module", "Module"):  # unlikely, but cheap
+        return True
+    # Duck-type: real torch.nn.Module exposes parameters() → an iterator of
+    # torch.nn.Parameter and a `forward` method. Avoid importing torch here.
+    params = getattr(policy, "parameters", None)
+    if callable(params):
+        try:
+            first = next(iter(params()))
+        except (StopIteration, TypeError, ValueError):
+            return False
+        return type(first).__module__.startswith("torch")
+    return False
 
 
 def _to_numpy_1d(x: Any) -> np.ndarray:
