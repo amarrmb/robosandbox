@@ -2,8 +2,23 @@
 
 Illustrates the ``SimBackend`` protocol as the interface between "simulated"
 and "real" execution. Subclass ``RealRobotBackend`` with your hardware
-driver; everything else — skills, motion, grasp, agent loop — works
-unchanged.
+driver.
+
+**Certified by tests** (packages/robosandbox-core/tests/
+test_real_backend_contract.py): the ``observe()`` / ``step()`` /
+``home_qpos`` contract and the ``Home`` skill running end-to-end
+against a ``RealRobotBackend`` subclass with zero joint residual.
+
+**Not certified, expected to work** (because they only consume the
+same Protocol surface): ``LocalRecorder``, other observation+step
+skills, ``LeRobotPolicyAdapter`` + ``run_policy``. Verify in your
+backend before relying on them.
+
+**Does NOT carry over**: motion-planning skills (``Pick``,
+``PlaceOn``, ``Push``). Their motion planner reads MuJoCo's
+kinematic model (``sim.model`` / ``sim.data``), which a real backend
+doesn't expose. The standard pattern is "plan in sim, execute on
+real" — see ``docs/site/docs/tutorials/sim-to-real-handoff.md``.
 
 Run the stub (no hardware needed — just shows the protocol holds):
     uv run python examples/real_robot_swap.py

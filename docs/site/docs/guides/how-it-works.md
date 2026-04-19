@@ -138,10 +138,18 @@ SimBackend, Perception, GraspPlanner, MotionPlanner, RecordSink,
 VLMClient, Skill, Planner
 ```
 
-Drop in a new `GraspPlanner` and everything downstream works. Want to
-replace MuJoCo with Isaac Sim? Implement `SimBackend`. Want a curobo
-motion planner? Implement `MotionPlanner`. Zero core changes — plugin
+A plugin that implements one of these Protocols drops into the same
+call sites the built-in implementations use — e.g., swap the bundled
+`AnalyticTopDown` grasp planner for your own by passing a different
+`GraspPlanner` into `AgentContext`. `SimBackend` and `MotionPlanner`
+are the largest surfaces; the others are a method or two each. Plugin
 packages register via `robosandbox.*` entry points.
+
+The sim-to-real tutorial documents the concrete caveat for
+`SimBackend` replacements: observation+step skills carry over, but
+anything that reads MuJoCo's kinematic model (the current motion
+planner does) needs either a kinematics-carrying real backend or a
+different `MotionPlanner` implementation.
 
 ## What's next
 

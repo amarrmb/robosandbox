@@ -17,21 +17,23 @@ The `Home` skill — the same one the sim uses — driving a
 declared home, with zero joint residual. No branches for
 "sim vs real" in the skill; the `SimBackend` Protocol is the interface.
 
-## What carries over unchanged
+## What carries over
 
-| Layer | Works against `RealRobotBackend` as-is? |
+| Layer | Status on `RealRobotBackend` |
 |---|---|
-| `Skill` Protocol (`name`, `description`, `parameters_schema`, `__call__`) | yes |
-| Observation+step skills: `Home`, custom `Wave`, teleop primitives | yes |
-| Recording: `LocalRecorder`, `export-lerobot` | yes |
-| Policies wrapped by `LeRobotPolicyAdapter` | yes |
-| Agent ReAct loop (`agent/agent.py`) | yes |
+| `Skill` Protocol (`name`, `description`, `parameters_schema`, `__call__`) | **certified** by the contract tests below |
+| `Home` skill end-to-end | **certified** by `test_home_skill_runs_against_real_backend` |
+| Other observation+step skills (`Wave`, teleop primitives) | **expected to work** — same Protocol surface, not individually tested |
+| `LocalRecorder` + `export-lerobot` | **expected to work** — reads `Observation`, which the fake backend produces |
+| `LeRobotPolicyAdapter` + `run_policy` | **expected to work** — `run_policy` only calls `observe` / `step` |
+| `Agent` ReAct loop | **expected to work** — only composes skill calls + observations |
 
-The `SimBackend` Protocol (see
-[`protocols.py`](https://github.com/amarrmb/robosandbox/blob/main/packages/robosandbox-core/src/robosandbox/protocols.py))
-is everything a skill sees. As long as your real-hardware subclass
-honours it, none of the layers above know or care whether they're
-driving MuJoCo or a physical arm.
+"Certified" means a test in
+[`test_real_backend_contract.py`](https://github.com/amarrmb/robosandbox/blob/main/packages/robosandbox-core/tests/test_real_backend_contract.py)
+exercises the path end-to-end against a `RealRobotBackend` subclass.
+"Expected to work" means the layer only consumes the same `SimBackend`
+Protocol surface the certified paths do — verify in your own backend
+before relying on it in a production loop.
 
 ## What has to be reimplemented
 
@@ -85,15 +87,17 @@ RealRobotBackendConfig(
 )
 ```
 
-Three things the skeleton lets the framework do for free once your
-driver is wired:
+Three behaviours the skeleton preserves once your driver is wired:
 
-- **Skills discover `home_qpos` via `sim.home_qpos`** (a public
-  property on both `MuJoCoBackend` and `RealRobotBackend`). No more
-  per-skill hardcoded home vectors.
-- **`LeRobotPolicyAdapter` wraps any policy the same way** it did in
-  sim — observation+step skills transfer, and the adapter's batch
-  shape is robot-agnostic.
+- **Skills read `home_qpos` via `sim.home_qpos`** (a public
+  property on both `MuJoCoBackend` and `RealRobotBackend`). Removes
+  the per-skill hardcoded home vectors that used to break on any
+  DoF other than 6.
+- **`LeRobotPolicyAdapter` constructs the same batch shape** it
+  does in sim — `(1, C, H, W)` float32 images, `(1, state_dim)`
+  float32 state, correct named keys. Policy rollouts whose
+  observation+action dims match your embodiment can be driven with
+  the vanilla adapter via `run_policy`.
 - **Regression tests in `packages/robosandbox-core/tests/test_real_backend_contract.py`**
   guard the contract: `n_dof`/`joint_names`/`home_qpos` stay
   consistent, `step` mutates observed state, gripper ordering is

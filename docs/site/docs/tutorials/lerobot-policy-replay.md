@@ -104,11 +104,16 @@ from huggingface_hub import snapshot_download
 local = Path(snapshot_download("satvikahuja/act_so100_test", ...))
 ```
 
-**Every public SO-100 ACT checkpoint on the Hub was trained with
-`lerobot < 0.5`.** The older config schema uses `input_shapes` +
+**All six public SO-100 ACT checkpoints we probed** — `cadene/
+act_so100_5_lego_test_080000`, `satvikahuja/act_so100_test`,
+`koenvanwijk/act_so100_test`, `Chojins/so100_test20`,
+`pingev/lerobot-so100-1`, `maximilienroberti/act_so100_lego_red_box`
+— **ship a pre-0.5 config schema** that uses `input_shapes` +
 `input_normalization_modes` rather than the current
 `input_features`/`output_features` + `normalization_mapping`. Loading
-the old config crashes with a `DecodingError`.
+the old config crashes with a `DecodingError`. We have not enumerated
+every SO-100 ACT checkpoint on the Hub; newer or private uploads may
+already use the current schema.
 
 Fix:
 [`examples/so_arm100/migrate_lerobot_config.py`](https://github.com/amarrmb/robosandbox/blob/main/examples/so_arm100/migrate_lerobot_config.py)
