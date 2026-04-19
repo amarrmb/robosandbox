@@ -70,7 +70,7 @@ class DimShimAdapter(LeRobotPolicyAdapter):
       consumes it
 
     This is a **brittle demo shim** — it will not produce successful
-    rollouts, but it lets us prove the seam works end-to-end.
+    rollouts, but it lets us prove the integration works end-to-end.
     """
 
     def __init__(self, policy: Any, camera_names: tuple[str, ...], **kwargs: Any) -> None:

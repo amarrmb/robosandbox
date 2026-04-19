@@ -4,11 +4,11 @@ The second tutorial in the [LeRobot workflow](./policy-replay.md)
 track. Demo 1 proved the data path. This one runs **one specific
 public ACT checkpoint** through RoboSandbox's
 `robosandbox.policy.run_policy` loop on a robot that isn't bundled
-with the core, so you can see what the policy seam actually looks
+with the core, so you can see what the policy integration actually looks
 like in code.
 
 !!! warning "What this tutorial is — and isn't"
-    **This is an advanced seam-validation demo under cross-embodiment
+    **This is an advanced integration demo under cross-embodiment
     mismatch.** It proves RoboSandbox's policy runtime plumbing
     (`LeRobotPolicyAdapter` + `run_policy` + the `LocalRecorder`
     loop-back) holds against a real public checkpoint whose
@@ -242,7 +242,7 @@ Three things need to line up for a meaningful policy run in sim:
    that distribution produce garbage actions even when plumbing is
    perfect. This is rarely a hard blocker but is often a subtle one.
 
-None of these are in scope for "prove the seam holds." All three are
+None of these are in scope for "prove the integration holds." All three are
 in scope for a future *Sim-to-Real Handoff* (Demo 3) tutorial that
 pairs a sim-trained policy with a matching hardware backend.
 
@@ -253,7 +253,7 @@ The [policy-replay umbrella](./policy-replay.md) frames the larger
 
 1. **[LeRobot Export](./lerobot-export.md)** — proves the data path.
 2. **LeRobot Policy Replay with a pre-trained checkpoint** (you are
-   here) — proves the policy seam under cross-embodiment mismatch.
+   here) — proves the policy integration under cross-embodiment mismatch.
 3. **Sim-to-Real Handoff** — coming. The deployment recipe and
    backend template for taking a sim-validated policy to real
    hardware.

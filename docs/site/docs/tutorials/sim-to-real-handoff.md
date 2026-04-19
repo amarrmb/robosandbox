@@ -15,7 +15,7 @@ checklist for the first run with torque enabled.
 The `Home` skill — the same one the sim uses — driving a
 `RealRobotBackend` subclass from an arbitrary start pose to its
 declared home, with zero joint residual. No branches for
-"sim vs real" in the skill; the `SimBackend` Protocol is the seam.
+"sim vs real" in the skill; the `SimBackend` Protocol is the interface.
 
 ## What carries over unchanged
 
@@ -175,7 +175,7 @@ execute on real is the standard pattern for that class of skill.
 
 1. **[LeRobot Export](./lerobot-export.md)** — proves the data path.
 2. **[LeRobot Policy Replay](./lerobot-policy-replay.md)** —
-   proves the policy seam.
+   proves the policy integration.
 3. **Sim-to-Real Handoff** (you are here) — the deployment recipe.
    What has to happen between a sim-validated skill/policy and
    real hardware execution.

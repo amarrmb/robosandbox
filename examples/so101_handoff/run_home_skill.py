@@ -1,6 +1,6 @@
 """Drive the SO-101 skeleton backend through the ``Home`` skill.
 
-Proves the sim-to-real seam for the class of skills that only use
+Proves the sim-to-real interface for the class of skills that only use
 ``observe()`` + ``step()`` (no motion-planning IK): hand the real-
 backend subclass to the same ``AgentContext`` the sim uses, call the
 same skill, get the same ``SkillResult`` type back.

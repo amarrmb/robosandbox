@@ -1,6 +1,6 @@
 """Swap from sim to real-robot backend without changing skill code.
 
-Illustrates the ``SimBackend`` protocol as the seam between "simulated"
+Illustrates the ``SimBackend`` protocol as the interface between "simulated"
 and "real" execution. Subclass ``RealRobotBackend`` with your hardware
 driver; everything else — skills, motion, grasp, agent loop — works
 unchanged.
