@@ -1,0 +1,21 @@
+name: pick_yellow_cube
+prompt: "pick up the yellow cube"
+seed_note: "User-authored example task. Franka picks a yellow cube with randomized position across seeds."
+scene:
+  robot_urdf: "@builtin:robots/franka_panda/panda.xml"
+  robot_config: "@builtin:robots/franka_panda/panda.robosandbox.yaml"
+  objects:
+    - id: yellow_cube
+      kind: box
+      size: [0.015, 0.015, 0.015]       # 15mm — slightly bigger than the default pick_cube
+      pose:
+        xyz: [0.42, 0.0, 0.06]
+      rgba: [0.95, 0.85, 0.15, 1.0]     # vivid yellow
+      mass: 0.05
+success:
+  kind: lifted
+  object: yellow_cube
+  min_mm: 50
+randomize:
+  xy_jitter: 0.04                       # ±4 cm on each axis
+  yaw_jitter: 0.52                      # ±30° about z

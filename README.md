@@ -12,13 +12,16 @@ decomposes the task into skills; the sandbox executes them in MuJoCo
 with analytic grasping + IK; optionally records the result so you can
 fine-tune your own policies.
 
-**New users start here** — four short guides (terminal + viewer GIFs, runnable in minutes):
+**New users start here** — short guides (terminal + viewer GIFs, runnable in minutes):
 
 - [How it works in 3 minutes](docs/site/docs/guides/how-it-works.md) — the four-layer architecture
+- [Running the agent](docs/site/docs/guides/agent-runs.md) — CLI entry points, recorded artifacts, provider switch
 - [Bring your own robot](docs/site/docs/guides/bring-your-own-robot.md) — URDF + sidecar YAML
 - [Bring your own object](docs/site/docs/guides/bring-your-own-object.md) — YCB meshes + BYO OBJ
+- [Bring your own task](docs/site/docs/guides/bring-your-own-task.md) — author a task YAML, randomize, score
 - [Add a skill](docs/site/docs/guides/add-a-skill.md) — extend the agent's vocabulary
 - [VLM tool-calling](docs/site/docs/guides/vlm-tool-calling.md) — how text becomes `SkillCall`s (runnable walkthrough, no API key needed)
+- [Replan loop](docs/site/docs/guides/replan-loop.md) — ReAct recovery when skills fail
 
 ```
 user: "pick up the red cube and put it on the green cube"

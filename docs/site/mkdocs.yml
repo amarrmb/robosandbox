@@ -66,10 +66,13 @@ nav:
   - Quickstart: quickstart.md
   - Guides:
       - How it works in 3 minutes: guides/how-it-works.md
+      - Running the agent: guides/agent-runs.md
       - Bring your own robot: guides/bring-your-own-robot.md
       - Bring your own object: guides/bring-your-own-object.md
+      - Bring your own task: guides/bring-your-own-task.md
       - Add a skill: guides/add-a-skill.md
       - VLM tool-calling: guides/vlm-tool-calling.md
+      - Replan loop: guides/replan-loop.md
   - Concepts:
       - Scenes & objects: concepts/scenes.md
       - Skills & agents: concepts/skills-and-agents.md
