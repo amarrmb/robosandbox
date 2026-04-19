@@ -1,6 +1,9 @@
 site_name: RoboSandbox
 site_description: Sim-first agentic manipulation sandbox — any arm, any object, any command.
-site_url: https://example.com/robosandbox/
+# site_url: set this when publishing to GitHub Pages or a custom domain.
+# Leaving it unset avoids generating canonical URLs + social metadata
+# that point at an example.com placeholder. To publish:
+#   site_url: https://amarrmb.github.io/robosandbox/
 repo_url: https://github.com/amarrmb/robosandbox
 repo_name: amarrmb/robosandbox
 edit_uri: edit/main/docs/site/docs/

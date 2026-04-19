@@ -3,9 +3,9 @@
 Top-level public surface. Every symbol below is importable under the
 path shown.
 
-For the full internal tree, browse
-`packages/robosandbox-core/src/robosandbox/`. This page covers what
-downstream code should rely on.
+For the full source tree, browse
+[`packages/robosandbox-core/src/robosandbox/`](https://github.com/amarrmb/robosandbox/tree/main/packages/robosandbox-core/src/robosandbox).
+This page covers the symbols downstream code should rely on.
 
 ## Core types — `robosandbox.types`
 

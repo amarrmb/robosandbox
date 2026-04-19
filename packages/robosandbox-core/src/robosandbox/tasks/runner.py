@@ -1,8 +1,9 @@
-"""Benchmark runner: execute the 5-task starter suite and report results.
+"""Benchmark runner: execute the bundled task suite and report results.
 
-Runs each task N seeds (default 1) with the StubPlanner + ground-truth
-perception by default — isolates sandbox reliability from VLM variance.
-Use ``--vlm-provider`` to switch to a real model.
+Runs each non-experimental task YAML under ``tasks/definitions/`` for
+``--seeds N`` (default 1) repetitions with the ``StubPlanner`` +
+``GroundTruthPerception`` — isolates sandbox reliability from VLM
+variance. Use ``--vlm-provider`` to switch to a real model.
 """
 
 from __future__ import annotations

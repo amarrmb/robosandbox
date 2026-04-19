@@ -37,8 +37,12 @@ from my_driver import MySO101Backend
 sim = MySO101Backend("/dev/ttyACM0")
 sim.load(scene)
 
-# everything downstream — Pick(), PlaceOn(), DLSMotionPlanner,
-# AnalyticTopDown, Agent — runs unchanged.
+# Observation+step skills (Home, teleop, LeRobotPolicyAdapter-wrapped
+# policies via run_policy) then run against MySO101Backend through the
+# same SimBackend Protocol. Motion-planning skills (Pick, PlaceOn, Push)
+# are the exception — they read sim.model / sim.data, which a real
+# backend doesn't expose. See tutorials/sim-to-real-handoff.md for the
+# "plan in sim, execute on real" pattern.
 ```
 
 ## `RealRobotBackend` stub

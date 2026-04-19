@@ -105,12 +105,15 @@ gpt-4o` for harder plans.
   (URDF import path).
 - 9 skills: `pick`, `place_on`, `push`, `home`, `pour`, `tap`,
   `open_drawer`, `close_drawer`, `stack`.
-- 8 default benchmark tasks including a long-horizon
-  `pour_can_into_bowl`.
+- 9 default benchmark tasks including a long-horizon
+  `pour_can_into_bowl` and an articulated-drawer primitive.
 - 10 bundled YCB objects, drop-in via `@ycb:<id>`.
 - Browser live viewer with record + keyboard teleop.
 - LeRobot v3 parquet export + policy replay loop.
-- Real-robot bridge stub — subclass, fill hardware driver, skills
-  work unchanged.
+- Real-robot bridge stub — subclass, fill the hardware driver;
+  observation+step skills (`Home`, teleop, policy rollouts) carry
+  over unchanged. Motion-planning skills (`Pick`, `PlaceOn`, `Push`)
+  still depend on MuJoCo kinematics — see the
+  [sim-to-real handoff tutorial](tutorials/sim-to-real-handoff.md).
 
 See the [roadmap](reference/roadmap.md) for what's next.

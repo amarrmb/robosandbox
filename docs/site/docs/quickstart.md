@@ -60,18 +60,19 @@ uv run robo-sandbox-bench
 Expected output (abbreviated):
 
 ```
-TASK               SEED  RESULT   SECS  REPLANS DETAIL
+TASK                 SEED  RESULT   SECS  REPLANS DETAIL
 ------------------------------------------------------------------------------------------
-home               0     OK        0.0        0
-pick_cube          0     OK        6.1        0  dz_mm=72.3, min_mm=50.0
-pick_cube_franka   0     OK        7.2        0  dz_mm=68.5, min_mm=50.0
-pick_from_three    0     OK        6.0        0  dz_mm=71.1, min_mm=50.0
-pick_ycb_mug       0     OK        7.8        0  dz_mm=63.0, min_mm=50.0
-push_forward       0     OK        4.0        0  dx_mm=45.7, min_mm=30.0
-open_drawer        0     OK        6.5        0  dx_mm=74.2, min_mm=50.0
-pour_can_into_bowl 0     OK       12.1        0  dz=0.09, dxy=0.03
+home                 0     OK        0.0        0
+open_drawer          0     OK        2.0        0  displacement_mm=62.7, min_mm=50.0
+pick_cube            0     OK        1.1        0  dz_mm=159.8, min_mm=50.0
+pick_cube_franka     0     OK        1.5        0  dz_mm=166.9, min_mm=50.0
+pick_cube_scrambled  0     OK        1.5        0  dz_mm=166.9, min_mm=50.0
+pick_from_three      0     OK        1.1        0  dz_mm=160.0, min_mm=50.0
+pick_ycb_mug         0     OK        1.7        0  dz_mm=105.3, min_mm=50.0
+pour_can_into_bowl   0     OK        2.8        0  xy=0.004, dz=0.133
+push_forward         0     OK        1.0        0  displacement_mm=76.5, min_mm=30.0
 
-SUMMARY: 8/8 successful
+SUMMARY: 9/9 successful
 ```
 
 Results append to `benchmark_results.json` (override path with `--out`).

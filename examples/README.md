@@ -31,8 +31,8 @@ uv sync --package robosandbox --extra dev --extra viewer --extra meshes --extra 
 
 ## LeRobot workflow
 
-Companions to `docs/tutorials/lerobot-export.md` and
-`docs/tutorials/lerobot-policy-replay.md`.
+Companions to `docs/site/docs/tutorials/lerobot-export.md` and
+`docs/site/docs/tutorials/lerobot-policy-replay.md`.
 
 | Script | What it shows |
 |---|---|
@@ -44,7 +44,7 @@ Companions to `docs/tutorials/lerobot-export.md` and
 
 ## Sim-to-real handoff
 
-Companion to `docs/tutorials/sim-to-real-handoff.md`.
+Companion to `docs/site/docs/tutorials/sim-to-real-handoff.md`.
 
 | Script | What it shows |
 |---|---|

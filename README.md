@@ -76,7 +76,7 @@ matrix and what's deferred.
 > the Linux path.
 
 ```bash
-git clone <this-repo> robosandbox
+git clone https://github.com/amarrmb/robosandbox.git
 cd robosandbox
 uv sync                                 # one-time
 uv pip install -e packages/robosandbox-core
