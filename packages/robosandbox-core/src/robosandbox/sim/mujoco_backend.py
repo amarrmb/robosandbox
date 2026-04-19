@@ -118,12 +118,18 @@ class MuJoCoBackend:
         self._t = 0.0
 
     def close(self) -> None:
-        if self._renderer is not None:
-            self._renderer.close()
-            self._renderer = None
-        if self._depth_renderer is not None:
-            self._depth_renderer.close()
-            self._depth_renderer = None
+        # MuJoCo's Renderer.__del__ calls close() a second time at interpreter
+        # shutdown when the EGL context is already torn down, raising
+        # AttributeError on a half-freed instance. Swallow it — the resources
+        # we own are released by the explicit close() here.
+        for attr in ("_renderer", "_depth_renderer"):
+            r = getattr(self, attr, None)
+            if r is not None:
+                try:
+                    r.close()
+                except Exception:
+                    pass
+                setattr(self, attr, None)
 
     # ---- stepping --------------------------------------------------------
     def step(

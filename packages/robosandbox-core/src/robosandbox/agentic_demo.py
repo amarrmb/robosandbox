@@ -56,9 +56,12 @@ PROVIDER_DEFAULTS = {
 def build_three_cube_scene() -> Scene:
     """Three cubes inside the arm's comfortable reach envelope.
 
-    Arm base is at (-0.32, 0, 0.04); ee reach is ~0.37m. Cubes placed
-    within the inner half of the workspace, spaced so fingers won't
-    brush a neighbour on approach.
+    Arm base is at (-0.32, 0, 0.04). `red_cube` sits at the center
+    (y=0) — the reach sweet spot validated by the pick_cube benchmark
+    — since that's the target of the README's headline
+    ``robo-sandbox run "pick up the red cube"`` example. Green/blue
+    flank it on ±y so perception still has three candidates to
+    disambiguate by color.
     """
     return Scene(
         objects=(
@@ -66,7 +69,7 @@ def build_three_cube_scene() -> Scene:
                 id="red_cube",
                 kind="box",
                 size=(0.012, 0.012, 0.012),
-                pose=Pose(xyz=(0.04, -0.07, 0.07)),
+                pose=Pose(xyz=(0.05, 0.0, 0.07)),
                 mass=0.05,
                 rgba=(0.85, 0.2, 0.2, 1.0),
             ),
@@ -74,7 +77,7 @@ def build_three_cube_scene() -> Scene:
                 id="green_cube",
                 kind="box",
                 size=(0.012, 0.012, 0.012),
-                pose=Pose(xyz=(0.04, 0.0, 0.07)),
+                pose=Pose(xyz=(0.05, -0.07, 0.07)),
                 mass=0.05,
                 rgba=(0.2, 0.75, 0.3, 1.0),
             ),
@@ -82,7 +85,7 @@ def build_three_cube_scene() -> Scene:
                 id="blue_cube",
                 kind="box",
                 size=(0.012, 0.012, 0.012),
-                pose=Pose(xyz=(0.04, 0.07, 0.07)),
+                pose=Pose(xyz=(0.05, 0.07, 0.07)),
                 mass=0.05,
                 rgba=(0.2, 0.45, 0.9, 1.0),
             ),
@@ -180,7 +183,11 @@ def main(argv: list[str] | None = None) -> int:
         sim=sim,
         perception=perception,
         grasp=AnalyticTopDown(),
-        motion=DLSMotionPlanner(n_waypoints=160, dt=0.005),
+        # n_waypoints default (200) spaces the trajectory so the gripper
+        # arrives gently; lower values (e.g. 160) cause the descend to
+        # bump the cube out of the grasp. See bench runner which uses the
+        # default too.
+        motion=DLSMotionPlanner(),
         recorder=recorder,
     )
 
