@@ -133,9 +133,22 @@ class LeRobotPolicyAdapter:
         self._state_buf[0, :-1] = joints
         self._state_buf[0, -1] = obs.gripper_width
 
+        # LeRobot's PreTrainedPolicy forward passes call nn.Linear on the
+        # state tensor directly, so the batch values must be torch.Tensors
+        # (not numpy). Convert when torch is available; fall back to numpy
+        # so callers using non-torch mock policies (tests, docs demos) still
+        # work without pulling torch into the optional-deps graph.
+        try:
+            import torch  # local import: torch is optional for the adapter
+            img_val: Any = torch.from_numpy(chw)
+            state_val: Any = torch.from_numpy(self._state_buf)
+        except ImportError:
+            img_val = chw
+            state_val = self._state_buf
+
         return {
-            f"observation.images.{self._camera_name}": chw,
-            "observation.state": self._state_buf,
+            f"observation.images.{self._camera_name}": img_val,
+            "observation.state": state_val,
         }
 
 
