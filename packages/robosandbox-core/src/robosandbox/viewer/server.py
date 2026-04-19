@@ -57,7 +57,7 @@ from robosandbox.skills.tap import Tap
 from robosandbox.tasks.loader import list_builtin_tasks, load_builtin_task
 
 
-_RENDER_SIZE = (360, 480)  # h, w
+_RENDER_SIZE = (720, 960)  # h, w — 2x linear resolution; scene camera fovy widened to 65° keeps the full arm in frame
 _IDLE_HZ = 15
 _AGENT_RENDER_EVERY_N_STEPS = 3  # Render every 3rd on_step to cap CPU
 _JPEG_QUALITY = 80

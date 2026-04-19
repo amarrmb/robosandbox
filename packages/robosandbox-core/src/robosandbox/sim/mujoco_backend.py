@@ -72,6 +72,13 @@ class MuJoCoBackend:
     # ---- lifecycle -------------------------------------------------------
     def load(self, scene: Scene) -> None:
         self._model, self._robot = build_model(scene)
+        # MuJoCo's offscreen framebuffer defaults to 640x480; the Renderer
+        # refuses sizes beyond it unless bumped here (equivalent to setting
+        # <visual><global offwidth offheight/> in the MJCF).
+        if self._model.vis.global_.offwidth < self._render_w:
+            self._model.vis.global_.offwidth = self._render_w
+        if self._model.vis.global_.offheight < self._render_h:
+            self._model.vis.global_.offheight = self._render_h
         self._data = mujoco.MjData(self._model)
         self._renderer = mujoco.Renderer(self._model, height=self._render_h, width=self._render_w)
         self._depth_renderer = mujoco.Renderer(

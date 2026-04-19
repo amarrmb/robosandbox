@@ -49,8 +49,8 @@ _ARM_XML = """\
     <light pos="1.5 -1 2" dir="-1 1 -1" diffuse="0.4 0.4 0.4"/>
 
     <!-- Fixed wrist-mounted camera looking at the workspace -->
-    <camera name="scene" pos="0.9 -0.9 0.9" xyaxes="0.707 0.707 0 -0.4 0.4 0.82"/>
-    <camera name="top" pos="0 0 1.2" xyaxes="1 0 0 0 1 0"/>
+    <camera name="scene" pos="0.9 -0.9 0.9" xyaxes="0.707 0.707 0 -0.4 0.4 0.82" fovy="65"/>
+    <camera name="top" pos="0 0 1.2" xyaxes="1 0 0 0 1 0" fovy="65"/>
 
     <!-- Floor -->
     <geom name="floor" type="plane" size="2 2 0.05" rgba="0.9 0.9 0.9 1"/>

@@ -537,8 +537,14 @@ def inject_scene_decor(spec: mujoco.MjSpec, scene: Scene) -> None:
         name="scene",
         pos=[0.9, -0.9, 0.9],
         xyaxes=[0.707, 0.707, 0.0, -0.4, 0.4, 0.82],
+        fovy=65.0,
     )
-    world.add_camera(name="top", pos=[0.0, 0.0, 1.2], xyaxes=[1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
+    world.add_camera(
+        name="top",
+        pos=[0.0, 0.0, 1.2],
+        xyaxes=[1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        fovy=65.0,
+    )
 
     # Floor
     world.add_geom(
