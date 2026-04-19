@@ -1,6 +1,6 @@
 """Regression tests for the non-bundled SO-ARM100 URDF + sidecar.
 
-Codex flagged that `examples/so_arm100/` shipped a hand-authored sidecar
+`examples/so_arm100/` ships a hand-authored sidecar
 (TCP placement, joint order, gripper open/closed semantics) with no
 automated coverage. These tests guard the assumptions that the
 `examples/so_arm100/smoke_test.py` verifies manually, so a regression
@@ -63,7 +63,8 @@ def test_so_arm100_loads_and_reports_expected_dof() -> None:
 def test_so_arm100_gripper_open_closed_ordering() -> None:
     """Driving gripper=1.0 (sim-side 'closed') yields a *smaller* observed
     width than gripper=0.0 ('open'). Guards against the open_qpos /
-    closed_qpos swap Codex flagged by catching a backwards sidecar.
+    closed_qpos swap by catching a backwards sidecar before it reaches
+    the viewer or a policy run.
     """
     sim = MuJoCoBackend(render_size=(240, 320), camera="scene")
     sim.load(_scene_with_cube())

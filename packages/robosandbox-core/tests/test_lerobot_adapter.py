@@ -145,9 +145,11 @@ def test_image_resize_downsamples_to_target() -> None:
 
 
 def test_torch_module_policy_receives_tensors() -> None:
-    """Regression for codex finding: the adapter must feed torch.Tensors
-    when the wrapped policy is a torch.nn.Module, but keep numpy for
-    mock policies even when torch happens to be installed.
+    """The adapter must feed torch.Tensors when the wrapped policy is a
+    torch.nn.Module, and keep numpy for mock policies even when torch
+    happens to be installed. Prior bug: conversion was gated on ambient
+    `import torch` success, which broke numpy-contract mocks in any
+    environment that had torch on the path.
     """
     torch = pytest.importorskip("torch")
 

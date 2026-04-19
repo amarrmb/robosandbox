@@ -1,11 +1,13 @@
 # Roadmap
 
-Mission-aligned: a playground where someone can build and evaluate
-manipulation agents. The four pillars are object diversity, task
-diversity, interaction, and loop closure (record → train → deploy).
+RoboSandbox is a playground for building and evaluating manipulation
+agents. The project is organised along four axes: object diversity,
+task diversity, interaction, and loop closure (record → train →
+deploy).
 
-This page is the shipped / in-flight snapshot. For the concrete test
-and benchmark status, run `robo-sandbox-bench` locally or check the
+This page lists what currently ships and what's deferred or open. For
+the concrete test and benchmark status, run `robo-sandbox-bench`
+locally or check the
 [CI badge](https://github.com/amarrmb/robosandbox/actions).
 
 ## Shipped

@@ -1,4 +1,4 @@
-"""Integration tests for the Pour and Tap skills (Sprint B 2.1).
+"""Integration tests for the Pour and Tap skills.
 
 Both skills run end-to-end on the bundled Franka. Neither needs a new
 scene primitive — Pour tilts the held object over a target; Tap

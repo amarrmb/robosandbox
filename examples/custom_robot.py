@@ -19,7 +19,11 @@ from robosandbox.types import Scene
 
 def main() -> None:
     # These paths point at the bundled Franka; swap to your own URDF + sidecar
-    # (e.g. UR5, SO-101) and the rest of the stack works unchanged.
+    # (e.g. UR5, SO-101). Everything that only consumes the `SimBackend`
+    # Protocol — observation+step skills, recording, VLM planning, policy
+    # replay — carries over unchanged. Motion-planning skills (`Pick`,
+    # `PlaceOn`, `Push`) additionally need MuJoCo's kinematic model, which
+    # this path provides because `load_robot` compiles into MuJoCo.
     urdf = Path(str(files("robosandbox").joinpath("assets/robots/franka_panda/panda.xml")))
     cfg = Path(
         str(files("robosandbox").joinpath("assets/robots/franka_panda/panda.robosandbox.yaml"))
