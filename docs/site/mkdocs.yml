@@ -85,6 +85,8 @@ nav:
       - Custom task: tutorials/custom-task.md
       - Custom skill: tutorials/custom-skill.md
       - Policy replay: tutorials/policy-replay.md
+      - "LeRobot workflow":
+          - LeRobot export: tutorials/lerobot-export.md
   - Reference:
       - CLI: reference/cli.md
       - API: reference/api.md
