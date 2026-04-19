@@ -11,7 +11,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from robosandbox.policy import (
     Policy,
     ReplayTrajectoryPolicy,
@@ -21,7 +20,6 @@ from robosandbox.policy import (
 from robosandbox.sim.mujoco_backend import MuJoCoBackend
 from robosandbox.tasks.loader import SuccessCriterion, load_builtin_task
 from robosandbox.types import Observation
-
 
 # --------- fixtures -----------------------------------------------------
 

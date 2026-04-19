@@ -13,10 +13,8 @@ import os
 from pathlib import Path
 
 import pytest
-
 from robosandbox.sim.mujoco_backend import MuJoCoBackend
 from robosandbox.types import Pose, Scene, SceneObject
-
 
 os.environ.setdefault("MUJOCO_GL", "egl")
 

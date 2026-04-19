@@ -9,7 +9,6 @@ configured VLMClient. For offline / no-API-key flows, see
 
 from __future__ import annotations
 
-import json
 import math
 import textwrap
 from typing import Any
@@ -19,7 +18,6 @@ import numpy as np
 from robosandbox.types import DetectedObject, Observation, Pose
 from robosandbox.vlm.client import OpenAIVLMClient, rgb_to_data_url
 from robosandbox.vlm.json_recovery import VLMOutputError, parse_json_loose
-
 
 _SYSTEM_PROMPT = textwrap.dedent(
     """

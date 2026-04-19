@@ -39,7 +39,7 @@ _VIDEO_KEY = "observation.images.scene"
 
 def _require_pyarrow():  # pragma: no cover - import guard
     try:
-        import pyarrow  # noqa: F401
+        import pyarrow
         import pyarrow.parquet  # noqa: F401
     except ImportError as e:
         raise RuntimeError(

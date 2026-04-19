@@ -19,7 +19,6 @@ from pathlib import Path
 from robosandbox.tasks.loader import _ycb_short_name, list_builtin_ycb_objects
 from robosandbox.types import Pose, Scene, SceneObject
 
-
 _FRANKA_URDF = Path(str(files("robosandbox").joinpath("assets/robots/franka_panda/panda.xml")))
 _FRANKA_CONFIG = Path(
     str(files("robosandbox").joinpath("assets/robots/franka_panda/panda.robosandbox.yaml"))

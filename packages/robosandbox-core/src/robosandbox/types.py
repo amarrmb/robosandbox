@@ -146,7 +146,7 @@ class SkillResult:
     """Return type of every skill. Explicit class (not dataclass) so we can
     construct lightweight, mutable instances during debugging."""
 
-    __slots__ = ("success", "reason", "reason_detail", "artifacts")
+    __slots__ = ("artifacts", "reason", "reason_detail", "success")
 
     def __init__(
         self,

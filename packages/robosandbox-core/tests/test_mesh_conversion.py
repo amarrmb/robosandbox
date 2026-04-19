@@ -6,17 +6,14 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from robosandbox.scene.mesh_conversion import (
     MeshAsset,
-    MeshConfigError,
     MeshConfigNotFoundError,
     MeshConfigValidationError,
     _byo_cache_key,
     load_bundled_mesh,
     load_byo_mesh,
 )
-
 
 # Minimal valid OBJ (single triangle). Enough to satisfy "file exists" —
 # mesh_conversion doesn't parse geometry, only threads paths to MuJoCo.

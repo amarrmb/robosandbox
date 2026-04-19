@@ -1,7 +1,6 @@
 """parse_json_loose — forgiving JSON parser for VLM outputs."""
 
 import pytest
-
 from robosandbox.vlm.json_recovery import VLMOutputError, parse_json_loose
 
 

@@ -10,8 +10,6 @@ from __future__ import annotations
 from importlib.resources import files
 from pathlib import Path
 
-import pytest
-
 from robosandbox.agent.agent import Agent
 from robosandbox.agent.context import AgentContext
 from robosandbox.agent.planner import StubPlanner

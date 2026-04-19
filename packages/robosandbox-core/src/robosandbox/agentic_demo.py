@@ -32,7 +32,6 @@ from robosandbox.skills.place import PlaceOn
 from robosandbox.types import Pose, Scene, SceneObject
 from robosandbox.vlm.client import OpenAIVLMClient, VLMConfig, VLMTransportError
 
-
 PROVIDER_DEFAULTS = {
     "stub": {"base_url": None, "model": None, "api_key_env": None},
     "openai": {

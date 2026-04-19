@@ -18,13 +18,13 @@ a single exception type and surface the cause cleanly.
 from __future__ import annotations
 
 import hashlib
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from robosandbox import _cache_root as _robosandbox_cache_root
 
 # -- exceptions --------------------------------------------------------------
 
@@ -173,9 +173,6 @@ def load_bundled_mesh(sidecar_path: Path, obj_id: str) -> MeshAsset:
         friction=friction,
         rgba=rgba,
     )
-
-
-from robosandbox import _cache_root as _robosandbox_cache_root
 
 
 def _default_cache_dir() -> Path:
@@ -332,7 +329,7 @@ def load_byo_mesh(
     )
 
 
-def resolve_mesh_asset(obj: "SceneObject") -> MeshAsset:  # type: ignore[name-defined]
+def resolve_mesh_asset(obj: "SceneObject") -> MeshAsset:  # noqa: F821,UP037 — deferred via __future__.annotations; SceneObject imported in body
     """Dispatch a ``SceneObject(kind="mesh")`` to the right loader.
 
     Exactly one of ``obj.mesh_sidecar`` / ``obj.mesh_path`` must be set;

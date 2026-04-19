@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from robosandbox.assets.franka_visuals import (
     VISUAL_OBJS,
     default_cache_dir,

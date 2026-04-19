@@ -44,7 +44,7 @@ import random
 from dataclasses import replace
 from typing import Any
 
-from robosandbox.types import Pose, Scene, SceneObject
+from robosandbox.types import Pose, Scene
 
 _log = logging.getLogger(__name__)
 _warned_mesh_size = False

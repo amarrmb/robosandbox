@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 
 import pytest
-
 from robosandbox.tasks.randomize import (
     _quat_xyzw_from_yaw,
     _yaw_from_quat_xyzw,

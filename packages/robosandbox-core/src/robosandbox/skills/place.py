@@ -7,7 +7,6 @@ from robosandbox.motion.ik import UnreachableError, plan_linear_cartesian
 from robosandbox.skills._common import execute_trajectory, pose_offset_z, set_gripper
 from robosandbox.types import Pose, SkillResult
 
-
 _PALM_DOWN = (1.0, 0.0, 0.0, 0.0)
 
 

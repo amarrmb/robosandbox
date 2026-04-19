@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from robosandbox.policy import LeRobotPolicyAdapter, Policy
 from robosandbox.types import Observation, Pose
 

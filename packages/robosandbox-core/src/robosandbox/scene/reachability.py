@@ -85,7 +85,7 @@ def check_scene_reachability(
     sim = MuJoCoBackend(render_size=(240, 320), camera="scene")
     try:
         sim.load(scene)
-        home_joints = np.asarray(sim._robot.home_qpos, dtype=np.float64)  # noqa: SLF001
+        home_joints = np.asarray(sim._robot.home_qpos, dtype=np.float64)
 
         out: list[UnreachableObject] = []
         for obj in scene.objects:

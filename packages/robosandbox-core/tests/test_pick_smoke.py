@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from robosandbox.agent.context import AgentContext
 from robosandbox.grasp.analytic import AnalyticTopDown
 from robosandbox.motion.ik import DLSMotionPlanner

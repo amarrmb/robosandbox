@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from robosandbox.scene.robot_loader import (
     RobotConfigMismatchError,
     RobotConfigNotFoundError,
@@ -15,7 +14,7 @@ from robosandbox.scene.robot_loader import (
     load_robot,
     resolve_sidecar,
 )
-from robosandbox.types import Scene, SceneObject, Pose
+from robosandbox.types import Pose, Scene, SceneObject
 
 
 @pytest.fixture
@@ -177,7 +176,6 @@ def test_ee_site_inject_lands_at_correct_world_position(
     """After compile + settle, the injected ee_site should sit 0.1034 m
     along the hand body's +z axis, relative to hand's world pose."""
     import numpy as np
-
     from robosandbox.sim.mujoco_backend import MuJoCoBackend
 
     scene = Scene(robot_urdf=franka_urdf, robot_config=franka_config)

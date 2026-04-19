@@ -8,8 +8,9 @@ is a matter of constructing a new context.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from robosandbox.protocols import (
     GraspPlanner,

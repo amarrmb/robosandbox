@@ -16,12 +16,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from robosandbox.perception.vlm_pointer import VLMPointer
 from robosandbox.sim.mujoco_backend import MuJoCoBackend
 from robosandbox.types import DetectedObject, Pose, Scene, SceneObject
 from robosandbox.vlm.cassette import CassetteMissError, CassetteVLMClient
-
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
 RED_CUBE_CASSETTE = CASSETTE_DIR / "vlm_pointer_red_cube.json"

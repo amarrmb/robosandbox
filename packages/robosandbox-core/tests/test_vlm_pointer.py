@@ -9,7 +9,6 @@ import json
 
 import numpy as np
 import pytest
-
 from robosandbox.perception.vlm_pointer import VLMPointer
 from robosandbox.sim.mujoco_backend import MuJoCoBackend
 from robosandbox.types import Pose, Scene, SceneObject

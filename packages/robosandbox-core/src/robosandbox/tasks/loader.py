@@ -16,7 +16,6 @@ import yaml
 
 from robosandbox.types import Pose, Scene, SceneObject
 
-
 _BUILTIN_DIR = Path(__file__).parent / "definitions"
 
 

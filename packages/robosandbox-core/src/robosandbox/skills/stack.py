@@ -13,8 +13,6 @@ skill or dispatch individual Pick/PlaceOn calls.
 
 from __future__ import annotations
 
-from typing import Any
-
 from robosandbox.agent.context import AgentContext
 from robosandbox.skills.pick import Pick
 from robosandbox.skills.place import PlaceOn

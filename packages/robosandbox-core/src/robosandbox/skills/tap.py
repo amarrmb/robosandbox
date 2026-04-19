@@ -16,7 +16,6 @@ from robosandbox.motion.ik import UnreachableError
 from robosandbox.skills._common import execute_trajectory
 from robosandbox.types import Pose, SkillResult
 
-
 _PALM_DOWN = (1.0, 0.0, 0.0, 0.0)
 
 

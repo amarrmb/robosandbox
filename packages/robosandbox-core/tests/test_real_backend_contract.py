@@ -18,7 +18,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from robosandbox.agent.context import AgentContext
 from robosandbox.skills.home import Home
 from robosandbox.types import Scene

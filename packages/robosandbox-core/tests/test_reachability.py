@@ -3,12 +3,9 @@ from __future__ import annotations
 
 import os
 
-import pytest
-
 from robosandbox.scene.reachability import check_scene_reachability
 from robosandbox.tasks.loader import load_builtin_task
 from robosandbox.types import Pose, Scene, SceneObject
-
 
 # MuJoCo rendering requires an OpenGL backend. EGL works headlessly in CI.
 os.environ.setdefault("MUJOCO_GL", "egl")

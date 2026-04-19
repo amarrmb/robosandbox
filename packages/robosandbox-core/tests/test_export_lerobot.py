@@ -11,7 +11,7 @@ import pytest
 pa = pytest.importorskip("pyarrow")
 pq = pytest.importorskip("pyarrow.parquet")
 
-from robosandbox.export.lerobot import export_episode
+from robosandbox.export.lerobot import export_episode  # noqa: E402 — guarded by importorskip above
 
 
 @pytest.fixture

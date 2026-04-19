@@ -12,17 +12,13 @@ from importlib.resources import files
 from pathlib import Path
 
 import mujoco
-import numpy as np
 import pytest
 import trimesh
 import yaml
-
 from robosandbox.scene.mesh_conversion import (
     MeshConfigError,
-    load_bundled_mesh,
     resolve_mesh_asset,
 )
-from robosandbox.scene.mesh_injection import inject_mesh_object
 from robosandbox.scene.robot_loader import load_and_compile
 from robosandbox.types import Pose, Scene, SceneObject
 

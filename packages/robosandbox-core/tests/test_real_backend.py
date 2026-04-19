@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from robosandbox.backends.real import RealRobotBackend, RealRobotBackendConfig
 from robosandbox.protocols import SimBackend
 from robosandbox.types import Pose, Scene

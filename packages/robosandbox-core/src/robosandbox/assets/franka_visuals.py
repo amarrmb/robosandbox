@@ -30,7 +30,6 @@ from typing import Literal
 
 from robosandbox import _cache_root
 
-
 # Menagerie commit pinned for reproducibility. When bumping, regenerate
 # VISUAL_OBJS by diffing a checkout's assets/ directory against this list.
 _MENAGERIE_REF = "a03e87bf13502b0b48ebbf2808928fd96ebf9cf3"

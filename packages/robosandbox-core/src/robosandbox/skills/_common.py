@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
-
 from robosandbox.agent.context import AgentContext
 from robosandbox.types import JointTrajectory
 

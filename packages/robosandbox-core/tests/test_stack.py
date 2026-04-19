@@ -5,8 +5,6 @@ from __future__ import annotations
 from importlib.resources import files
 from pathlib import Path
 
-import pytest
-
 from robosandbox.agent.context import AgentContext
 from robosandbox.grasp.analytic import AnalyticTopDown
 from robosandbox.motion.ik import DLSMotionPlanner

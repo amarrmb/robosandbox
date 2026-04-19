@@ -19,7 +19,6 @@ from robosandbox.motion.ik import UnreachableError, plan_linear_cartesian
 from robosandbox.skills._common import execute_trajectory, set_gripper
 from robosandbox.types import Pose, SkillResult
 
-
 _PALM_DOWN = (1.0, 0.0, 0.0, 0.0)
 
 _PULL_DISTANCE_OPEN = 0.10     # how far to pull when opening

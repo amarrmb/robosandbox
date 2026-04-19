@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from robosandbox.scene.mjcf_builder import build_model
 from robosandbox.scene.presets import tabletop_clutter
 from robosandbox.types import Scene

@@ -42,7 +42,7 @@ from robosandbox.agent.agent import Agent
 from robosandbox.agent.context import AgentContext
 from robosandbox.agent.planner import StubPlanner
 from robosandbox.grasp.analytic import AnalyticTopDown
-from robosandbox.motion.ik import DLSMotionPlanner, plan_linear_cartesian, UnreachableError
+from robosandbox.motion.ik import DLSMotionPlanner, UnreachableError, plan_linear_cartesian
 from robosandbox.perception.ground_truth import GroundTruthPerception
 from robosandbox.recorder.local import LocalRecorder
 from robosandbox.sim.mujoco_backend import MuJoCoBackend
@@ -55,7 +55,6 @@ from robosandbox.skills.push import Push
 from robosandbox.skills.stack import Stack
 from robosandbox.skills.tap import Tap
 from robosandbox.tasks.loader import list_builtin_tasks, load_builtin_task
-
 
 _RENDER_SIZE = (720, 960)  # h, w — 2x linear resolution; scene camera fovy widened to 65° keeps the full arm in frame
 _IDLE_HZ = 15
@@ -117,7 +116,7 @@ class SimThread(threading.Thread):
         # scrubbed frame doesn't get stomped by the live render.
         self._inspecting = False
 
-    def run(self) -> None:  # noqa: D401
+    def run(self) -> None:
         idle_dt = 1.0 / _IDLE_HZ
         while not self._stop.is_set():
             try:

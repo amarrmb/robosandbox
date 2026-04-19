@@ -26,7 +26,6 @@ import yaml
 from robosandbox.scene.robot_spec import RobotSpec
 from robosandbox.types import Scene, SceneObject
 
-
 # -- exceptions --------------------------------------------------------------
 
 

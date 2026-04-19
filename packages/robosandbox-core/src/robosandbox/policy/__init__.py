@@ -28,13 +28,14 @@ method satisfies the :class:`Policy` protocol.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
-from robosandbox.types import Observation
 from robosandbox.policy.lerobot_adapter import LeRobotPolicyAdapter
+from robosandbox.types import Observation
 
 __all__ = [
     "LeRobotPolicyAdapter",
@@ -129,7 +130,7 @@ class ReplayTrajectoryPolicy:
         arr = np.stack(actions, axis=0)
         return cls(arr, action_lookahead=action_lookahead)
 
-    def act(self, obs: Observation) -> np.ndarray:  # noqa: ARG002 — obs unused
+    def act(self, obs: Observation) -> np.ndarray:
         i = min(self._i, self._actions.shape[0] - 1)
         action = self._actions[i].copy()
         self._i += self._lookahead

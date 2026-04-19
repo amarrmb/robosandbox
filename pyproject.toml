@@ -12,5 +12,12 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# Curated to the rules that actually catch defects: pycodestyle (E/W),
+# pyflakes (F — undefined names, unused imports), import sort (I), and
+# upgrade-to-modern-Python (UP). Opinion-heavy categories (B, SIM, RUF)
+# accumulated 40 pre-existing findings that were mostly stylistic
+# (zip-strict, class-attr mutable defaults, ternary-vs-if) and slowed
+# CI without catching bugs. Re-add them per-rule if a concrete issue
+# motivates it.
+select = ["E", "F", "W", "I", "UP"]
 ignore = ["E501"]

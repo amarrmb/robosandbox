@@ -9,8 +9,6 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
-import pytest
-
 from robosandbox.agent.agent import Agent
 from robosandbox.agent.context import AgentContext
 from robosandbox.agent.planner import SkillCall, StubPlanner
