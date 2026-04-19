@@ -1,0 +1,43 @@
+# RoboSandbox sidecar for the SO-ARM100 (TheRobotStudio).
+# Source: google-deepmind/mujoco_menagerie, trs_so_arm100 (Apache 2.0).
+# See LICENSE next to this file for menagerie's full attribution.
+
+arm:
+  joints:      [Rotation, Pitch, Elbow, Wrist_Pitch, Wrist_Roll]
+  actuators:   [Rotation, Pitch, Elbow, Wrist_Pitch, Wrist_Roll]
+  # Reach-forward pose. Shoulder raised so the arm extends horizontally
+  # rather than hanging; elbow bent enough to put the gripper above
+  # a table-height workspace.
+  home_qpos:   [0.0, -1.4, 1.4, 0.0, 0.0]
+
+gripper:
+  # Menagerie exposes a single Jaw joint (Moving_Jaw rotates relative to
+  # Fixed_Jaw about the Jaw axis). We treat it as the gripper's
+  # primary_joint and its sole actuator.
+  joints:        [Jaw]
+  primary_joint: Jaw
+  actuator:      Jaw
+  # Jaw range is [-0.174, 1.75] rad. Verified by measuring the pad gap
+  # in MuJoCo: qpos≈0 → fingertip gap ~15 mm (jaws clamped), qpos≈1.6
+  # → gap ~125 mm (jaws spread wide). So positive qpos OPENS the jaws.
+  # Note: RoboSandbox's `Observation.gripper_width = 2·|qpos|` is a
+  # Franka-centric finger-pair convention. For this single-hinge jaw
+  # the reported width isn't in metres — it's a monotone proxy that
+  # preserves ordering (larger = more open). Policies trained on
+  # SO-100 data will already expect the jaw-angle scale.
+  open_qpos:     1.5
+  closed_qpos:   0.0
+
+ee_site:
+  # No site exists in Menagerie's MJCF. Inject one at the TCP — ~10 cm
+  # forward of the Fixed_Jaw origin along its local -Y axis, which is
+  # where the finger pads meet. Refine if grasps consistently land
+  # short / long of the intended contact point.
+  inject:
+    attach_body: Fixed_Jaw
+    xyz:         [0.0, -0.10, 0.0]
+
+base_pose:
+  # Seat the base ~20 cm behind the world origin so a typical pick task
+  # (object at x ≈ 0.25, y ≈ 0) sits inside the SO-ARM100's reach.
+  xyz: [-0.20, 0.0, 0.0]
