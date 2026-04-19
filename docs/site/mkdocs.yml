@@ -87,6 +87,7 @@ nav:
       - Policy replay: tutorials/policy-replay.md
       - "LeRobot workflow":
           - LeRobot export: tutorials/lerobot-export.md
+          - LeRobot policy replay: tutorials/lerobot-policy-replay.md
   - Reference:
       - CLI: reference/cli.md
       - API: reference/api.md
