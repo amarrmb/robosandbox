@@ -4,40 +4,45 @@ Mission-aligned: a playground where someone can build and evaluate
 manipulation agents. The four pillars are object diversity, task
 diversity, interaction, and loop closure (record → train → deploy).
 
-Full detail, history, and sprint sequencing live in the repo's
-[`TODO.md`](https://github.com/amarrmb/robosandbox/blob/main/TODO.md).
-This page is the shipped / in-flight snapshot.
+This page is the shipped / in-flight snapshot. For the concrete test
+and benchmark status, run `robo-sandbox-bench` locally or check the
+[CI badge](https://github.com/amarrmb/robosandbox/actions).
 
-## v0.1 — shipped
+## Shipped
 
-- MuJoCo backend + built-in 6-DOF arm + 4 core skills
-  (`pick` / `place_on` / `push` / `home`).
+**Core**
+
+- MuJoCo backend + built-in 6-DOF arm.
+- 9 skills: `pick`, `place_on`, `push`, `home`, `pour`, `tap`,
+  `open_drawer`, `close_drawer`, `stack`.
 - Stub planner + OpenAI-compatible VLM planner.
-- 5-task starter benchmark.
 
-## v0.2 (2026-04-18 session) — shipped
+**Robot + object diversity**
 
-| Slice | Pillar | Notes |
-|---|---|---|
-| URDF import | robot | `Scene(robot_urdf=...)` + sidecar YAML; bundled Franka; `pick_cube_franka`. |
-| Mesh object import | objects | `SceneObject(kind="mesh")` + sidecar; BYO CoACD + hull cache; `pick_ycb_mug`. |
-| YCB object pack | objects | 10 bundled YCB items; `@ycb:<id>` shorthand; `list_builtin_ycb_objects()`. |
-| Procedural scenes | objects | `scene.presets.tabletop_clutter(n, seed)`. |
-| Randomized benchmark | tasks | `randomize:` YAML block + `--seeds N` with `mean ± stderr`. |
-| 5 new skills | tasks | `pour`, `tap`, `open_drawer`, `close_drawer`, `stack`. |
-| Drawer primitive | tasks | `SceneObject(kind="drawer")` — first articulated primitive. |
-| Long-horizon composite | tasks | `pour_can_into_bowl` benchmark (pick → pour). |
-| Browser live viewer | interaction | FastAPI + WS + SPA; task dropdown, Run/Reset, live MJPEG. |
-| Viewer Record button | interaction | Toggle → LocalRecorder writes under `./runs/`. |
-| Keyboard teleop | interaction | WASD/QE drives EE xy/z; Space toggles gripper. |
-| VLM cassette | loop | Record/replay client + hand-authored red-cube cassette for CI. |
-| LeRobot v3 export | loop | `export_episode()` + `robo-sandbox export-lerobot` CLI. |
-| Policy replay | loop | `Policy` protocol + `ReplayTrajectoryPolicy` + `robo-sandbox run --policy`. |
-| Real-robot bridge stub | loop | `RealRobotBackend` satisfies `SimBackend` Protocol; subclass to wire hardware. |
-| 9 runnable examples | polish | `examples/*.py` covering every feature. |
+- URDF import — `Scene(robot_urdf=...)` + sidecar YAML; bundled Franka Panda.
+- Mesh import — `SceneObject(kind="mesh")` with CoACD decomposition + hull cache.
+- 10 bundled YCB items reachable via `@ycb:<id>` shorthand.
+- Procedural scenes — `scene.presets.tabletop_clutter(n, seed)`.
+- Drawer primitive — `SceneObject(kind="drawer")`, first articulated primitive.
 
-**State at end of 2026-04-18:** 135 tests, 8 default benchmarks,
-all green.
+**Benchmark + evaluation**
+
+- Declarative success criteria (`lifted`, `moved_above`, `displaced`, `all`, `any`).
+- `randomize:` YAML block + `--seeds N` aggregation with `mean ± stderr`.
+- 9 default tasks covering pick / stack / push / pour / drawer.
+- Authoring-time reachability pre-flight check.
+
+**Interaction**
+
+- Browser live viewer — FastAPI + WebSocket + SPA; task dropdown, Run/Reset, Record, Inspector scrubber.
+- Keyboard teleop — WASD/QE drives EE; Space toggles gripper.
+
+**Loop closure**
+
+- `LocalRecorder` — per-episode MP4 + events.jsonl + result.json.
+- LeRobot v3 export — `robo-sandbox export-lerobot` CLI.
+- `Policy` protocol — `ReplayTrajectoryPolicy`, `LeRobotPolicyAdapter`, `run_policy`.
+- `RealRobotBackend` — satisfies `SimBackend` Protocol; SO-101 skeleton under `examples/so101_handoff/`.
 
 ## Open / deferred
 
@@ -83,9 +88,3 @@ all green.
 - Soft-body objects (fabric, fluids).
 - Multi-robot scenes + coordination skills.
 
-## See also
-
-- Full history + sprint sequencing:
-  [`TODO.md`](https://github.com/amarrmb/robosandbox/blob/main/TODO.md).
-- Prior-slice specs:
-  [`docs/superpowers/specs/`](https://github.com/amarrmb/robosandbox/tree/main/docs/superpowers/specs).

@@ -57,10 +57,13 @@ you're reading on GitHub.
 
 ## Status
 
-v0.1 in active development. The architecture is the product — the
-built-in arm is the cheapest way to run the stack. Plumbing works end
-to end; built-in arm physics can be flaky for stacking (force-
-controlled grip lands in v0.2). See **Roadmap** at the bottom.
+v0.1 — active development. The architecture is the product: every
+swappable layer is a `Protocol`, so bringing your own robot, object,
+skill, or policy is a file drop plus a sidecar. Plumbing works end to
+end; the built-in arm's analytic grasp is reliable on cubes / mugs /
+cans, less so on stacking (tracked as open work). See
+[Roadmap](docs/site/docs/reference/roadmap.md) for the shipped feature
+matrix and what's deferred.
 
 ## Install
 
@@ -151,7 +154,7 @@ the deterministic base layout (bit-exact with `--seeds 1`); seeds ≥ 1
 sample uniform perturbations keyed on the seed. The summary reports
 `mean ± stderr` per task when `--seeds > 1`.
 
-Five built-in tasks (YAML scenes + success criteria under
+Nine built-in tasks (YAML scenes + success criteria under
 `packages/robosandbox-core/src/robosandbox/tasks/definitions/`):
 
 | Task | What it exercises |
@@ -159,17 +162,23 @@ Five built-in tasks (YAML scenes + success criteria under
 | `home` | Skill dispatch with no spatial reasoning |
 | `pick_cube` | Single-object pick (core reliability) |
 | `pick_cube_franka` | URDF-import path — bundled Franka picks a cube |
+| `pick_cube_scrambled` | Pick under per-seed pose/size/mass/rgba randomization |
 | `pick_from_three` | Perception disambiguation by colour name |
-| `pick_ycb_mug` | Mesh-import path — bundled YCB mug (15 convex hulls) picked by Franka |
+| `pick_ycb_mug` | Mesh-import path — bundled YCB mug picked by Franka |
+| `pour_can_into_bowl` | Long-horizon composite (pick → pour) |
 | `push_forward` | Non-pick manipulation, verifies directional displacement |
-| `_experimental_stack_two` | Multi-step plan. Excluded from default run — needs force-controlled grip (v0.2). |
+| `open_drawer` | First articulated primitive — drawer + `OpenDrawer` skill |
+
+Plus `_experimental_stack_two` (excluded from default runs — stacking
+is tracked as open work; see the [Roadmap](docs/site/docs/reference/roadmap.md)).
 
 Each task bundles a `Scene`, a natural-language `prompt`, and a
 declarative `SuccessCriterion` evaluated against the final
 `Observation`. No executable success check code — safer, diffable.
 
-Results are appended to `benchmark_results.json` for regression
-tracking.
+Results are appended to `benchmark_results.json` locally for
+regression tracking; the file is gitignored (regenerate with
+`robo-sandbox-bench`).
 
 ## Architecture
 
@@ -188,18 +197,22 @@ packages/robosandbox-core/
 │   ├── perception/       ground_truth (sim cheat), vlm_pointer (VLM)
 │   ├── grasp/            analytic top-down (v0.1)
 │   ├── motion/           DLS Jacobian IK + Cartesian interpolation
-│   ├── skills/           Pick, PlaceOn, Push, Home
+│   ├── skills/           Pick, PlaceOn, Push, Home, Pour, Tap,
+│   │                     OpenDrawer, CloseDrawer, Stack
 │   ├── agent/            Planner protocol, VLMPlanner, StubPlanner,
 │   │                     ReAct-style Agent with replan loop
+│   ├── policy/           Policy protocol + LeRobotPolicyAdapter
 │   ├── vlm/              OpenAI-compatible client + JSON recovery
-│   ├── recorder/         MP4 + JSONL per episode
+│   ├── recorder/         MP4 + JSONL per episode; `export-lerobot` CLI
+│   ├── backends/         RealRobotBackend (sim-to-real Protocol stub)
 │   ├── tasks/            Task loader + benchmark runner
 │   ├── cli.py            `robo-sandbox` entry point
 │   ├── demo.py           Scripted pick (no VLM, no API)
 │   └── agentic_demo.py   Full agent loop
-└── tests/                65 tests covering types, IK, skills, agent,
+└── tests/                Test suite covering types, IK, skills, agent,
                           planner, JSON recovery, VLM pointer projection,
-                          URDF import (Franka), mesh import (YCB pack)
+                          URDF import, mesh import, policy adapter,
+                          real-backend contract, reachability pre-flight.
 ```
 
 ### Agent loop
@@ -239,14 +252,13 @@ package that registers at the `robosandbox.skills` entry point.
 
 ## Roadmap
 
-- **v0.1** (current): MuJoCo + built-in arm + 4 core skills + stub/
-  OpenAI-compatible planner + 5-task benchmark.
-- **v0.2**: force-controlled grip (reliable stacking), `robosandbox-
-  curobo` plugin for GPU motion planning, `robosandbox-molmo`
-  dedicated pointing model, real-robot bridge (LeRobot adapter), web
-  UI for scene authoring.
-- **v0.3**: `robosandbox-anygrasp` opt-in plugin, force-based control
-  API, leaderboard.
+The current shipped feature matrix and open / deferred work live in
+[`docs/site/docs/reference/roadmap.md`](docs/site/docs/reference/roadmap.md).
+Headline items in flight: reliable force-controlled stacking,
+collision-aware motion planning (`robosandbox-curobo` plugin), first
+real-policy integration against a public ACT checkpoint, and the
+concrete SO-101 hardware backend that wires the existing
+`RealRobotBackend` skeleton to motors.
 
 ## Browser live viewer
 
