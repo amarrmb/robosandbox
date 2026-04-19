@@ -165,21 +165,30 @@ ds[0]   # dict with observation.state, action, timestamp, ...
 
 ## Requirements
 
+Working from a repo checkout:
+
 ```bash
-uv pip install 'robosandbox[lerobot]'
+uv pip install -e 'packages/robosandbox-core[lerobot]'
 ```
 
-Brings in `pyarrow ≥ 15`. No other LeRobot-specific dependencies —
-the export is plain parquet + json + mp4.
+The `[lerobot]` extra brings in `pyarrow ≥ 15`. No other
+LeRobot-specific dependencies — the export is plain parquet + json +
+mp4.
 
 ## Where this tutorial fits
 
-1. **LeRobot Export** (you are here) — proves the data path.
-2. **[LeRobot Policy Replay](./policy-replay.md)** — proves
-   RoboSandbox can host a pre-trained checkpoint against the same
-   runtime contract.
-3. **Sim-to-Real Handoff** (coming) — the deployment recipe for
-   taking a sim-validated policy to real hardware.
+The [policy-replay umbrella](./policy-replay.md) frames the larger
+"record → train → deploy" loop. Inside it, three layered demos are in
+flight:
+
+1. **LeRobot Export** (you are here) — proves the data path. Ships today.
+2. **LeRobot Policy Replay with a pre-trained checkpoint** — in
+   progress. The [umbrella tutorial](./policy-replay.md) covers the
+   `ReplayTrajectoryPolicy` path today (open-loop replay of a recorded
+   trajectory, no training); wiring a real ACT/Diffusion checkpoint
+   through `LeRobotPolicyAdapter` is the next tutorial's job.
+3. **Sim-to-Real Handoff** — coming. A checklist + backend template
+   for taking a sim-validated policy to real hardware.
 
 Each tutorial stands alone. You don't need to have trained a policy to
 appreciate this one — the export works for any recorded episode.
@@ -188,7 +197,7 @@ appreciate this one — the export works for any recorded episode.
 
 | Symptom | Likely cause |
 |---|---|
-| `pyarrow not found` on export | `uv pip install 'robosandbox[lerobot]'` |
+| `pyarrow not found` on export | `uv pip install -e 'packages/robosandbox-core[lerobot]'` |
 | `events.jsonl not found` | The source run directory isn't from `LocalRecorder`; check it has all four expected files |
 | `state_dim = 7` instead of 8 | Using the 6-DOF built-in arm. Bundled Franka gives 8. |
 | Action vector identical to state | Scripted episode (no teleop); fallback behavior — teleop runs record real actions |
