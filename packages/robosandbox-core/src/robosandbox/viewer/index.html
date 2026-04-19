@@ -52,6 +52,37 @@
   #inspector button.step:hover:not(:disabled) { background: #2a2f38; }
   #inspector-meta { font-family: ui-monospace, monospace; font-size: 11px; color: #9ca3af; background: #0a0c10; border: 1px solid #1f2329; border-radius: 5px; padding: 6px 8px; line-height: 1.5; white-space: pre-wrap; max-height: 110px; overflow-y: auto; }
   #inspector .hint { font-size: 10.5px; color: #6b7280; }
+  /* About-this-task card */
+  #task-card { background: #141821; border: 1px solid #1f2329; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  #task-card.empty { display: none; }
+  #task-card .goal { font-size: 14px; color: #f3f4f6; font-weight: 600; line-height: 1.3; }
+  #task-card .row { display: flex; font-size: 11.5px; color: #9ca3af; gap: 6px; }
+  #task-card .row .lbl { color: #6b7280; text-transform: uppercase; font-size: 10px; letter-spacing: 0.08em; min-width: 64px; padding-top: 1px; }
+  #task-card .row .val { color: #cbd5e1; flex: 1; }
+  #task-card .row .val .pill { display: inline-block; background: #1a1e25; border: 1px solid #2a2f38; border-radius: 3px; padding: 1px 5px; margin-right: 4px; font-size: 10.5px; color: #d1d5db; }
+  /* First-visit how-to-use card */
+  #howto { background: #141821; border: 1px solid #1f2329; border-radius: 6px; padding: 10px 12px; font-size: 12px; color: #cbd5e1; }
+  #howto h3 { font-size: 12px; font-weight: 600; color: #f3f4f6; margin-bottom: 6px; }
+  #howto ol { padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+  #howto li { line-height: 1.45; }
+  #howto .dismiss { float: right; background: transparent; border: none; color: #6b7280; font-size: 11px; padding: 0; cursor: pointer; }
+  #howto .dismiss:hover { color: #9ca3af; background: transparent; }
+  /* Phase indicator (right-hand header badge) */
+  .phase { font-size: 11px; padding: 3px 10px; border-radius: 4px; border: 1px solid #2a2f38; color: #cbd5e1; background: #111418; }
+  .phase.setup   { border-color: #3b3f4a; color: #9ca3af; }
+  .phase.running { border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.08); }
+  .phase.evaluating { border-color: #a855f7; color: #c4b5fd; background: rgba(168,85,247,0.08); }
+  .phase.done    { border-color: #22c55e; color: #86efac; background: rgba(34,197,94,0.08); }
+  .phase.done.failed { border-color: #ef4444; color: #fca5a5; background: rgba(239,68,68,0.08); }
+  /* Keyboard-shortcut cheatsheet */
+  #cheatsheet { position: fixed; right: 8px; bottom: 44px; z-index: 10; background: #0f1217; border: 1px solid #2a2f38; border-radius: 6px; padding: 10px 12px; font-size: 11.5px; color: #cbd5e1; min-width: 260px; box-shadow: 0 6px 18px rgba(0,0,0,0.5); display: none; }
+  #cheatsheet.open { display: block; }
+  #cheatsheet h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; margin-bottom: 4px; }
+  #cheatsheet .sh-row { display: flex; gap: 8px; margin: 3px 0; }
+  #cheatsheet .sh-row .keys { min-width: 100px; }
+  #cheatsheet .sh-row .desc { flex: 1; color: #9ca3af; }
+  footer .link { color: #93c5fd; cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+  footer .link:hover { color: #bfdbfe; }
 </style>
 </head>
 <body>
@@ -60,22 +91,43 @@
   <h1>RoboSandbox</h1>
   <span class="badge">live viewer</span>
   <div class="spacer"></div>
-  <span id="status" class="badge">idle</span>
+  <span id="phase" class="phase setup">Setup</span>
   <span id="dof-badge" class="badge" style="display:none"></span>
 </header>
 
 <main>
   <img id="frame" alt="" style="display:none">
-  <div id="frame-placeholder">Waiting for first frame&hellip;</div>
+  <div id="frame-placeholder">Loading scene&hellip;</div>
 </main>
 
 <aside>
+  <div id="howto">
+    <button class="dismiss" id="howto-dismiss" title="Hide">&times;</button>
+    <h3>How to use</h3>
+    <ol>
+      <li>Pick a task below — <code>pick_ycb_mug</code> is a good first try.</li>
+      <li>Click <b>Run</b> to watch the agent plan &amp; execute.</li>
+      <li>Click <b>Record</b> before Run to save an MP4 + events.jsonl to <code>./runs/</code>.</li>
+      <li>Check <b>Teleop</b> to drive the arm yourself (WASD + gamepad).</li>
+      <li>After a run, scrub the Inspector timeline to replay any frame.</li>
+    </ol>
+  </div>
+
   <div class="group">
     <label for="task-select">Task</label>
     <select id="task-select"></select>
   </div>
+
+  <div id="task-card" class="empty">
+    <div class="goal" id="tc-goal">Goal: (no task loaded)</div>
+    <div class="row"><span class="lbl">Robot</span><span class="val" id="tc-robot">—</span></div>
+    <div class="row"><span class="lbl">Scene</span><span class="val" id="tc-scene">—</span></div>
+    <div class="row"><span class="lbl">Success</span><span class="val" id="tc-success">—</span></div>
+    <div class="row"><span class="lbl">Randomize</span><span class="val" id="tc-randomize">—</span></div>
+  </div>
+
   <div class="group">
-    <label for="prompt">Prompt (override)</label>
+    <label for="prompt">Prompt override <span class="muted" style="color:#6b7280; font-size:10.5px;">(blank = use task default)</span></label>
     <input id="prompt" type="text" placeholder="(uses task's default)">
   </div>
   <div class="primary-row">
@@ -111,9 +163,23 @@
 
 <footer>
   <span>Tip: press <span class="kbd">Enter</span> in the prompt to run.</span>
-  <span class="spacer" style="flex:1"></span>
+  <span style="flex:1"></span>
+  <span class="link" id="cheatsheet-toggle">Keyboard &amp; gamepad</span>
   <span class="muted" id="fps">0 fps</span>
 </footer>
+
+<div id="cheatsheet">
+  <h4>Keyboard &amp; gamepad</h4>
+  <div class="sh-row"><span class="keys"><span class="kbd">Enter</span></span><span class="desc">Run current task (focus the prompt box first)</span></div>
+  <div class="sh-row"><span class="keys"><span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span></span><span class="desc">Teleop: move end-effector in xy (1.5 cm per press)</span></div>
+  <div class="sh-row"><span class="keys"><span class="kbd">Q</span> <span class="kbd">E</span></span><span class="desc">Teleop: move end-effector in z</span></div>
+  <div class="sh-row"><span class="keys"><span class="kbd">Space</span></span><span class="desc">Teleop: toggle gripper (open/closed)</span></div>
+  <div class="sh-row"><span class="keys"><span class="kbd">←</span> <span class="kbd">→</span></span><span class="desc">Inspector: step ±1 frame (Shift = ±10)</span></div>
+  <div class="sh-row"><span class="keys">dblclick slider</span><span class="desc">Inspector: resume live view</span></div>
+  <div class="sh-row"><span class="keys">gamepad L stick</span><span class="desc">Teleop: end-effector xy</span></div>
+  <div class="sh-row"><span class="keys">gamepad R stick Y</span><span class="desc">Teleop: end-effector z</span></div>
+  <div class="sh-row"><span class="keys">gamepad A button</span><span class="desc">Teleop: toggle gripper</span></div>
+</div>
 
 <script>
 const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -123,7 +189,7 @@ ws.binaryType = "blob";
 const frame = document.getElementById("frame");
 const placeholder = document.getElementById("frame-placeholder");
 const conn = document.getElementById("conn");
-const statusEl = document.getElementById("status");
+const phaseEl = document.getElementById("phase");
 const dofBadge = document.getElementById("dof-badge");
 const log = document.getElementById("log");
 const taskSelect = document.getElementById("task-select");
@@ -132,6 +198,94 @@ const runBtn = document.getElementById("run");
 const recordBtn = document.getElementById("record");
 const recordLabel = document.getElementById("record-label");
 const fpsEl = document.getElementById("fps");
+const taskCard = document.getElementById("task-card");
+const tcGoal = document.getElementById("tc-goal");
+const tcRobot = document.getElementById("tc-robot");
+const tcScene = document.getElementById("tc-scene");
+const tcSuccess = document.getElementById("tc-success");
+const tcRandomize = document.getElementById("tc-randomize");
+const howto = document.getElementById("howto");
+const howtoDismiss = document.getElementById("howto-dismiss");
+const cheatsheet = document.getElementById("cheatsheet");
+const cheatsheetToggle = document.getElementById("cheatsheet-toggle");
+
+// Hide the how-to card once the user has actually run something — they
+// know how to use it by then. Persist the dismiss in localStorage too.
+if (localStorage.getItem("rs-howto-dismissed") === "1") {
+  howto.style.display = "none";
+}
+howtoDismiss.addEventListener("click", () => {
+  howto.style.display = "none";
+  localStorage.setItem("rs-howto-dismissed", "1");
+});
+
+cheatsheetToggle.addEventListener("click", () => {
+  cheatsheet.classList.toggle("open");
+});
+document.addEventListener("click", (e) => {
+  if (!cheatsheet.classList.contains("open")) return;
+  if (e.target === cheatsheetToggle || cheatsheet.contains(e.target)) return;
+  cheatsheet.classList.remove("open");
+});
+
+function setPhase(phase, label) {
+  phaseEl.className = `phase ${phase}`;
+  phaseEl.textContent = label;
+}
+
+// --- Task card population ------------------------------------------------
+
+const ROBOT_LABELS = {
+  franka_panda: "Franka Panda",
+  builtin_6dof: "Built-in 6-DOF arm",
+};
+
+function formatSuccess(sc) {
+  if (!sc || typeof sc !== "object") return "—";
+  const k = sc.kind;
+  if (k === "lifted") return `Lift <b>${sc.object}</b> by ≥${sc.min_mm ?? 50} mm`;
+  if (k === "displaced") return `Push/pull <b>${sc.object}</b> ${sc.direction} by ≥${sc.min_mm ?? 30} mm`;
+  if (k === "moved_above") {
+    const tol = (sc.xy_tol ?? 0.05) * 100, dz = (sc.min_dz ?? 0.015) * 100;
+    return `Move <b>${sc.object}</b> above <b>${sc.target}</b> (xy±${tol.toFixed(0)} cm, z+${dz.toFixed(0)} cm)`;
+  }
+  if (k === "all" || k === "any") {
+    const n = (sc.checks || []).length;
+    return `${k === "all" ? "All" : "Any"} of ${n} sub-criteria`;
+  }
+  return k || "—";
+}
+
+function formatRandomize(rz) {
+  if (!rz || Object.keys(rz).length === 0) return "<span class='muted'>fixed layout</span>";
+  const parts = [];
+  if (rz.xy_jitter)   parts.push(`xy ±${(rz.xy_jitter * 100).toFixed(0)} cm`);
+  if (rz.yaw_jitter)  parts.push(`yaw ±${(rz.yaw_jitter * 180 / Math.PI).toFixed(0)}°`);
+  if (rz.rgba_jitter) parts.push(`rgba ±${rz.rgba_jitter.toFixed(2)}`);
+  if (rz.size_jitter) parts.push(`size ±${(rz.size_jitter * 100).toFixed(0)}%`);
+  if (rz.mass_jitter) parts.push(`mass ±${(rz.mass_jitter * 100).toFixed(0)}%`);
+  return parts.length ? parts.map(p => `<span class="pill">${p}</span>`).join("") : "—";
+}
+
+function formatScene(nDof, objectIds, objectKinds) {
+  const objSummary = objectIds && objectIds.length
+    ? `${objectIds.length} object${objectIds.length > 1 ? "s" : ""}: ` +
+      objectIds.map(id => {
+        const kind = (objectKinds && objectKinds[id]) || "?";
+        return `<span class="pill">${id}${kind !== "mesh" ? " (" + kind + ")" : ""}</span>`;
+      }).join(" ")
+    : "<span class='muted'>empty scene</span>";
+  return `${nDof} DOF · ${objSummary}`;
+}
+
+function populateTaskCard(evt) {
+  taskCard.classList.remove("empty");
+  tcGoal.textContent = `Goal: ${evt.prompt || "(no prompt)"}`;
+  tcRobot.textContent = ROBOT_LABELS[evt.robot] || evt.robot || "—";
+  tcScene.innerHTML = formatScene(evt.n_dof, evt.object_ids || [], evt.object_kinds || {});
+  tcSuccess.innerHTML = formatSuccess(evt.success_criterion);
+  tcRandomize.innerHTML = formatRandomize(evt.randomize);
+}
 
 let isRecording = false;
 
@@ -203,34 +357,48 @@ ws.addEventListener("message", (ev) => {
   frameCount++;
 });
 
+let _runStartedAt = 0;
+
 function handleEvent(evt) {
   if (evt.type === "loaded") {
-    statusEl.textContent = `loaded: ${evt.task}`;
+    setPhase("setup", "Ready");
     dofBadge.style.display = "inline-block";
     dofBadge.textContent = `${evt.n_dof} DOF`;
     promptInput.placeholder = evt.prompt || "(no prompt)";
-    addLog(`Loaded task ${evt.task}  (${evt.n_dof} DOF: ${evt.joint_names.join(", ")})`, "info");
+    populateTaskCard(evt);
+    const robotLabel = ROBOT_LABELS[evt.robot] || evt.robot;
+    const nObj = (evt.object_ids || []).length;
+    addLog(`Scene ready · ${robotLabel} · ${nObj} object${nObj === 1 ? "" : "s"}`, "info");
     resetInspector();
   } else if (evt.type === "running") {
-    statusEl.textContent = "running";
+    setPhase("running", "Running plan");
     runBtn.disabled = true;
     runBtn.textContent = "Running…";
-    addLog(`Running: "${evt.prompt}"`, "info");
+    _runStartedAt = performance.now();
+    addLog(`Agent running · "${evt.prompt}"`, "info");
     resetInspector();
   } else if (evt.type === "done") {
-    statusEl.textContent = evt.success ? "success" : "failed";
+    setPhase(evt.success ? "done" : "done failed", evt.success ? "Done ✓" : "Failed ✗");
     runBtn.disabled = false;
     runBtn.textContent = "Run";
+    const elapsed = _runStartedAt ? ((performance.now() - _runStartedAt) / 1000).toFixed(1) : "?";
     const kind = evt.success ? "success" : "error";
-    addLog(`Done: ${evt.success ? "success" : "FAIL"} — ${evt.reason || "(no reason)"} ${evt.detail ? "— " + evt.detail : ""}`, kind);
+    const prefix = evt.success ? "✓ Succeeded" : "✗ Failed";
+    const nSteps = (evt.steps || []).length;
+    addLog(`${prefix} · ${nSteps} skill${nSteps === 1 ? "" : "s"} · ${elapsed}s${evt.reason ? " · " + evt.reason : ""}`, kind);
+    if (evt.detail) addLog(`  detail: ${evt.detail}`, kind);
     for (const step of evt.steps) {
       const tag = step.success ? "success" : "error";
-      addLog(`  step: ${step.skill}(${JSON.stringify(step.args)}) → ${step.reason}`, tag);
+      const marker = step.success ? "✓" : "✗";
+      const argStr = Object.entries(step.args || {})
+        .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
+        .join(", ");
+      addLog(`  ${marker} ${step.skill}(${argStr}) · ${step.reason || ""}`, tag);
     }
-    if (evt.replans) addLog(`  ${evt.replans} replan(s)`, "info");
+    if (evt.replans) addLog(`  ${evt.replans} replan${evt.replans === 1 ? "" : "s"} before finishing`, "info");
     if (typeof evt.trajectory_frames === "number" && evt.trajectory_frames > 0) {
       enableInspector(evt.trajectory_frames);
-      addLog(`  trajectory: ${evt.trajectory_frames} frames captured — scrub below`, "info");
+      addLog(`  ${evt.trajectory_frames} frames recorded — drag the scrubber below to inspect any moment`, "info");
     }
   } else if (evt.type === "inspect_frame") {
     onInspectFrame(evt);

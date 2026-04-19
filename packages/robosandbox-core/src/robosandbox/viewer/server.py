@@ -186,6 +186,17 @@ class SimThread(threading.Thread):
                 "prompt": task.prompt,
                 "n_dof": sim.n_dof,
                 "joint_names": sim.joint_names,
+                # Extra metadata so the client can render an "About this
+                # task" panel without a second round-trip. Object ids
+                # come from the Scene; success criterion + randomize
+                # spec come straight from the loaded Task.
+                "object_ids": [o.id for o in task.scene.objects],
+                "object_kinds": {o.id: o.kind for o in task.scene.objects},
+                "success_criterion": task.success.data,
+                "randomize": task.randomize or {},
+                "robot": (
+                    "franka_panda" if task.scene.robot_urdf else "builtin_6dof"
+                ),
             }
         )
 
