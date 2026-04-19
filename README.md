@@ -3,10 +3,21 @@
 > Sim-first agentic manipulation sandbox.
 > **Any arm. Any object. Any command.**
 
+<p align="center">
+  <img src="docs/site/docs/assets/demos/hero.gif" alt="Franka picks a red cube from a natural-language command" width="560">
+</p>
+
 Drop a URDF, drop some objects, type a task. A VLM (or rule-based stub)
 decomposes the task into skills; the sandbox executes them in MuJoCo
 with analytic grasping + IK; optionally records the result so you can
 fine-tune your own policies.
+
+**New users start here** — four short guides (terminal + viewer GIFs, runnable in minutes):
+
+- [How it works in 3 minutes](docs/site/docs/guides/how-it-works.md) — the four-layer architecture
+- [Bring your own robot](docs/site/docs/guides/bring-your-own-robot.md) — URDF + sidecar YAML
+- [Bring your own object](docs/site/docs/guides/bring-your-own-object.md) — YCB meshes + BYO OBJ
+- [Add a skill](docs/site/docs/guides/add-a-skill.md) — extend the agent's vocabulary
 
 ```
 user: "pick up the red cube and put it on the green cube"

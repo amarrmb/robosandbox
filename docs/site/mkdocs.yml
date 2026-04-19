@@ -64,6 +64,11 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Quickstart: quickstart.md
+  - Guides:
+      - How it works in 3 minutes: guides/how-it-works.md
+      - Bring your own robot: guides/bring-your-own-robot.md
+      - Bring your own object: guides/bring-your-own-object.md
+      - Add a skill: guides/add-a-skill.md
   - Concepts:
       - Scenes & objects: concepts/scenes.md
       - Skills & agents: concepts/skills-and-agents.md
