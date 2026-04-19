@@ -178,17 +178,14 @@ mp4.
 ## Where this tutorial fits
 
 The [policy-replay umbrella](./policy-replay.md) frames the larger
-"record → train → deploy" loop. Inside it, three layered demos are in
-flight:
+"record → train → deploy" loop. Inside it, three layered tutorials:
 
-1. **LeRobot Export** (you are here) — proves the data path. Ships today.
-2. **LeRobot Policy Replay with a pre-trained checkpoint** — in
-   progress. The [umbrella tutorial](./policy-replay.md) covers the
-   `ReplayTrajectoryPolicy` path today (open-loop replay of a recorded
-   trajectory, no training); wiring a real ACT/Diffusion checkpoint
-   through `LeRobotPolicyAdapter` is the next tutorial's job.
-3. **Sim-to-Real Handoff** — coming. A checklist + backend template
-   for taking a sim-validated policy to real hardware.
+1. **LeRobot Export** (you are here) — proves the data path.
+2. **[LeRobot Policy Replay](./lerobot-policy-replay.md)** — drives a
+   public ACT checkpoint through `run_policy` under cross-embodiment
+   mismatch.
+3. **[Sim-to-Real Handoff](./sim-to-real-handoff.md)** — the
+   deployment recipe and SO-101 backend skeleton.
 
 Each tutorial stands alone. You don't need to have trained a policy to
 appreciate this one — the export works for any recorded episode.

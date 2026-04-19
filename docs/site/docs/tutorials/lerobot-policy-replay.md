@@ -104,16 +104,20 @@ from huggingface_hub import snapshot_download
 local = Path(snapshot_download("satvikahuja/act_so100_test", ...))
 ```
 
-**All six public SO-100 ACT checkpoints we probed** — `cadene/
-act_so100_5_lego_test_080000`, `satvikahuja/act_so100_test`,
+Run
+[`examples/so_arm100/probe_hub_schemas.py`](https://github.com/amarrmb/robosandbox/blob/main/examples/so_arm100/probe_hub_schemas.py)
+— a small utility that downloads `config.json` for a hand-picked list
+of public SO-100 ACT checkpoints and prints which schema each uses.
+At the time of writing, all six checkpoints in the default list
+(`cadene/act_so100_5_lego_test_080000`, `satvikahuja/act_so100_test`,
 `koenvanwijk/act_so100_test`, `Chojins/so100_test20`,
-`pingev/lerobot-so100-1`, `maximilienroberti/act_so100_lego_red_box`
-— **ship a pre-0.5 config schema** that uses `input_shapes` +
-`input_normalization_modes` rather than the current
-`input_features`/`output_features` + `normalization_mapping`. Loading
-the old config crashes with a `DecodingError`. We have not enumerated
-every SO-100 ACT checkpoint on the Hub; newer or private uploads may
-already use the current schema.
+`pingev/lerobot-so100-1`, `maximilienroberti/act_so100_lego_red_box`)
+return `legacy` — they use `input_shapes` + `input_normalization_modes`
+rather than the current `input_features`/`output_features` +
+`normalization_mapping`, and loading them with current lerobot
+crashes with a `DecodingError`. Rerun the probe to pick up new
+uploads; extend the `_CHECKPOINTS` list in that script to widen the
+sample.
 
 Fix:
 [`examples/so_arm100/migrate_lerobot_config.py`](https://github.com/amarrmb/robosandbox/blob/main/examples/so_arm100/migrate_lerobot_config.py)
@@ -259,9 +263,9 @@ The [policy-replay umbrella](./policy-replay.md) frames the larger
 1. **[LeRobot Export](./lerobot-export.md)** — proves the data path.
 2. **LeRobot Policy Replay with a pre-trained checkpoint** (you are
    here) — proves the policy integration under cross-embodiment mismatch.
-3. **Sim-to-Real Handoff** — coming. The deployment recipe and
-   backend template for taking a sim-validated policy to real
-   hardware.
+3. **[Sim-to-Real Handoff](./sim-to-real-handoff.md)** — the
+   deployment recipe and SO-101 backend skeleton for taking a
+   sim-validated policy or skill to real hardware.
 
 ## Requirements
 

@@ -25,7 +25,7 @@ declared home, with zero joint residual. No branches for
 | `Home` skill end-to-end | **certified** by `test_home_skill_runs_against_real_backend` |
 | Other observation+step skills (`Wave`, teleop primitives) | **expected to work** — same Protocol surface, not individually tested |
 | `LocalRecorder` + `export-lerobot` | **expected to work** — reads `Observation`, which the fake backend produces |
-| `LeRobotPolicyAdapter` + `run_policy` | **expected to work** — `run_policy` only calls `observe` / `step` |
+| `LeRobotPolicyAdapter` + `run_policy` | **expected to work when observation/action dims and camera keys match the policy contract** — the runtime loop only calls `observe` / `step`, but the adapter still needs the backend's image keys, state dimension, and normalization to line up with what the checkpoint was trained for |
 | `Agent` ReAct loop | **expected to work** — only composes skill calls + observations |
 
 "Certified" means a test in

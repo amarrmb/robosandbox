@@ -1,17 +1,24 @@
 """``RealRobotBackend`` — stub that satisfies the ``SimBackend`` protocol
 for real hardware.
 
-RoboSandbox's skills, motion planners, grasp planners, and the Agent
-loop all consume the ``SimBackend`` Protocol (see ``protocols.py``).
-They don't care whether they're driving MuJoCo or a real robot — as long
-as the backend exposes the same shape:
+RoboSandbox's skills and agent loop consume the ``SimBackend``
+Protocol (see ``protocols.py``). Subclasses that honour this Protocol
+can drive observation+step skills, the ``LocalRecorder``, and
+``LeRobotPolicyAdapter`` + ``run_policy`` without code branches.
+Motion-planning skills (``Pick``, ``PlaceOn``, ``Push``) are the
+exception — they read MuJoCo's ``sim.model`` / ``sim.data``, which a
+real backend doesn't expose. See
+``docs/site/docs/tutorials/sim-to-real-handoff.md`` for the "plan in
+sim, execute on real" pattern.
+
+The Protocol surface a subclass implements:
 
     load(scene)        -> load/prepare the workspace
     reset()            -> return to home pose
     step(target_joints, gripper)  -> send one control tick
     observe()          -> Observation (rgb, joints, ee_pose, objects)
     get_object_pose(id), set_object_pose(id, pose)
-    n_dof, joint_names
+    n_dof, joint_names, home_qpos
     close()
 
 Swapping from sim to real is a constructor change:
@@ -20,11 +27,10 @@ Swapping from sim to real is a constructor change:
     sim = MuJoCoBackend(render_size=(240, 320))
     sim.load(scene)
 
-    # real:
-    sim = RealRobotBackend.from_yaml("my_so101.yaml")
-    sim.load(scene)   # initializes cameras, zero-pose, safety limits
-
-    # everything else — skills, motion, grasp, agent — unchanged.
+    # real: your subclass — instantiate however your driver wants
+    # (no ``from_yaml`` constructor ships on the base class).
+    sim = MySO101Backend(serial_port="/dev/ttyUSB0")
+    sim.load(scene)   # connects cameras, zeros the arm, sets safety limits
 
 This stub class raises ``NotImplementedError`` with actionable messages
 from every method. Subclass it and fill in the hardware driver for your
@@ -46,8 +52,11 @@ A production hardware backend typically wires:
   OptiTrack, learned keypoint detector). If you don't have one, return
   ``None`` and rely on VLM perception for localization.
 
-See ``examples/real_robot_swap.py`` (when present) for a concrete
-template and the RoboSandbox docs for integration recipes.
+See ``examples/so101_handoff/so101_backend.py`` for a concrete
+skeleton and
+``docs/site/docs/tutorials/sim-to-real-handoff.md`` for the full
+handoff guide, including what's certified by the contract tests vs
+what's expected to work.
 """
 
 from __future__ import annotations
@@ -121,8 +130,11 @@ class RealRobotBackend:
 
             # ...etc for observe/get_object_pose/close.
 
-    The existing motion planner, skills, and agent loop will then work
-    unchanged against ``MySO101Backend``.
+    Observation+step skills (``Home``, teleop primitives,
+    ``LeRobotPolicyAdapter``-wrapped policies via ``run_policy``) then
+    run against ``MySO101Backend`` through the same Protocol the sim
+    honours. Motion-planning skills are the documented exception —
+    see the sim-to-real handoff tutorial.
     """
 
     def __init__(self, config: RealRobotBackendConfig) -> None:

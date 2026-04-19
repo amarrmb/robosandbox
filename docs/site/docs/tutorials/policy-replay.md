@@ -2,10 +2,30 @@
 
 From a recorded episode → LeRobot v3 parquet → run it back in sim.
 
+!!! tip "Looking for the layered LeRobot workflow?"
+    This page is the original umbrella tutorial for record → replay
+    in sim. For the three-step workflow that covers exporting to
+    LeRobot datasets, driving a pre-trained checkpoint in sim, and
+    handing a sim-validated skill off to real hardware, start here:
+
+    1. **[LeRobot Export](./lerobot-export.md)** — record an episode
+       and export it into a LeRobot v3 dataset; inspect the parquet
+       + metadata with standard tooling.
+    2. **[LeRobot Policy Replay](./lerobot-policy-replay.md)** — run
+       a public ACT checkpoint through `LeRobotPolicyAdapter` +
+       `run_policy` on a non-bundled robot.
+    3. **[Sim-to-Real Handoff](./sim-to-real-handoff.md)** — what
+       carries over to real hardware, what doesn't, and a concrete
+       SO-101 backend skeleton.
+
+    The page below stays useful for the `ReplayTrajectoryPolicy`
+    path: given an events.jsonl from `LocalRecorder`, open-loop
+    replay the joint trajectory with no training and no checkpoint.
+
 This closes the "record → train → deploy" half of the loop. v0.1
 ships the plumbing and a `ReplayTrajectoryPolicy` reference; wiring a
-real LeRobot/ACT/Diffusion checkpoint is BYO (one dispatch entry in
-`load_policy`).
+real LeRobot/ACT/Diffusion checkpoint is the
+[LeRobot Policy Replay](./lerobot-policy-replay.md) tutorial.
 
 ## 1. Record an episode
 
