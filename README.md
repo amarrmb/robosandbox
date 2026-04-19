@@ -18,6 +18,7 @@ fine-tune your own policies.
 - [Bring your own robot](docs/site/docs/guides/bring-your-own-robot.md) — URDF + sidecar YAML
 - [Bring your own object](docs/site/docs/guides/bring-your-own-object.md) — YCB meshes + BYO OBJ
 - [Add a skill](docs/site/docs/guides/add-a-skill.md) — extend the agent's vocabulary
+- [VLM tool-calling](docs/site/docs/guides/vlm-tool-calling.md) — how text becomes `SkillCall`s (runnable walkthrough, no API key needed)
 
 ```
 user: "pick up the red cube and put it on the green cube"

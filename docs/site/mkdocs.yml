@@ -69,6 +69,7 @@ nav:
       - Bring your own robot: guides/bring-your-own-robot.md
       - Bring your own object: guides/bring-your-own-object.md
       - Add a skill: guides/add-a-skill.md
+      - VLM tool-calling: guides/vlm-tool-calling.md
   - Concepts:
       - Scenes & objects: concepts/scenes.md
       - Skills & agents: concepts/skills-and-agents.md
