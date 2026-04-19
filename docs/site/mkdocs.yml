@@ -88,6 +88,7 @@ nav:
       - "LeRobot workflow":
           - LeRobot export: tutorials/lerobot-export.md
           - LeRobot policy replay: tutorials/lerobot-policy-replay.md
+          - Sim-to-real handoff: tutorials/sim-to-real-handoff.md
   - Reference:
       - CLI: reference/cli.md
       - API: reference/api.md

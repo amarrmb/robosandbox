@@ -287,3 +287,15 @@ class MuJoCoBackend:
     def base_body_name(self) -> str:
         assert self._robot is not None
         return self._robot.base_body_name
+
+    @property
+    def home_qpos(self) -> list[float]:
+        """Arm joint angles at the configured home pose.
+
+        Shape matches ``n_dof``. Skills (``Home``, teleop resets) use
+        this to dispatch robot-agnostic waypoints — hand-coded per-skill
+        home vectors break on any arm whose DoF count differs from the
+        built-in 6.
+        """
+        assert self._robot is not None
+        return list(self._robot.home_qpos)

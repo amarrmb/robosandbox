@@ -165,6 +165,15 @@ class RealRobotBackend:
     def joint_names(self) -> list[str]:
         return list(self._config.joint_names)
 
+    @property
+    def home_qpos(self) -> list[float]:
+        """Home joint angles declared in the backend config.
+
+        Mirrors ``MuJoCoBackend.home_qpos`` so skills can look it up
+        without knowing whether the backend is sim or real.
+        """
+        return list(self._config.home_qpos)
+
     def close(self) -> None:
         # Default close is a no-op so subclasses don't have to override
         # when they hold no external resources.
