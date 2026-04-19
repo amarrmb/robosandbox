@@ -3,6 +3,14 @@
 > Sim-first agentic manipulation sandbox.
 > **Any arm. Any object. Any command.**
 
+!!! note "v0.1 is Linux-first"
+    Developed and CI-tested on Ubuntu 22.04/24.04 with Python
+    3.11/3.12/3.13. macOS and Windows are not regression-gated —
+    platform-specific issues (headless GL, Apple Silicon MuJoCo
+    wheels, Windows paths) are not tracked. See the
+    [Quickstart](quickstart.md) for the exact apt-get line the
+    viewer and rendering tests need.
+
 Drop a URDF, drop some objects, type a task. A VLM (or rule-based stub)
 decomposes the task into skills; the sandbox executes them in MuJoCo
 with analytic grasping + IK; optionally records the result so you can

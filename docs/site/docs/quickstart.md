@@ -2,6 +2,13 @@
 
 Install, run a benchmark, open the viewer, record an episode. ~5 minutes.
 
+!!! note "Supported platform"
+    v0.1 is **Linux-first** — developed and CI-tested on
+    Ubuntu 22.04/24.04 with Python 3.11/3.12/3.13. macOS and Windows
+    are not regression-gated; they may work but platform-specific
+    issues (headless GL, Apple Silicon MuJoCo wheels, Windows paths)
+    are not tracked.
+
 ## Install
 
 ```bash
@@ -12,6 +19,14 @@ uv pip install -e packages/robosandbox-core
 ```
 
 Python 3.10+. MuJoCo 3.2+ arrives as a transitive dep — no GPU needed.
+
+Headless rendering (viewer + any test that renders a frame) needs an
+OpenGL backend. On Ubuntu:
+
+```bash
+sudo apt-get install -y libosmesa6 libosmesa6-dev libgl1-mesa-dri
+export MUJOCO_GL=osmesa    # or `egl` when a GPU is available
+```
 
 Optional extras (install only what you need):
 

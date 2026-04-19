@@ -64,11 +64,27 @@ controlled grip lands in v0.2). See **Roadmap** at the bottom.
 
 ## Install
 
+> **Linux-first.** v0.1 is developed, CI-tested, and regression-gated
+> on **Ubuntu 22.04/24.04 with Python 3.11/3.12/3.13**. macOS and
+> Windows are not covered by CI — the stack may run, but
+> platform-specific issues (OSMesa / EGL headless rendering, Apple
+> Silicon MuJoCo wheels, Windows path handling) are not tracked.
+> Bug reports from other platforms are welcome; fixes will follow
+> the Linux path.
+
 ```bash
 git clone <this-repo> robosandbox
 cd robosandbox
 uv sync                                 # one-time
 uv pip install -e packages/robosandbox-core
+```
+
+For the viewer and any test that renders, MuJoCo needs a headless GL
+backend. On Ubuntu runners that's a one-time:
+
+```bash
+sudo apt-get install -y libosmesa6 libosmesa6-dev libgl1-mesa-dri
+export MUJOCO_GL=osmesa    # or `egl` if your machine has it
 ```
 
 Requires Python 3.10+. MuJoCo 3.2+ comes in as a dep; no GPU needed for
