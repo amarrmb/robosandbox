@@ -11,11 +11,61 @@
     [Quickstart](quickstart.md) for the exact apt-get line the
     viewer and rendering tests need.
 
-RoboSandbox is for building and testing small manipulation loops in
-simulation without needing a giant stack around them. Load a robot,
-drop in a few objects, give the system a task, and it will plan and run
-through a skill-based loop in MuJoCo. If you want to record episodes or
-export them for policy work later, that is part of the same flow.
+RoboSandbox is a small manipulation sandbox for building and testing
+manipulation loops without needing a giant stack around them. Load a
+robot, drop in a few objects, define a task, run a planner or policy,
+and record the result. If you want to export episodes for policy work
+later, that is part of the same flow.
+
+## Why This Project Exists
+
+RoboSandbox is a small manipulation sandbox for learning, prototyping,
+and integration work.
+
+It exists for the gap between toy demos and heavyweight robotics
+stacks. You can bring in a robot, define a task, run a planner or
+policy, record the result, and inspect the interfaces without a large
+simulator setup.
+
+The project is deliberately scoped. It is meant to help you understand
+the workflow, try ideas quickly, and make the seams between robot, task,
+skills, recorder, and policy visible. It is not trying to be the final
+simulator you use forever.
+
+If you outgrow RoboSandbox and move to MuJoCo, Isaac Sim, LeRobot
+training pipelines, or real hardware, that is success, not failure.
+
+## Who This Is For
+
+RoboSandbox is a good fit if you are:
+
+- learning how a manipulation stack fits together
+- doing robotics work but want a lighter-weight way to prototype in simulation
+- already comfortable with simulation and need a small, hackable integration harness
+
+It is especially useful when you want to answer questions like:
+
+- How do I add a new robot?
+- How do I describe a task?
+- What does a policy need to consume and emit?
+- What gets recorded and exported?
+- What breaks when I swap embodiments?
+
+## When To Move Beyond It
+
+RoboSandbox is a starting point, not an end state.
+
+You may want to move beyond it when you need:
+
+- lower-level simulator control than the current abstractions expose
+- photorealism or richer sensor simulation
+- large-scale industrial workflows
+- large scenes or more complex multi-robot environments
+- production deployment infrastructure
+
+The intended path is simple: start small, understand the workflow,
+validate the seams, then move to a heavier stack when your requirements
+become sharper.
 
 ```
 user: "pick up the red cube and put it on the green cube"

@@ -7,10 +7,75 @@
   <img src="docs/site/docs/assets/demos/hero.gif" alt="Franka picks a red cube from a natural-language command" width="560">
 </p>
 
-RoboSandbox is a small manipulation stack built around MuJoCo. You can
-load a robot from a URDF or MJCF, spawn a few objects, type a task, and
-watch the system break it into skills and execute them. If you want to
-record the run and turn it into a dataset, that path is built in too.
+RoboSandbox is a small manipulation sandbox built around MuJoCo. You
+can load a robot from a URDF or MJCF, spawn a few objects, define a
+task, run a planner or policy, and record the result. The point is to
+make the stack small enough to inspect and easy enough to modify.
+
+## Why RoboSandbox Exists
+
+RoboSandbox exists to make robot manipulation experiments easier to
+start.
+
+A lot of robotics tooling is either very low-level or very heavy. If
+you are new, that means a steep learning curve before you can make
+anything move. If you are experienced, that often means too much setup
+just to test one idea.
+
+RoboSandbox sits in the middle. It is a small manipulation sandbox for
+learning, prototyping, and integration work. You can run it, read it,
+and modify it without committing to a heavyweight simulation workflow.
+
+This project is intentionally a starting point, not an end state. The
+goal is not to replace MuJoCo, Isaac Sim, LeRobot, or your team's
+internal stack. The goal is to help you get oriented, get something
+working, and make the seams visible before you invest in a larger
+system.
+
+If you start with RoboSandbox and later move to MuJoCo, Isaac Sim,
+LeRobot training workflows, or real hardware, that is success, not
+failure.
+
+## Who It Helps
+
+RoboSandbox is useful for three kinds of users.
+
+**If you are new to robotics**
+Use it to learn how a manipulation stack fits together. You can start
+with a working example, then trace the path from task text to skills to
+motion to recorded artifacts without getting buried in framework
+complexity.
+
+**If you already do robotics but not simulation**
+Use it as a fast prototyping environment. It is a lightweight place to
+test a robot, task, recorder, or policy integration without first
+committing to a heavyweight simulator workflow.
+
+**If you already use simulation tools**
+Use it as a small integration harness. It is a good place to isolate
+interface questions, build minimal reproductions, and validate a seam
+before moving the idea into MuJoCo, Isaac Sim, or your internal stack.
+
+## When To Use It
+
+Use RoboSandbox when you want to:
+
+- learn how a manipulation stack works end to end
+- prototype a new robot, task, or policy quickly
+- test recording, export, and replay workflows
+- debug interface contracts in a small environment
+- build a minimal reproducible manipulation demo
+
+You will probably want a heavier stack when you need:
+
+- photorealistic rendering
+- richer sensor simulation or domain randomization
+- large scenes, many assets, or multi-robot setups
+- industrial-scale simulation workflows
+- production-grade deployment infrastructure
+
+That is the intended progression: start here, learn the workflow,
+validate the idea, then graduate when the problem demands it.
 
 If you're new to the repo, start with these:
 
