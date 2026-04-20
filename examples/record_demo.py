@@ -27,6 +27,8 @@ from robosandbox.types import Pose, Scene, SceneObject
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out-dir", type=Path, default=Path("runs"))
+    ap.add_argument("--render-height", type=int, default=480)
+    ap.add_argument("--render-width", type=int, default=640)
     args = ap.parse_args()
 
     urdf = Path(str(files("robosandbox").joinpath("assets/robots/franka_panda/panda.xml")))
@@ -51,7 +53,7 @@ def main() -> None:
         ),
     )
 
-    sim = MuJoCoBackend(render_size=(240, 320))
+    sim = MuJoCoBackend(render_size=(args.render_height, args.render_width))
     sim.load(scene)
     recorder = LocalRecorder(root=args.out_dir)
     episode_id = recorder.start_episode(

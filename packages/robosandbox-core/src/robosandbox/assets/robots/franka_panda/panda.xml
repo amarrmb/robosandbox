@@ -104,14 +104,14 @@
                       <body name="left_finger" pos="0 0 0.0584">
                         <inertial mass="0.015" pos="0 0 0" diaginertia="2.375e-6 2.375e-6 7.5e-7"/>
                         <joint name="finger_joint1" class="finger"/>
-                        <!-- Finger-body box so the gripper is visible without
-                             downloading the full visual meshes. Matches the
-                             approximate Franka finger bone geometry (2 cm
-                             thick x 2.5 cm wide x 5 cm tall; tip at +z, base
-                             at joint origin). contype/conaffinity=0 keeps
-                             it non-colliding (pads handle contact). -->
-                        <geom type="box" size="0.009 0.011 0.022" pos="0 0.003 0.022"
-                              rgba="0.35 0.35 0.4 1" group="2"
+                        <!-- Simplified visual finger body. We intentionally
+                             exaggerate its length and offset a little so the
+                             gripper opening/closing is readable in docs GIFs
+                             and videos without pulling the full Franka visual
+                             mesh set. contype/conaffinity=0 keeps it
+                             non-colliding (pads handle contact). -->
+                        <geom type="box" size="0.007 0.009 0.03" pos="0 0.006 0.03"
+                              rgba="0.78 0.78 0.82 1" group="2"
                               contype="0" conaffinity="0"/>
                         <geom class="fingertip_pad_collision_1"/>
                         <geom class="fingertip_pad_collision_2"/>
@@ -122,8 +122,8 @@
                       <body name="right_finger" pos="0 0 0.0584" quat="0 0 0 1">
                         <inertial mass="0.015" pos="0 0 0" diaginertia="2.375e-6 2.375e-6 7.5e-7"/>
                         <joint name="finger_joint2" class="finger"/>
-                        <geom type="box" size="0.009 0.011 0.022" pos="0 0.003 0.022"
-                              rgba="0.35 0.35 0.4 1" group="2"
+                        <geom type="box" size="0.007 0.009 0.03" pos="0 0.006 0.03"
+                              rgba="0.78 0.78 0.82 1" group="2"
                               contype="0" conaffinity="0"/>
                         <geom class="fingertip_pad_collision_1"/>
                         <geom class="fingertip_pad_collision_2"/>
