@@ -18,9 +18,14 @@ core.
 
 ![so100 policy rollout](../assets/demos/so100_policy_run.gif){ loading=lazy }
 
+<details>
+<summary>Watch the longer walkthrough</summary>
+
 <video controls preload="metadata" playsinline style="width: 100%; border-radius: 12px; margin: 1rem 0;">
   <source src="../assets/demos/robosandbox_deep_dive_choose_actuation.mp4" type="video/mp4">
 </video>
+
+</details>
 
 The demo uses a non-bundled SO-ARM100 (from
 [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie))
