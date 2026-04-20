@@ -6,6 +6,10 @@ pieces a URDF does not describe.
 
 ![Franka pick](../assets/demos/franka_pick.gif){ loading=lazy }
 
+<video controls preload="metadata" playsinline style="width: 100%; border-radius: 12px; margin: 1rem 0;">
+  <source src="../assets/demos/robosandbox_deep_dive_choose_robot.mp4" type="video/mp4">
+</video>
+
 The Franka above is loaded through the same path you would use for your
 own robot. There is no special-case Franka code in the skill layer.
 

@@ -11,6 +11,10 @@ what still depends on MuJoCo.
 
 ![so101 handoff terminal](../assets/demos/so101_handoff.gif){ loading=lazy }
 
+<video controls preload="metadata" playsinline style="width: 100%; border-radius: 12px; margin: 1rem 0;">
+  <source src="../assets/demos/robosandbox_deep_dive_graduate.mp4" type="video/mp4">
+</video>
+
 The screenshot above shows the `Home` skill — the same one the sim uses
 — driving a
 `RealRobotBackend` subclass from an arbitrary start pose to its

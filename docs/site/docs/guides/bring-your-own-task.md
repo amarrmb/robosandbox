@@ -6,6 +6,10 @@ variation for benchmark runs.
 
 ![custom task](../assets/demos/custom_task.gif){ loading=lazy }
 
+<video controls preload="metadata" playsinline style="width: 100%; border-radius: 12px; margin: 1rem 0;">
+  <source src="../assets/demos/robosandbox_deep_dive_define_task.mp4" type="video/mp4">
+</video>
+
 The agent and skill code do not change. You are only changing the task
 description.
 

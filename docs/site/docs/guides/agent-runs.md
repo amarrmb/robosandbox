@@ -6,6 +6,10 @@ write to disk.
 
 ![franka pick](../assets/demos/franka_pick.gif){ loading=lazy }
 
+<video controls preload="metadata" playsinline style="width: 100%; border-radius: 12px; margin: 1rem 0;">
+  <source src="../assets/demos/robosandbox_deep_dive_run_inspect.mp4" type="video/mp4">
+</video>
+
 ## The three ways to run
 
 | Entry point | When to reach for it | What it writes |

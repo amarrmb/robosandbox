@@ -17,6 +17,10 @@ robot, drop in a few objects, define a task, run a planner or policy,
 and record the result. If you want to export episodes for policy work
 later, that is part of the same flow.
 
+<video controls preload="metadata" playsinline style="width: 100%; border-radius: 12px; margin: 1rem 0;">
+  <source src="assets/demos/robosandbox_teaser_phase.mp4" type="video/mp4">
+</video>
+
 ## Why This Project Exists
 
 RoboSandbox is a small manipulation sandbox for learning, prototyping,
