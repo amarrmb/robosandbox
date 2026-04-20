@@ -1,18 +1,17 @@
 # Bring your own object
 
-Drop a YCB benchmark mesh into a task with a one-line shorthand, or
-bring any OBJ/STL and let RoboSandbox decompose it automatically.
+You can either use one of the bundled YCB objects or point RoboSandbox
+at your own OBJ/STL and let it build collision geometry for you.
 
 ![mug pick](../assets/demos/ycb_mug_pick.gif){ loading=lazy }
 
-The Franka lifting a concave, handled mug — same `Pick` skill, no code
-changes. The mug is a real object from the YCB benchmark, pre-decomposed
-into 15 convex hulls at author time so MuJoCo can do contact physics
-against it.
+The mug above is a good example of why this matters: it is concave,
+handled, and awkward enough that a simple primitive approximation would
+not be useful.
 
 ## The 10 bundled YCB objects
 
-Ship with RoboSandbox (`assets/objects/ycb/`):
+These ship with RoboSandbox under `assets/objects/ycb/`:
 
 | `@ycb:` id | Object | Mass (kg) |
 |---|---|---|
@@ -27,7 +26,7 @@ Ship with RoboSandbox (`assets/objects/ycb/`):
 | `042_adjustable_wrench` | adjustable wrench | 0.252 |
 | `055_baseball` | baseball | 0.148 |
 
-Each one is authored once, cached in-repo, and referenced with the
+Each one is pre-authored in the repo and referenced with the
 `@ycb:<id>` shorthand in task YAML.
 
 ## Drop one into a task
@@ -59,7 +58,7 @@ Run it:
 uv run robo-sandbox-bench --tasks pick_ycb_mug --seeds 1
 ```
 
-Expected output:
+Typical output:
 
 ```
 TASK           SEED  RESULT   SECS  REPLANS DETAIL
@@ -95,14 +94,15 @@ scene = Scene(
 
 ## Bring your own OBJ/STL
 
-For objects not in the YCB pack, RoboSandbox decomposes your mesh with
+For objects that are not in the bundled YCB set, RoboSandbox decomposes
+your mesh with
 [CoACD](https://github.com/SarahWeiii/CoACD) and caches the hulls at
 `~/.cache/robosandbox/mesh_hulls/`.
 
-### Option A — decompose at runtime (cached)
+### Option A — decompose at runtime
 
 ```bash
-uv pip install 'robosandbox[meshes]'    # pulls in coacd
+uv pip install -e 'packages/robosandbox-core[meshes]'    # pulls in coacd
 ```
 
 ```python
@@ -117,14 +117,14 @@ SceneObject(
 )
 ```
 
-First load runs CoACD (~5–30 s depending on concavity); subsequent loads
-hit the cache. `collision="hull"` skips CoACD entirely if you know your
-mesh is convex.
+The first load runs CoACD, which can take a while depending on the
+mesh. Later loads hit the cache. If the mesh is already convex,
+`collision="hull"` skips decomposition.
 
-### Option B — pre-decompose once, commit the result
+### Option B — pre-decompose once
 
-Use `scripts/decompose_mesh.py` (the same tool that authored the
-bundled YCB pack). Run it once offline, commit the OBJs + sidecar:
+Use `scripts/decompose_mesh.py`, which is the same tool used to author
+the bundled YCB assets:
 
 ```bash
 uv run python scripts/decompose_mesh.py \
@@ -146,13 +146,12 @@ assets/objects/custom/drill/
 └── drill.robosandbox.yaml    # sidecar listing meshes + physics params
 ```
 
-This is what `@ycb:025_mug` resolves to. Yours can live anywhere — reference
-it by absolute path in your task YAML's `mesh_sidecar:` field.
+This is the same general shape as the bundled YCB assets.
 
 ## The sidecar schema
 
-A `<name>.robosandbox.yaml` sidecar says what physics params to apply to
-the mesh. Here's the bundled mug's:
+A `<name>.robosandbox.yaml` sidecar carries the physics parameters for a
+mesh. The bundled mug looks like this:
 
 ```yaml
 visual_mesh: mug_visual.obj         # relative to sidecar dir
@@ -168,11 +167,10 @@ rgba: [0.85, 0.85, 0.9, 1.0]
 
 ## Why convex decomposition?
 
-MuJoCo's contact solver works on pairs of **convex** geoms. A concave
-mesh (a mug with a hollow cavity and a handle loop) collides as its
-bounding convex hull unless you split it into convex parts first. CoACD
-does that splitting. The visual mesh stays exactly the same — the
-decomposition only affects physics.
+MuJoCo's contact solver works on convex geoms. A concave object like a
+mug will otherwise behave like a much cruder convex hull. CoACD splits
+that mesh into convex parts so the physics is usable while the visual
+mesh stays the same.
 
 ## Troubleshooting
 

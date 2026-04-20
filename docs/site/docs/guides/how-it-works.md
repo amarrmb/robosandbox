@@ -1,7 +1,8 @@
 # How it works in 3 minutes
 
-Text goes in, an arm picks something up. Four clean layers, each
-swappable, each ~200 lines of readable Python.
+At a high level, RoboSandbox is just a small stack that turns a task
+string into calls to `sim.step()`. The pieces are simple, and most of
+them are replaceable.
 
 ![franka picking](../assets/demos/franka_pick.gif){ loading=lazy }
 
@@ -37,12 +38,13 @@ swappable, each ~200 lines of readable Python.
 | **Motion / IK** | start joints + target pose | `JointTrajectory` | `motion/ik.py` |
 | **`sim.step`** | one joint-target vector | advances physics `dt` | `sim/mujoco_backend.py` |
 
-**The arm only moves inside `sim.step`.** Everything above is choosing
-what to do, points in space, or lists of joint targets. No magic.
+**The important part is that the arm only moves inside `sim.step`.**
+Everything above that line is deciding what to do, where to move, or
+what joint targets to send next.
 
 ## Watch the phases
 
-Run the benchmark — the agent prints one line per phase:
+If you run the benchmark, the agent prints one line per phase:
 
 ![phase logs](../assets/demos/phases_log.gif){ loading=lazy }
 
@@ -54,14 +56,14 @@ TASK               SEED  RESULT   SECS  REPLANS DETAIL
 pick_cube_franka   0     OK        1.1        0 dz_mm=166.905
 ```
 
-One `PLAN` → one `EXECUTE` → success. On failure the agent appends the
-failure to `prior_attempts` and re-enters `PLAN` (up to `max_replans=3`
-times) with the failed steps fed back to the planner as "don't repeat
-these."
+The happy path is one `PLAN`, one `EXECUTE`, then done. If a skill
+fails, the agent appends that failure to `prior_attempts` and plans
+again, up to `max_replans=3`.
 
 ## Read one pick
 
-`skills/pick.py` is ~100 lines. End to end:
+The easiest way to understand the stack is to read one skill all the
+way through. `skills/pick.py` is short enough to do that:
 
 ```python
 # 1. Perception: text → 3D point
@@ -93,28 +95,26 @@ return SkillResult(success=True, reason="picked",
                    artifacts={"lifted_m": 0.167})
 ```
 
-Each of the four methods above is a `@runtime_checkable Protocol` —
-swap the implementation, the rest of the stack doesn't care.
+Each step in that path hangs off a `@runtime_checkable Protocol`. That
+is why you can swap pieces without rewriting everything around them.
 
 ## Why Damped Least Squares IK
 
-MuJoCo gives you forward kinematics and the Jacobian for free.
-Turning that into an inverse is:
+MuJoCo already gives you forward kinematics and the Jacobian. The IK
+solver in RoboSandbox is the standard Damped Least Squares iteration:
 
 ```
 dq = Jᵀ(JJᵀ + λ²·I)⁻¹ · err       # apply per iteration
 qpos ← qpos + α·dq, clipped to joint limits
 ```
 
-That's the whole iteration (`motion/ik.py`). Add singularity-escape
-retries from a few seed poses, add Cartesian-space linear interpolation
-for straight-line motions, and you have enough motion for pick/place/push
-on a flat table. v0.2 swaps in curobo (GPU, collision-aware) by the
-same Protocol.
+That is the core of `motion/ik.py`. Add a few retries from different
+seed poses plus Cartesian interpolation for straight-line moves, and you
+have enough motion for the current pick/place/push tasks on a tabletop.
 
 ## The ReAct loop
 
-`agent/agent.py`:
+The agent loop in `agent/agent.py` is also simple:
 
 ```
 IDLE → PLAN → EXECUTE (one skill) → ok? → next skill
@@ -124,32 +124,30 @@ IDLE → PLAN → EXECUTE (one skill) → ok? → next skill
                                            → next PLAN with failures fed back
 ```
 
-The planner doesn't know whether it's a regex (`StubPlanner`) or a
-VLM (`VLMPlanner`) on the other side of the call. The agent doesn't
-know what kind of skill it's invoking. Each layer sees only its
-neighbors.
+The planner does not need to know whether it is a regex parser
+(`StubPlanner`) or a VLM (`VLMPlanner`). The agent does not care which
+skill implementation it is calling. Each layer only sees the one below
+it.
 
 ## Plug in your own piece
 
-Every swappable component is a Protocol in `protocols.py`:
+The extension points all live in `protocols.py`:
 
 ```python
 SimBackend, Perception, GraspPlanner, MotionPlanner, RecordSink,
 VLMClient, Skill, Planner
 ```
 
-A plugin that implements one of these Protocols drops into the same
-call sites the built-in implementations use — e.g., swap the bundled
-`AnalyticTopDown` grasp planner for your own by passing a different
-`GraspPlanner` into `AgentContext`. `SimBackend` and `MotionPlanner`
-are the largest surfaces; the others are a method or two each. Plugin
-packages register via `robosandbox.*` entry points.
+A plugin that implements one of these Protocols can be passed into the
+same call sites as the built-in implementation. For example, if you
+want a different grasp planner, you pass a different `GraspPlanner`
+into `AgentContext`. `SimBackend` and `MotionPlanner` are the biggest
+surfaces; most of the others are a method or two.
 
-The sim-to-real tutorial documents the concrete caveat for
-`SimBackend` replacements: observation+step skills carry over, but
-anything that reads MuJoCo's kinematic model (the current motion
-planner does) needs either a kinematics-carrying real backend or a
-different `MotionPlanner` implementation.
+One concrete caveat: swapping `SimBackend` is easy for observation+step
+paths, but anything that reads MuJoCo's kinematic model still needs
+either a backend that exposes that model or a different
+`MotionPlanner`.
 
 ## What's next
 

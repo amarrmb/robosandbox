@@ -5,7 +5,7 @@ Sim-first agentic manipulation sandbox: any arm, any object, any command.
 This is the core package. Install it:
 
 ```bash
-pip install robosandbox
+uv pip install -e packages/robosandbox-core
 ```
 
 Run the hello-pick demo:

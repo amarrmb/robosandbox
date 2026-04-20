@@ -1,14 +1,14 @@
 # Perception & grasping
 
-Three protocols sit between a natural-language object name and a
-joint-space trajectory:
+Between "pick up the red cube" and an actual joint trajectory, there
+are three main pieces:
 
 - **`Perception`** — text + observation → `DetectedObject` list.
 - **`GraspPlanner`** — observation + target → candidate `Grasp` list.
 - **`MotionPlanner`** — start joints + target pose → `JointTrajectory`.
 
-Each is a narrow Protocol. `pip install`-drop a new implementation;
-no core changes.
+Each one is a narrow protocol, so swapping implementations is meant to
+be straightforward.
 
 ## Perception
 
@@ -17,7 +17,7 @@ class Perception(Protocol):
     def locate(self, query: str, obs: Observation) -> list[DetectedObject]: ...
 ```
 
-Two implementations ship:
+Two implementations ship in core:
 
 ### `GroundTruthPerception`
 
@@ -32,8 +32,8 @@ perception.locate("red cube", obs)
 # [DetectedObject(label='red_cube', pose_3d=Pose(xyz=(0.4, 0.0, 0.05), ...), confidence=1.0)]
 ```
 
-Use it to debug the skill/grasp/motion chain without paying for VLM
-calls.
+Use this when you want to debug the rest of the stack without involving
+the model.
 
 ### `VLMPointer`
 
@@ -72,14 +72,14 @@ class GraspPlanner(Protocol):
     def plan(self, obs: Observation, target: DetectedObject) -> list[Grasp]: ...
 ```
 
-One implementation in v0.1:
+There is one implementation in v0.1:
 
 ### `AnalyticTopDown`
 
 Assumes the gripper approaches along `-Z`, palm down, jaws along `X`.
-Works for cubes, short cylinders, cans, mugs picked off the rim. Fails
-for flat plates that need a side grasp — that's a job for a future
-`robosandbox-contactgraspnet` plugin.
+It works well enough for cubes, short cylinders, cans, and mugs picked
+from above. It is not the right tool for flatter or more awkward shapes
+that really need side grasps.
 
 Key parameters:
 
@@ -93,9 +93,7 @@ Output `Grasp(pose, gripper_width, approach_offset=0.08, score)`:
 - `gripper_width` — width at which to close.
 - `approach_offset` — distance above `pose` to approach from.
 
-The planner returns **one** candidate; `Pick` executes the top one.
-Multi-candidate ranking lands when a real grasp predictor ships in
-contrib.
+The planner returns one candidate today, and `Pick` executes it.
 
 ## Motion planning
 
@@ -110,7 +108,7 @@ class MotionPlanner(Protocol):
     ) -> JointTrajectory: ...
 ```
 
-One implementation in v0.1:
+There is one implementation in v0.1:
 
 ### `DLSMotionPlanner`
 
@@ -133,12 +131,13 @@ motion = DLSMotionPlanner(n_waypoints=160, dt=0.005)  # default values
 `dt` is per-step time; total trajectory duration is `n_waypoints *
 dt`. Skills call `motion.plan(...)` once per Cartesian segment.
 
-GPU-accelerated motion planning is the slot for a future
-`robosandbox-curobo` plugin.
+If a GPU motion planner gets added later, this is the seam where it
+fits.
 
 ## Typical skill shape
 
-Every pick/place skill follows the same pattern; `Pick` is canonical:
+Most pick/place skills follow this shape, and `Pick` is the clearest
+example:
 
 ```python
 def __call__(self, ctx, object):

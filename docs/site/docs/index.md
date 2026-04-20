@@ -1,7 +1,7 @@
 # RoboSandbox
 
-> Sim-first agentic manipulation sandbox.
-> **Any arm. Any object. Any command.**
+> A sim-first sandbox for robot manipulation.
+> **Bring your own arm, objects, and tasks.**
 
 !!! note "v0.1 is Linux-first"
     Developed and CI-tested on Ubuntu 22.04/24.04 with Python
@@ -11,10 +11,11 @@
     [Quickstart](quickstart.md) for the exact apt-get line the
     viewer and rendering tests need.
 
-Drop a URDF, drop some objects, type a task. A VLM (or rule-based stub)
-decomposes the task into skills; the sandbox executes them in MuJoCo
-with analytic grasping + IK; optionally records the result so you can
-fine-tune your own policies.
+RoboSandbox is for building and testing small manipulation loops in
+simulation without needing a giant stack around them. Load a robot,
+drop in a few objects, give the system a task, and it will plan and run
+through a skill-based loop in MuJoCo. If you want to record episodes or
+export them for policy work later, that is part of the same flow.
 
 ```
 user: "pick up the red cube and put it on the green cube"
@@ -32,20 +33,21 @@ user: "pick up the red cube and put it on the green cube"
  recorder writes runs/<id>/video.mp4 + events.jsonl
 ```
 
-## Three quickstart paths
+## Three quick ways in
 
-Pick whichever matches what you have installed. All three drive the
-same [agent loop](concepts/skills-and-agents.md).
+All three paths below use the same
+[agent loop](concepts/skills-and-agents.md). The only thing that changes
+is where the planner gets its intelligence from.
 
-### 1. Zero setup — rule-based stub planner
+### 1. Zero setup: stub planner
 
-No API key, no model download.
+No API key, no model download, just the built-in parser.
 
 ```bash
 uv run robo-sandbox run "pick up the red cube"
 ```
 
-The [stub planner](concepts/skills-and-agents.md#stubplanner) parses a
+The [stub planner](concepts/skills-and-agents.md#stubplanner) handles a
 small grammar:
 
 - `pick (up) the <obj>`
@@ -57,7 +59,7 @@ small grammar:
 - `open/close the <drawer>`
 - `(go) home`
 
-### 2. Local, free — Ollama
+### 2. Local model: Ollama
 
 ```bash
 ollama pull llama3.2-vision
@@ -66,9 +68,10 @@ uv run robo-sandbox run --vlm-provider ollama \
   "pick up the blue cube and put it on the green cube"
 ```
 
-Any OpenAI-compatible endpoint works — override with `--base-url`.
+Any OpenAI-compatible local endpoint works here too; use `--base-url`
+if you want something other than the default Ollama setup.
 
-### 3. Cloud — OpenAI
+### 3. Hosted model: OpenAI
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -79,23 +82,12 @@ uv run robo-sandbox run --vlm-provider openai \
 Default model is `gpt-4o-mini` (~$0.002 per episode). Use `--model
 gpt-4o` for harder plans.
 
----
-
 ## Where to go next
 
 - **[Quickstart](quickstart.md)** — install, run the benchmark, open
   the viewer, record an episode. 5 minutes end-to-end.
-- **Concepts** — the architecture one page at a time:
-    - [Scenes & objects](concepts/scenes.md)
-    - [Skills & agents](concepts/skills-and-agents.md)
-    - [Perception & grasping](concepts/perception-and-grasping.md)
-    - [Recording & export](concepts/recording-and-export.md)
-    - [Real-robot bridge](concepts/real-robot.md)
-- **Tutorials** — task-driven walk-throughs:
-    - [Custom arm](tutorials/custom-arm.md) — drop any URDF.
-    - [Custom task](tutorials/custom-task.md) — author YAML, run it.
-    - [Custom skill](tutorials/custom-skill.md) — extend the action vocabulary.
-    - [Policy replay](tutorials/policy-replay.md) — record → parquet → replay.
+- **Concepts** — [Scenes & objects](concepts/scenes.md), [Skills & agents](concepts/skills-and-agents.md), [Perception & grasping](concepts/perception-and-grasping.md), [Recording & export](concepts/recording-and-export.md), [Real-robot bridge](concepts/real-robot.md).
+- **Tutorials** — [Custom arm](tutorials/custom-arm.md), [Custom task](tutorials/custom-task.md), [Custom skill](tutorials/custom-skill.md), [Policy replay](tutorials/policy-replay.md).
 - **Reference** — [CLI](reference/cli.md), [API](reference/api.md),
   [roadmap](reference/roadmap.md).
 
@@ -116,4 +108,4 @@ gpt-4o` for harder plans.
   still depend on MuJoCo kinematics — see the
   [sim-to-real handoff tutorial](tutorials/sim-to-real-handoff.md).
 
-See the [roadmap](reference/roadmap.md) for what's next.
+See the [roadmap](reference/roadmap.md) for what is coming next.

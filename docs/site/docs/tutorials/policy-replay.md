@@ -1,6 +1,7 @@
 # Tutorial: policy replay
 
-From a recorded episode → LeRobot v3 parquet → run it back in sim.
+This is the original replay path in the repo: record a run, then replay
+the recorded joint trajectory back in sim.
 
 !!! tip "Looking for the layered LeRobot workflow?"
     This page is the original umbrella tutorial for record → replay
@@ -22,10 +23,9 @@ From a recorded episode → LeRobot v3 parquet → run it back in sim.
     path: given an events.jsonl from `LocalRecorder`, open-loop
     replay the joint trajectory with no training and no checkpoint.
 
-This closes the "record → train → deploy" half of the loop. v0.1
-ships the plumbing and a `ReplayTrajectoryPolicy` reference; wiring a
-real LeRobot/ACT/Diffusion checkpoint is the
-[LeRobot Policy Replay](./lerobot-policy-replay.md) tutorial.
+If you want the simplest possible policy path, this is it. No training,
+no checkpoint loading, just replaying the trajectory you already
+recorded.
 
 ## 1. Record an episode
 
@@ -33,7 +33,7 @@ real LeRobot/ACT/Diffusion checkpoint is the
 uv run python examples/record_demo.py --out-dir runs
 ```
 
-Produces:
+This writes:
 
 ```
 runs/20260418-094533-1a2b3c4d/
@@ -55,17 +55,16 @@ robo-sandbox export-lerobot \
   /tmp/my_dataset
 ```
 
-Produces a LeRobot v3 dataset at `/tmp/my_dataset/` with
+This writes a LeRobot v3 dataset at `/tmp/my_dataset/` with
 `data/chunk-000/episode_000000.parquet` + `meta/` + `videos/`. Pass
 this to any LeRobot-compatible training loop.
 
 ## 3. Replay the trajectory
 
-The fastest path — no training needed — is the bundled
-`ReplayTrajectoryPolicy`. It treats `events.jsonl` as an open-loop
-action trace and drives the sim through it tick-by-tick.
+The bundled `ReplayTrajectoryPolicy` treats `events.jsonl` as an
+open-loop action trace and drives the sim through it tick by tick.
 
-Directly via CLI:
+From the CLI:
 
 ```bash
 robo-sandbox run --policy runs/20260418-094533-1a2b3c4d \
@@ -73,7 +72,7 @@ robo-sandbox run --policy runs/20260418-094533-1a2b3c4d \
                  --max-steps 1000
 ```
 
-What happens:
+What happens under the hood:
 
 1. `load_policy(path)` inspects the directory. An `events.jsonl`
    present → wraps in `ReplayTrajectoryPolicy`.
@@ -117,7 +116,7 @@ result = run_policy(sim, MyAwesomePolicy("ckpt.pt"),
 # {"success": True, "steps": 1000, "initial_obs": ..., "final_obs": ...}
 ```
 
-To route a checkpoint directory through the CLI, extend
+If you want the CLI to understand your own checkpoint directory, extend
 `robosandbox.policy.load_policy` to dispatch on your checkpoint
 format (LeRobot, torchscript, onnx, whatever):
 
@@ -134,7 +133,7 @@ def load_policy(path):
 
 ## `policy.json` alternative
 
-For a directory that doesn't auto-match, drop a `policy.json`:
+If a directory does not auto-match, add a `policy.json`:
 
 ```json
 {

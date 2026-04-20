@@ -1,18 +1,18 @@
 # RoboSandbox
 
-> Sim-first agentic manipulation sandbox.
-> **Any arm. Any object. Any command.**
+> A sim-first sandbox for robot manipulation.
+> **Bring your own arm, objects, and tasks.**
 
 <p align="center">
   <img src="docs/site/docs/assets/demos/hero.gif" alt="Franka picks a red cube from a natural-language command" width="560">
 </p>
 
-Drop a URDF, drop some objects, type a task. A VLM (or rule-based stub)
-decomposes the task into skills; the sandbox executes them in MuJoCo
-with analytic grasping + IK; optionally records the result so you can
-fine-tune your own policies.
+RoboSandbox is a small manipulation stack built around MuJoCo. You can
+load a robot from a URDF or MJCF, spawn a few objects, type a task, and
+watch the system break it into skills and execute them. If you want to
+record the run and turn it into a dataset, that path is built in too.
 
-**New users start here** — short guides (terminal + viewer GIFs, runnable in minutes):
+If you're new to the repo, start with these:
 
 - [How it works in 3 minutes](docs/site/docs/guides/how-it-works.md) — the four-layer architecture
 - [Running the agent](docs/site/docs/guides/agent-runs.md) — CLI entry points, recorded artifacts, provider switch
@@ -42,9 +42,8 @@ user: "pick up the red cube and put it on the green cube"
 
 ## Documentation
 
-Full docs — concepts, tutorials (custom arm / task / skill / policy
-replay), and CLI + API reference — live under
-[`docs/site/`](docs/site/) and build with MkDocs-material:
+The full docs live under [`docs/site/`](docs/site/): concepts, guides,
+tutorials, and CLI/API reference. To preview them locally:
 
 ```bash
 uv pip install -e 'packages/robosandbox-core[docs]'
@@ -52,18 +51,20 @@ mkdocs serve -f docs/site/mkdocs.yml          # live preview
 mkdocs build --strict -f docs/site/mkdocs.yml # one-shot build
 ```
 
-Start at [`docs/site/docs/index.md`](docs/site/docs/index.md) if
-you're reading on GitHub.
+If you're reading this on GitHub, start at
+[`docs/site/docs/index.md`](docs/site/docs/index.md).
 
 ## Status
 
-v0.1 — active development. The architecture is the product: every
-swappable layer is a `Protocol`, so bringing your own robot, object,
-skill, or policy is a file drop plus a sidecar. Plumbing works end to
-end; the built-in arm's analytic grasp is reliable on cubes / mugs /
-cans, less so on stacking (tracked as open work). See
-[Roadmap](docs/site/docs/reference/roadmap.md) for the shipped feature
-matrix and what's deferred.
+This is still an early project, but the core shape is there. The main
+idea is that most moving parts are narrow `Protocol`s, so swapping in a
+different robot, object set, planner, recorder, or policy is a small
+integration job instead of a rewrite. The current stack is solid on
+pick/push/pour/drawer-style tasks. Stacking is still rougher than the
+rest and remains open work.
+
+The [roadmap](docs/site/docs/reference/roadmap.md) is the best place to
+see what already ships and what is still deferred.
 
 ## Install
 
@@ -93,9 +94,9 @@ export MUJOCO_GL=osmesa    # or `egl` if your machine has it
 Requires Python 3.10+. MuJoCo 3.2+ comes in as a dep; no GPU needed for
 the built-in arm.
 
-## Three quickstart paths
+## Three ways to try it
 
-### Zero setup — rule-based stub planner
+### Zero setup: stub planner
 
 ```bash
 uv run robo-sandbox run "pick up the red cube"
@@ -104,8 +105,8 @@ uv run robo-sandbox run "pick up the red cube"
 # → writes runs/<timestamp>/{video.mp4, events.jsonl, result.json}
 ```
 
-No API key, no model download, no vendor lock-in. The stub planner
-handles:
+This path needs no API key and no model download. The stub planner
+handles a small but useful grammar:
 
 - `pick (up) the <obj>`
 - `pick (up) the <obj> (and|then|,) (put|place) (it) on (the) <obj2>`
@@ -113,7 +114,7 @@ handles:
 - `push the <obj> forward|back|left|right`
 - `(go) home`
 
-### Local, free — Ollama
+### Local model: Ollama
 
 ```bash
 ollama pull llama3.2-vision
@@ -122,11 +123,10 @@ uv run robo-sandbox run --vlm-provider ollama \
   "pick up the blue cube and put it on the green cube"
 ```
 
-Any OpenAI-compatible Ollama model works. Provider defaults use
-`llama3.2-vision` on `localhost:11434/v1`; override with `--model` or
-`--base-url`.
+The defaults assume `llama3.2-vision` on `localhost:11434/v1`. Override
+with `--model` or `--base-url` if you want something else.
 
-### Cloud, best quality — OpenAI
+### Hosted model: OpenAI
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -134,8 +134,8 @@ uv run robo-sandbox run --vlm-provider openai \
   "stack all three cubes by colour — red on green on blue"
 ```
 
-`gpt-4o-mini` is the default; ~$0.002 per episode. Swap with
-`--model gpt-4o` for better planning on harder tasks.
+`gpt-4o-mini` is the default. If the task is more open-ended or the
+plan needs more reasoning, switch to `--model gpt-4o`.
 
 `--vlm-provider custom --base-url https://...` works with together.ai,
 vLLM, any OpenAI-compatible endpoint.
@@ -148,14 +148,13 @@ uv run robo-sandbox-bench --seeds 50         # randomize and aggregate
 uv run robo-sandbox-bench --vlm-provider ollama   # use a real VLM
 ```
 
-Tasks that declare a `randomize:` block in their YAML get per-seed
-jitter (xy translation + yaw) applied to every object. Seed 0 is always
-the deterministic base layout (bit-exact with `--seeds 1`); seeds ≥ 1
-sample uniform perturbations keyed on the seed. The summary reports
-`mean ± stderr` per task when `--seeds > 1`.
+Tasks with a `randomize:` block get per-seed perturbations. Seed 0 is
+the deterministic baseline. Seeds `>= 1` apply uniform jitter keyed on
+the seed, and when you run more than one seed the summary reports
+`mean ± stderr`.
 
-Nine built-in tasks (YAML scenes + success criteria under
-`packages/robosandbox-core/src/robosandbox/tasks/definitions/`):
+There are nine built-in tasks under
+`packages/robosandbox-core/src/robosandbox/tasks/definitions/`:
 
 | Task | What it exercises |
 |---|---|
@@ -169,22 +168,21 @@ Nine built-in tasks (YAML scenes + success criteria under
 | `push_forward` | Non-pick manipulation, verifies directional displacement |
 | `open_drawer` | First articulated primitive — drawer + `OpenDrawer` skill |
 
-Plus `_experimental_stack_two` (excluded from default runs — stacking
-is tracked as open work; see the [Roadmap](docs/site/docs/reference/roadmap.md)).
+There is also `_experimental_stack_two`, which is excluded from default
+runs because stacking is still open work.
 
-Each task bundles a `Scene`, a natural-language `prompt`, and a
-declarative `SuccessCriterion` evaluated against the final
-`Observation`. No executable success check code — safer, diffable.
+Each task is just a `Scene`, a natural-language prompt, and a
+declarative `SuccessCriterion` checked against the final
+`Observation`. There is no custom Python success callback hiding in the
+task file.
 
-Results are appended to `benchmark_results.json` locally for
-regression tracking; the file is gitignored (regenerate with
-`robo-sandbox-bench`).
+Results are appended to `benchmark_results.json` locally for regression
+tracking. The file is gitignored.
 
 ## Architecture
 
-Every swappable component is a narrow `Protocol` (PEP 544) with an
-entry-point registration. `pip install robosandbox-<plugin>` drops a
-new implementation in; no core changes needed.
+The codebase is deliberately small. Most extension points are plain
+`Protocol`s, so the seams are easy to find and reason about.
 
 ```
 packages/robosandbox-core/
@@ -227,7 +225,7 @@ IDLE → PLAN → EXECUTE (one skill at a time) → EVALUATE →
                  DONE                           FAILED
 ```
 
-The Planner protocol is the key seam:
+One important seam is the planner:
 
 ```python
 class Planner(Protocol):
@@ -240,25 +238,23 @@ class Planner(Protocol):
         """Returns (plan, n_model_calls). Empty plan == 'already done'."""
 ```
 
-`VLMPlanner` calls an OpenAI-compatible endpoint with tool-calling +
-image input. `StubPlanner` is regex-based.
+`VLMPlanner` talks to an OpenAI-compatible endpoint with tool-calling
+and image input. `StubPlanner` is a regex parser.
 
-### Skills expose themselves via JSON schema
+### Skills as tools
 
-Every skill has `name`, `description`, `parameters_schema` (JSON
-schema). VLMPlanner converts them to OpenAI tool definitions; the
-model's tool calls become skill dispatches. Add a skill by shipping a
-package that registers at the `robosandbox.skills` entry point.
+Each skill exposes `name`, `description`, and a JSON
+`parameters_schema`. `VLMPlanner` turns that into tool definitions; the
+model's tool calls become skill dispatches. If you want to add a skill,
+you register it at the `robosandbox.skills` entry point.
 
 ## Roadmap
 
-The current shipped feature matrix and open / deferred work live in
+The detailed shipped/deferred breakdown lives in
 [`docs/site/docs/reference/roadmap.md`](docs/site/docs/reference/roadmap.md).
-Headline items in flight: reliable force-controlled stacking,
-collision-aware motion planning (`robosandbox-curobo` plugin), first
-real-policy integration against a public ACT checkpoint, and the
-concrete SO-101 hardware backend that wires the existing
-`RealRobotBackend` skeleton to motors.
+The short version: better stacking, collision-aware planning, a cleaner
+real-policy path, and a concrete SO-101 hardware backend are the main
+next steps.
 
 ## Browser live viewer
 
@@ -266,7 +262,7 @@ Install the optional extra and open a browser — you'll see MuJoCo render
 in real time and can kick off tasks from a dropdown.
 
 ```bash
-pip install 'robosandbox[viewer]'
+uv pip install -e 'packages/robosandbox-core[viewer]'
 robo-sandbox viewer
 # → open http://localhost:8000
 ```
@@ -349,7 +345,7 @@ See `assets/objects/ycb/LICENSE` for the YCB project's terms.
 with CoACD and caches the hulls at `~/.cache/robosandbox/mesh_hulls/`:
 
 ```bash
-pip install 'robosandbox[meshes]'    # pulls in coacd
+uv pip install -e 'packages/robosandbox-core[meshes]'    # pulls in coacd
 ```
 
 ```python
@@ -383,4 +379,5 @@ Core: Apache 2.0.
 
 Optional `contrib/` plugins carry their own licenses — research-
 licensed grasp predictors etc. live there; they are opt-in installs
-and not pulled in by the base `pip install robosandbox`.
+and not pulled in by the base source install from
+`packages/robosandbox-core`.

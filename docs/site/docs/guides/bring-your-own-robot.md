@@ -1,13 +1,13 @@
 # Bring your own robot
 
-Drop a URDF (or MJCF) in, write a 20-line sidecar YAML, run a task. Same
-skills, same benchmark, no core changes.
+To try a new robot in RoboSandbox, you usually need two things: the
+robot description itself and a small sidecar YAML that fills in the
+pieces a URDF does not describe.
 
 ![Franka pick](../assets/demos/franka_pick.gif){ loading=lazy }
 
-That's the bundled Franka Panda picking a 12 mm cube — loaded from a
-URDF, driven by the same `Pick` skill as the built-in arm. No special
-case.
+The Franka above is loaded through the same path you would use for your
+own robot. There is no special-case Franka code in the skill layer.
 
 ## Why a sidecar YAML?
 
@@ -23,12 +23,14 @@ RoboSandbox needs to know:
 | Where should the base sit in the workspace? | no |
 
 RoboSandbox reads a `*.robosandbox.yaml` sidecar next to the URDF to
-answer these. The sidecar is small, diff-friendly, and kept separate so
-the URDF stays a stock URDF.
+answer those questions. Keeping that information separate means the URDF
+can stay close to upstream while the sandbox-specific integration logic
+lives in a small, diff-friendly file.
 
 ## Run the acceptance test
 
-Prove the URDF → pick loop works end-to-end on the bundled Franka:
+The easiest way to sanity-check the path is to run the bundled Franka
+task end to end:
 
 ![bench terminal](../assets/demos/franka_bench.gif){ loading=lazy }
 
@@ -46,15 +48,15 @@ pick_cube_franka   0     OK        1.6        0 dz_mm=166.905, min_mm=50.000
 SUMMARY: 1/1 successful
 ```
 
-`dz_mm=166` means the cube rose 166 mm off the table — well past the
-50 mm success threshold. The whole thing takes ~1.6 s sim time (a
-few real seconds including MuJoCo compile).
+`dz_mm=166` means the cube rose 166 mm off the table, comfortably above
+the 50 mm success threshold.
 
 ## The bundled sidecar, annotated
 
 This is the sidecar that ships with the bundled Franka
 (`packages/robosandbox-core/src/robosandbox/assets/robots/franka_panda/panda.robosandbox.yaml`).
-Read it top to bottom — every field maps to one of the questions above.
+Read it top to bottom. Every field maps back to one of the questions
+above.
 
 ```yaml
 arm:
@@ -84,13 +86,13 @@ base_pose:
   xyz: [-0.3, 0.0, 0.0]
 ```
 
-That's the whole interface. 20 lines.
+That is the whole interface.
 
 ## Use your own URDF
 
-Two paths:
+There are two normal ways to do this:
 
-### 1. Write a task YAML (recommended)
+### 1. Write a task YAML
 
 Drop your URDF, sidecar, and a task description into a YAML file:
 
@@ -121,7 +123,7 @@ Run it:
 uv run robo-sandbox-bench --tasks my_ur5_pick --seeds 1
 ```
 
-### 2. From Python
+### 2. Build a `Scene` in Python
 
 ```python
 from pathlib import Path
@@ -142,12 +144,11 @@ scene = Scene(
 )
 ```
 
-Then hand the `Scene` to `MuJoCoBackend.load(scene)` — every skill works
-with no code changes.
+Then pass the `Scene` to `MuJoCoBackend.load(scene)`.
 
 ## Writing the sidecar for a new URDF
 
-Three fields do 90% of the work. Get them right and the rest is taste.
+Three fields do most of the work:
 
 1. **`arm.joints`** — the DoF chain your IK solver drives. List names
     in proximal-to-distal order.
@@ -158,9 +159,10 @@ Three fields do 90% of the work. Get them right and the rest is taste.
     gripper counts as open vs. closed. Skills like `Pick` call
     `set_gripper(closed=1.0)` and trust your mapping.
 
-Run `robo-sandbox viewer --task your_task` — the viewer loads the scene
-without executing anything, so you can sanity-check the home pose and
-base placement before you spend time on IK.
+The quickest sanity check is to load the task in the viewer and inspect
+the scene before you spend time on IK. You want the base placement,
+home pose, and tool-center point to look right before you debug
+anything else.
 
 ## Troubleshooting
 

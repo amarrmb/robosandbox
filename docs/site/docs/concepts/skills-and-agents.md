@@ -1,6 +1,6 @@
 # Skills & agents
 
-A task runs through three abstractions:
+Most of the control flow in RoboSandbox lives in three abstractions:
 
 1. **Skills** — the action vocabulary (`pick`, `place_on`, …). Each is
    a callable with a JSON schema.
@@ -18,7 +18,8 @@ class Skill(Protocol):
     def __call__(self, ctx, **kwargs) -> SkillResult: ...
 ```
 
-No base class, no registry. Any object matching the shape works. The
+There is no base class requirement here. Any object matching the shape
+works. The
 VLMPlanner converts `parameters_schema` directly to an OpenAI tool
 definition; the stub planner dispatches by `name`.
 
@@ -40,9 +41,9 @@ definition; the stub planner dispatches by `name`.
 | `stack` | `stack(object: str, target: str)` | Pick + place in one. |
 
 Every skill returns `SkillResult(success, reason, reason_detail,
-artifacts)`. Failure reasons are structured strings (e.g.
-`unreachable`, `not_found`, `missed_grasp`) so the replan loop can
-reason about them.
+artifacts)`. Failure reasons are short structured strings such as
+`unreachable`, `not_found`, or `missed_grasp`, so the replan loop has
+something useful to work with.
 
 Skills register at the `robosandbox.skills` entry point — see
 `packages/robosandbox-core/pyproject.toml`. A plugin package can add
@@ -61,7 +62,7 @@ class Planner(Protocol):
         """Returns (plan, n_model_calls). Empty plan == 'already done'."""
 ```
 
-Two implementations ship:
+Two implementations ship with core:
 
 ### `VLMPlanner`
 
@@ -73,14 +74,13 @@ text summary of `scene_objects` keys/xyz.
 Used by `robo-sandbox run --vlm-provider {openai,ollama,custom}` and
 the `llm_guided.py` example.
 
-Retry nudge: if the model responds with prose instead of tool calls,
-VLMPlanner re-asks once with `"respond with tool calls only — no
-prose."`.
+If the model responds with prose instead of tool calls, `VLMPlanner`
+retries once with a "tool calls only" nudge.
 
 ### `StubPlanner`
 
-Deterministic, zero-dep regex NLU. No "AI" — just enough to prove the
-agent loop without a model. Handles:
+This is the deterministic, zero-dependency planner. It is just enough
+to exercise the agent loop without involving a model. It handles:
 
 - `pick (up) the <obj>`
 - `pick (up) the <obj> (and|then|,) (put|place) (it) on (the) <obj2>`
@@ -121,7 +121,7 @@ episode = agent.run("pick up the red cube")
 # episode.success, episode.steps, episode.replans, episode.plan, ...
 ```
 
-ReAct replan semantics:
+The replan behaviour is:
 
 - On any `SkillResult(success=False)`, the agent collects the failure
   (`step_idx`, `skill`, `args`, `reason`, `reason_detail`) into
@@ -134,11 +134,11 @@ ReAct replan semantics:
 
 ## Composing your own
 
-Custom planner — any object with a `plan(task, obs, prior_attempts)
+Custom planner: any object with a `plan(task, obs, prior_attempts)
 -> (list[SkillCall], int)` method. See `examples/custom_skill.py` for
 a `TapStub` that emits one skill call unconditionally.
 
-Custom skill — [tutorial](../tutorials/custom-skill.md). The Tap
+Custom skill: [tutorial](../tutorials/custom-skill.md). The Tap
 example in the tutorial is under 40 lines.
 
 ## Related

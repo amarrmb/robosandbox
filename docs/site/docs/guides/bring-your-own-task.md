@@ -1,11 +1,13 @@
 # Bring your own task
 
-A task is one YAML file. Scene + prompt + success criterion. Add a
-`randomize:` block and the bench runs N seeds with per-seed jitter.
+A task in RoboSandbox is just a YAML file: scene, prompt, and success
+criterion. If you add a `randomize:` block, you also get seeded scene
+variation for benchmark runs.
 
 ![custom task](../assets/demos/custom_task.gif){ loading=lazy }
 
-Same skills, same agent loop — just a different YAML.
+The agent and skill code do not change. You are only changing the task
+description.
 
 ## The shape of a task
 
@@ -36,17 +38,16 @@ randomize:
   yaw_jitter: 0.52                                  # ±30° about z
 ```
 
-Everything a task needs to run through the benchmark, to score
-success, and to regenerate reproducibly from a seed.
+That is enough to run the task, score it, and regenerate the same setup
+from a seed.
 
 The file above lives at
 [`examples/tasks/pick_yellow_cube.yaml`](https://github.com/amarrmb/robosandbox/blob/main/examples/tasks/pick_yellow_cube.yaml).
 
 ## Run it
 
-The built-in bench only knows its own tasks by name. Your YAML can
-live anywhere — load it with the `load_task()` API from a tiny
-wrapper:
+The built-in benchmark only knows the bundled tasks by name. For your
+own YAML, use the wrapper script:
 
 ```bash
 uv run python examples/run_custom_task.py \
@@ -68,16 +69,17 @@ Seeds: 3
 SUMMARY: 3/3 successful
 ```
 
-The wrapper is ~70 lines in
+The wrapper is short:
 [`examples/run_custom_task.py`][wrapper] — it just calls
 `load_task(path)` + `jitter_scene(scene, spec, seed)` + the same
 `Agent` + `StubPlanner` the bench uses.
 
 [wrapper]: https://github.com/amarrmb/robosandbox/blob/main/examples/run_custom_task.py
 
-### Alternative: drop into the built-in dir
+### Alternative: copy it into the built-in task dir
 
-If you're iterating inside a fork, you can sidestep the wrapper:
+If you are working inside a fork and do not mind modifying the repo
+tree, you can skip the wrapper:
 
 ```bash
 cp my_task.yaml packages/robosandbox-core/src/robosandbox/tasks/definitions/
@@ -86,7 +88,7 @@ uv run robo-sandbox-bench --tasks my_task --seeds 3
 
 ## Success criteria
 
-Five declarative kinds shipped in core (`tasks/loader.py`):
+Core ships five declarative success checks in `tasks/loader.py`:
 
 | `kind:` | Check |
 |---|---|
@@ -106,13 +108,12 @@ success:
     - {kind: moved_above,  object: widget, target: tray, xy_tol: 0.03, min_dz: 0.01}
 ```
 
-"Lifted ≥ 3 cm **and** landed inside the tray." No executable success
-check code — safer than arbitrary Python, diffable, and portable
-across sim backends.
+This means "lifted at least 3 cm and ended above the tray." There is no
+arbitrary Python callback in the task file.
 
 ## Randomization
 
-The `randomize:` block makes each seed vary the scene:
+The `randomize:` block lets each seed vary the scene:
 
 ```yaml
 randomize:
@@ -124,9 +125,8 @@ Seed 0 always produces the declared pose (bit-exact with no
 randomize). Seeds ≥ 1 sample deterministic perturbations from the
 seed — rerun with the same seed, get the same layout.
 
-`robo-sandbox-bench --seeds 20` with a randomize block gives you a
-`mean ± stderr` per task, which is what `benchmark_results.json`
-stores.
+When you run multiple seeds, the benchmark reports `mean ± stderr` per
+task and writes the results to `benchmark_results.json`.
 
 ## Object kinds
 
@@ -157,24 +157,25 @@ The `objects:` list supports four kinds:
 See [Bring your own object](./bring-your-own-object.md) for mesh
 import (YCB shorthand + bring-your-own OBJ/STL via CoACD).
 
-## Authoring workflow
+## A practical authoring workflow
 
 1. Copy an existing task:
    ```bash
    cp packages/robosandbox-core/src/robosandbox/tasks/definitions/pick_cube_franka.yaml \
       examples/tasks/my_task.yaml
    ```
-2. Edit — change object colors, positions, or skill chains.
-3. Preview the scene (no agent) by passing the task to the viewer:
+2. Edit the object layout, prompt, and success criterion.
+3. Preview the scene before you run the agent:
    ```bash
    robo-sandbox viewer --task pick_cube_franka   # loads the built-in
    # for your own, copy into the builtin dir first, or open via Python
    ```
-4. Run the agent via the wrapper script:
+4. Run the agent:
    ```bash
    uv run python examples/run_custom_task.py examples/tasks/my_task.yaml
    ```
-5. Iterate on `randomize:` bounds until seed=0..19 is a meaningful spread.
+5. Adjust `randomize:` until seed `0..19` gives you a spread that is
+   actually useful.
 
 ## What's next
 

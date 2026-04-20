@@ -1,68 +1,33 @@
 # Tutorial — LeRobot Policy Replay (pre-trained checkpoint)
 
-The second tutorial in the [LeRobot workflow](./policy-replay.md)
-track. Demo 1 proved the data path. This one runs **one specific
-public ACT checkpoint** through RoboSandbox's
-`robosandbox.policy.run_policy` loop on a robot that isn't bundled
-with the core, so you can see what the policy integration actually looks
-like in code.
+This page shows what it looks like to take a public LeRobot checkpoint,
+wrap it with `LeRobotPolicyAdapter`, and run it through
+`robosandbox.policy.run_policy` on a robot that is not bundled with the
+core.
 
 !!! warning "What this tutorial is — and isn't"
-    **This is an advanced integration demo under cross-embodiment
-    mismatch.** It proves RoboSandbox's policy runtime plumbing
-    (`LeRobotPolicyAdapter` + `run_policy` + the `LocalRecorder`
-    loop-back) holds against a real public checkpoint whose
-    observation/action contract doesn't match our sim exactly.
+    This is a policy-integration demo, not a promise that arbitrary
+    public checkpoints will work unchanged. The clean path is:
 
-    **It is NOT ready-made policy replay support** for arbitrary
-    checkpoints. The reusable product path is
-    `LeRobotPolicyAdapter(policy) → run_policy(sim, adapter)` **when
-    the checkpoint's embodiment matches your sim's** (same joint
-    count, matching camera keys, compatible normalization). Anything
-    else — including the `DimShimAdapter` in this tutorial's example
-    script — is user-level glue, not a stable API. When your
-    checkpoint and sim line up, skip the shim and drop the vanilla
-    adapter into `run_policy` directly.
+    `LeRobotPolicyAdapter(policy) -> run_policy(sim, adapter)`
+
+    when the checkpoint and sim actually match: same joint count, same
+    camera keys, compatible normalization. In this tutorial they do not,
+    so the example script uses a small compatibility shim. Treat that
+    shim as user-side glue, not as stable API.
 
 ![so100 policy rollout](../assets/demos/so100_policy_run.gif){ loading=lazy }
 
-The non-bundled SO-ARM100 (from
+The demo uses a non-bundled SO-ARM100 (from
 [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie))
-acting under
+plus
 [`satvikahuja/act_so100_test`](https://huggingface.co/satvikahuja/act_so100_test),
-a public pre-lerobot-0.5 ACT checkpoint, wrapped with
-`LeRobotPolicyAdapter` and driven via the standard `run_policy`
-entry point.
+a public pre-lerobot-0.5 ACT checkpoint.
 
-## What this tutorial proves
-
-- **RoboSandbox runs a non-bundled embodiment** via the documented
-  [Bring Your Own Robot](../guides/bring-your-own-robot.md) path
-  (SO-ARM100 under `examples/so_arm100/`).
-- **`LeRobotPolicyAdapter` marshals observations** into LeRobot's
-  batch contract (torch tensors, named image keys, `(1, state_dim)`
-  float32 state; auto-detected for `torch.nn.Module` policies).
-- **`robosandbox.policy.run_policy` drives the rollout end to end** —
-  `observe → act → step` — with recording via the same
-  `LocalRecorder` the export tutorial uses.
-
-**What it does NOT claim:**
-
-- Task success. The checkpoint's training distribution, state/action
-  dimension, and camera layout rarely match a given sim 1:1.
-  Cross-embodiment transfer is a separate research problem.
-- That arbitrary LeRobot checkpoints load automatically. Only the one
-  checkpoint above is known-working end to end in this tutorial. The
-  schema-migration utility below handles the common pre-lerobot-0.5
-  config shape; variants that use non-standard normalization,
-  multi-horizon action chunks, or bespoke observation keys will need
-  hand edits.
-- That `DimShimAdapter` (below) is a stable API. It exists specifically
-  to paper over the 7-vs-6 dim mismatch between this checkpoint and
-  Menagerie's SO-ARM100 — treat it as an **escape hatch for cross-
-  embodiment experimentation**, not as the template for a production
-  replay path. When the checkpoint's embodiment matches your sim's,
-  the vanilla `LeRobotPolicyAdapter` is the API you build on.
+The value of the tutorial is not that this exact checkpoint solves the
+task. It is that the policy runtime path is real: load a robot, load a
+checkpoint, adapt observations into the expected batch shape, and drive
+the rollout through `run_policy`.
 
 ## The four stages
 
@@ -70,7 +35,7 @@ entry point.
 
 The companion script
 [`examples/so_arm100/run_so100_policy.py`](https://github.com/amarrmb/robosandbox/blob/main/examples/so_arm100/run_so100_policy.py)
-runs all four in one go:
+runs all four stages end to end:
 
 ```bash
 uv run python examples/so_arm100/run_so100_policy.py
@@ -92,10 +57,11 @@ declares:
 - `home_qpos` placing the gripper over a reach-forward workspace
 - Injected `ee_site` at the Fixed_Jaw body with a -10 cm local-Y offset
 
-Automated coverage in
+Coverage in
 [`tests/test_so_arm100_import.py`](https://github.com/amarrmb/robosandbox/blob/main/packages/robosandbox-core/tests/test_so_arm100_import.py)
 locks the DoF count, joint order, gripper open/closed ordering, and
-reachability from home.
+reachability from home so this stays a real example rather than a
+fragile demo asset.
 
 ### 2. Download and migrate a public checkpoint
 
@@ -106,9 +72,9 @@ local = Path(snapshot_download("satvikahuja/act_so100_test", ...))
 
 Run
 [`examples/so_arm100/probe_hub_schemas.py`](https://github.com/amarrmb/robosandbox/blob/main/examples/so_arm100/probe_hub_schemas.py)
-— a small utility that downloads `config.json` for a hand-picked list
-of public SO-100 ACT checkpoints and prints which schema each uses.
-At the time of writing, all six checkpoints in the default list
+to download `config.json` for a short list of public SO-100 ACT
+checkpoints and classify their schema. At the time of writing, all six
+checkpoints in the default list
 (`cadene/act_so100_5_lego_test_080000`, `satvikahuja/act_so100_test`,
 `koenvanwijk/act_so100_test`, `Chojins/so100_test20`,
 `pingev/lerobot-so100-1`, `maximilienroberti/act_so100_lego_red_box`)
@@ -119,7 +85,7 @@ crashes with a `DecodingError`. Rerun the probe to pick up new
 uploads; extend the `_CHECKPOINTS` list in that script to widen the
 sample.
 
-Fix:
+The fix is:
 [`examples/so_arm100/migrate_lerobot_config.py`](https://github.com/amarrmb/robosandbox/blob/main/examples/so_arm100/migrate_lerobot_config.py)
 rewrites `config.json` in-place. Run it once per checkpoint:
 
@@ -129,7 +95,7 @@ uv run python examples/so_arm100/migrate_lerobot_config.py /path/to/ckpt/config.
 
 The rollout script above does this automatically on first download.
 
-### 3. Wrap with `LeRobotPolicyAdapter` (+ compatibility shims as needed)
+### 3. Wrap with `LeRobotPolicyAdapter`
 
 ```python
 from lerobot.policies.act.modeling_act import ACTPolicy
@@ -146,15 +112,13 @@ adapter = LeRobotPolicyAdapter(
 )
 ```
 
-`LeRobotPolicyAdapter` auto-detects that the wrapped policy is a
-`torch.nn.Module` and hands `select_action` torch tensors; mock
-policies keep receiving numpy (see
+`LeRobotPolicyAdapter` auto-detects torch policies and feeds them torch
+tensors; mock policies still receive numpy (see
 [`tests/test_lerobot_adapter.py`](https://github.com/amarrmb/robosandbox/blob/main/packages/robosandbox-core/tests/test_lerobot_adapter.py)
-for the regression locks).
+for the regression tests).
 
-**If your sim's embodiment matches the checkpoint's, you stop here.**
-The plain `LeRobotPolicyAdapter` slots into `run_policy` directly,
-which is the production replay path:
+If your sim and checkpoint match, you stop here. The plain
+`LeRobotPolicyAdapter` goes straight into `run_policy`:
 
 ```python
 from robosandbox.policy import run_policy
@@ -163,10 +127,9 @@ out = run_policy(sim, adapter, max_steps=80)
 print(out["success"], out["steps"])
 ```
 
-In this tutorial the checkpoint and sim **don't** match — and handling
-that gap is its own section.
+In this tutorial they do not match, so there is one more step.
 
-#### Advanced: cross-embodiment escape hatch (experimental)
+#### Cross-embodiment escape hatch
 
 `satvikahuja/act_so100_test` was trained on a robot whose state/action
 vector is 7-dim (6 arm joints + gripper) with two cameras (`laptop`
@@ -178,15 +141,12 @@ and `phone`). Menagerie's SO-ARM100 exposes 5 arm joints + a gripper
 | Cameras | two — `laptop` + `phone` | one — `scene` |
 | State dim | 7 | 6 |
 
-To prove the `run_policy` path works *at all* under this mismatch,
-the example script uses a small `DimShimAdapter` that duplicates the
+The example script uses a small `DimShimAdapter` that duplicates the
 scene frame across both camera keys, zero-pads state 6 → 7, and
 truncates the 7-dim action back to 6 before `run_policy` consumes it.
-**This is an experimental workaround, not an API contract.** Read
-the
+This is a workaround, not a reusable API contract. Read the
 [full ~20-line source](https://github.com/amarrmb/robosandbox/blob/main/examples/so_arm100/run_so100_policy.py)
-and treat it as illustrative of the kind of adapter a user might
-need; do not import `DimShimAdapter` into production code.
+if you want to see the whole thing.
 
 When a checkpoint trained for your exact embodiment lands (same DoF,
 same camera keys, same normalization statistics), skip the shim and
@@ -208,12 +168,11 @@ out = run_policy(sim, adapter, max_steps=80, on_step=_frame_hook)
 recorder.end_episode(success=False, result={"steps": out["steps"]})
 ```
 
-80 steps at sim `dt=0.005` s ≈ 400 ms of simulated time. The rollout
-writes `runs/<id>/video.mp4 + events.jsonl + result.json` via the
-same `LocalRecorder` the [export tutorial](./lerobot-export.md) uses
-— closing the loop with Demo 1's data path.
+80 steps at sim `dt=0.005` s is about 400 ms of simulated time. The
+rollout writes the same `video.mp4 + events.jsonl + result.json`
+artifacts as the export tutorial.
 
-## What success looks like at each stage
+## What to look for at each stage
 
 | Stage | Signal |
 |---|---|
@@ -222,17 +181,15 @@ same `LocalRecorder` the [export tutorial](./lerobot-export.md) uses
 | Wrap | `ACTPolicy.from_pretrained(local)` succeeds; `policy.config.input_features` matches what the sim will provide |
 | Run | Terminal prints `rollout wall: ~3s` with no traceback; `runs/<id>/video.mp4` exists |
 
-## What success does NOT look like
+## What not to overread
 
-- The cube being lifted. This is a cross-embodiment shim on a
-  checkpoint trained on real SO-100 hardware with cameras the sim
-  doesn't have. Expect the arm to move toward plausible configurations
-  but not complete the task.
-- A drop-in policy replacement. Treat this as scaffolding for the
-  case where you _have_ a checkpoint trained on the specific embodiment
-  and cameras you're simulating.
+- The cube being lifted. This checkpoint was trained on hardware and
+  cameras that do not match the sim here. The arm may move in plausible
+  ways without actually completing the task.
+- A drop-in replay recipe for arbitrary checkpoints. The general lesson
+  here is about the integration path, not about universal compatibility.
 
-## When will actual task success land?
+## What would it take for this to become a real policy demo?
 
 Three things need to line up for a meaningful policy run in sim:
 
@@ -251,14 +208,13 @@ Three things need to line up for a meaningful policy run in sim:
    that distribution produce garbage actions even when plumbing is
    perfect. This is rarely a hard blocker but is often a subtle one.
 
-None of these are in scope for "prove the integration holds." All three are
-in scope for a future *Sim-to-Real Handoff* (Demo 3) tutorial that
-pairs a sim-trained policy with a matching hardware backend.
+Those are outside the scope of this page. This tutorial is about the
+runtime path, not about claiming successful cross-embodiment transfer.
 
-## Where this tutorial fits
+## Where this fits
 
-The [policy-replay umbrella](./policy-replay.md) frames the larger
-"record → train → deploy" loop:
+In the broader `record -> train -> deploy` story, this is the middle
+step:
 
 1. **[LeRobot Export](./lerobot-export.md)** — proves the data path.
 2. **LeRobot Policy Replay with a pre-trained checkpoint** (you are
@@ -275,8 +231,7 @@ uv pip install lerobot        # brings torch, torchvision, lerobot's policy code
 ```
 
 The first line matches the [export tutorial](./lerobot-export.md) and
-pulls `pyarrow`. The second is only needed for *this* tutorial — the
-export doesn't need the `lerobot` package itself.
+pulls `pyarrow`. The second is only needed for this page.
 
 Footprint: ~2 GB for torch + torchvision + lerobot dependencies.
 

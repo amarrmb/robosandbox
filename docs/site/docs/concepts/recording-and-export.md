@@ -1,9 +1,9 @@
 # Recording & export
 
-Every run can be captured to disk, then exported to the LeRobot v3
-dataset format for training.
+Every run in RoboSandbox can be written to disk. From there you can
+inspect it directly or export it to LeRobot v3 for training.
 
-## `LocalRecorder` — the built-in sink
+## `LocalRecorder`
 
 Writes one directory per episode under `runs/` (or any `--runs-dir`
 path):
@@ -25,11 +25,11 @@ class RecordSink(Protocol):
     def end_episode(self, success: bool, result: dict) -> None: ...
 ```
 
-Frame subsampling: pass `sim_dt` in `metadata` and `LocalRecorder`
-only writes one frame per `1/video_fps` seconds — the video stays in
-wall time even when the sim runs faster.
+If you pass `sim_dt` in `metadata`, `LocalRecorder` subsamples frames so
+the video stays in wall time even if the sim is running faster than
+real time.
 
-## `events.jsonl` schema
+## `events.jsonl`
 
 One JSON object per line:
 
@@ -48,7 +48,7 @@ One JSON object per line:
 ```
 
 `action` is whatever the caller passes to `write_frame(obs, action)`.
-The recorder doesn't inspect it — the only convention is that
+The recorder does not inspect it. The only convention today is that
 `events.jsonl` is the input to `ReplayTrajectoryPolicy`, which reads
 either `joints`/`gripper` or falls back to `robot_joints`/normalised
 `gripper_width`.
@@ -75,7 +75,7 @@ result = Pick()(ctx, object="apple")
 recorder.end_episode(success=result.success, result={"reason": result.reason})
 ```
 
-Full runnable copy: `examples/record_demo.py`.
+For a runnable version, see `examples/record_demo.py`.
 
 ### Viewer
 
@@ -83,16 +83,15 @@ Toggle **Record** in the viewer sidebar before hitting Run. Episodes
 land in `./runs/` by default; override with
 `robo-sandbox viewer --runs-dir /path/to/elsewhere`.
 
-## CLI shortcuts
+## CLI shortcut
 
 ```bash
 # scripted demo that records
 uv run python examples/record_demo.py --out-dir runs
 ```
 
-Every CLI that drives the agent loop (e.g. `robo-sandbox run`) can
-plug `LocalRecorder` into `AgentContext` — see the example for the
-pattern.
+Any CLI path that drives the agent loop can also plug a recorder into
+`AgentContext`.
 
 ## Export to LeRobot v3
 
@@ -101,7 +100,7 @@ uv pip install -e 'packages/robosandbox-core[lerobot]'
 robo-sandbox export-lerobot runs/20260418-094533-1a2b3c4d /tmp/my_dataset
 ```
 
-Produces:
+This writes:
 
 ```
 /tmp/my_dataset/
@@ -113,7 +112,8 @@ Produces:
 └── videos/chunk-000/observation.images.scene/episode_000000.mp4
 ```
 
-Schema choices (documented here because LeRobot v3 leaves wiggle room):
+The export makes a few schema choices that are worth being explicit
+about:
 
 - `observation.state` = `concat(robot_joints, [gripper_width])`
   float32. Convention most LeRobot datasets (Aloha, Koch, SO-100)
@@ -123,9 +123,8 @@ Schema choices (documented here because LeRobot v3 leaves wiggle room):
 - `observation.images.scene` is stored as a `VideoFrame` reference,
   not inlined bytes.
 
-Single-episode per export. Multi-episode stitching is a separate
-concern — run `export-lerobot` N times, then merge with your own
-script.
+Each export is single-episode. If you want a multi-episode dataset, run
+`export-lerobot` multiple times and merge the results yourself.
 
 From Python:
 
@@ -141,7 +140,7 @@ out = export_episode(
 )
 ```
 
-## What's deferred
+## Still deferred
 
 - An MCAP recorder (protocol-stable, will drop in behind the same
   `RecordSink` interface).

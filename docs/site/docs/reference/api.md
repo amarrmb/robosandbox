@@ -251,7 +251,7 @@ from robosandbox.export.lerobot import export_episode
 out_dir = export_episode(src: Path, dst: Path, *, task: str | None = None, fps: int = 30)
 ```
 
-Needs `pyarrow` — `pip install 'robosandbox[lerobot]'`.
+Needs `pyarrow` — `uv pip install -e 'packages/robosandbox-core[lerobot]'`.
 
 ## Policy — `robosandbox.policy`
 

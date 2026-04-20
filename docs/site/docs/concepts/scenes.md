@@ -1,7 +1,7 @@
 # Scenes & objects
 
-A `Scene` describes a loadable world: one robot + N objects +
-workspace bounds. It's the input to every `SimBackend`.
+A `Scene` is the full world description that gets handed to a
+`SimBackend`: robot, objects, and workspace bounds.
 
 ## `Scene`
 
@@ -23,8 +23,7 @@ scene = Scene(
 )
 ```
 
-Frozen dataclass. Pass it to `sim.load(scene)`; the MJCF builder
-translates it into MuJoCo XML.
+It is a frozen dataclass. `sim.load(scene)` turns it into MuJoCo XML.
 
 ## `SceneObject` kinds
 
@@ -41,7 +40,7 @@ All primitives spawn with a freejoint unless kind says otherwise.
 
 ### Meshes
 
-Two paths, mutually exclusive:
+There are two mutually exclusive mesh paths:
 
 **Bundled YCB** — set `mesh_sidecar` to a sidecar YAML file, or use
 the YAML task shortcut `mesh: "@ycb:<id>"`:
@@ -54,10 +53,10 @@ objects:
     pose: {xyz: [0.42, 0.0, 0.045]}
 ```
 
-**Bring-your-own** — set `mesh_path` to an OBJ/STL. CoACD decomposes
+**Bring-your-own** — set `mesh_path` to an OBJ/STL. CoACD decomposes it
 into convex hulls; hulls are cached at
-`~/.cache/robosandbox/mesh_hulls/`. Needs `pip install
-'robosandbox[meshes]'`.
+`~/.cache/robosandbox/mesh_hulls/`. Needs the `meshes` extra:
+`uv pip install -e 'packages/robosandbox-core[meshes]'`.
 
 ```python
 SceneObject(
@@ -74,7 +73,7 @@ SceneObject(
 `collision="hull"` skips CoACD — the sandbox trusts the mesh is
 already convex. Use `"coacd"` for concave objects.
 
-Pre-decompose a mesh for a bundled asset:
+If you want to pre-decompose a mesh once and keep the result:
 
 ```bash
 python scripts/decompose_mesh.py \
@@ -85,7 +84,7 @@ python scripts/decompose_mesh.py \
 
 ### Drawer primitive
 
-The only articulated primitive in v0.1.
+This is the only articulated primitive in v0.1.
 
 ```yaml
 - id: drawer_a
@@ -107,7 +106,7 @@ and the [`open_drawer` task](../tutorials/custom-task.md) for how the
 
 ## Bundled YCB catalog
 
-Ten pre-decomposed objects ship with the core package:
+Ten pre-decomposed objects ship with core:
 
 | YCB id | Description | Mass (kg) |
 |---|---|---|
@@ -135,8 +134,8 @@ it to the bundled sidecar.
 
 ## Robots
 
-The default built-in is a simple 6-DOF arm defined in MJCF — smallest
-path with working physics. To bring your own robot, set
+The default built-in robot is a simple 6-DOF arm defined directly in
+MJCF. To use your own robot, set
 `robot_urdf`:
 
 ```python
@@ -168,7 +167,7 @@ scene = tabletop_clutter(n_objects=5, seed=0)
 
 See `examples/procedural_scene.py` for a runnable end-to-end flow.
 
-## YAML task schema (full)
+## Full YAML task schema
 
 Used by every file under
 `packages/robosandbox-core/src/robosandbox/tasks/definitions/`.

@@ -18,7 +18,7 @@ Type "# Non-bundled SO-ARM100 + public LeRobot ACT checkpoint, end to end"
 Sleep 900ms
 Enter
 Sleep 300ms
-Type "uv run --quiet python examples/so_arm100/run_so100_policy.py 2>&1 | grep -vE 'WARNING|INFO|Fetching|Loading weights'"
+Type "uv run --quiet python examples/so_arm100/run_so100_policy.py"
 Sleep 400ms
 Enter
 Sleep 12000ms

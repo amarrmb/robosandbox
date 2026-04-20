@@ -1,7 +1,8 @@
 # Real-robot bridge
 
-Swapping from sim to real is a constructor change. The
-`SimBackend` Protocol is the seam.
+The sim-to-real story in RoboSandbox is centered on `SimBackend`. If a
+backend satisfies that protocol, the layers above it can stay largely
+the same.
 
 ## `SimBackend` Protocol
 
@@ -20,9 +21,8 @@ class SimBackend(Protocol):
     def close(self) -> None: ...
 ```
 
-Every skill, the motion planner, the grasp planner, and the Agent
-loop go through this interface. They don't care whether it's MuJoCo
-or a real robot on the other end.
+Every skill, planner, and recorder uses this interface rather than
+calling MuJoCo directly.
 
 ## The swap pattern
 
@@ -52,7 +52,7 @@ RoboSandbox ships
 — a stub that satisfies `SimBackend` at the Protocol level and raises
 `NotImplementedError` with actionable messages from every method.
 
-Subclass and fill in the hardware driver:
+To use it, subclass it and wire in your hardware driver:
 
 ```python
 from robosandbox.backends.real import (
@@ -99,7 +99,7 @@ class MySO101Backend(RealRobotBackend):
     # set_object_pose: no-op (real hardware can't teleport)
 ```
 
-## What a production backend typically wires
+## What a production backend usually wires up
 
 - **`load`** — connect cameras, zero the arm, home the gripper,
   verify `scene.workspace_aabb`.
@@ -116,9 +116,9 @@ class MySO101Backend(RealRobotBackend):
 
 ## Worked example
 
-See `examples/real_robot_swap.py`. It defines a `FakeSO101Backend` —
-prints what it would do instead of talking to hardware — so you can
-verify your skills+motion plumbing before wiring a real driver.
+See `examples/real_robot_swap.py`. It defines a `FakeSO101Backend` that
+prints what it would do instead of talking to hardware, which is useful
+for checking the control flow before you wire in a real driver.
 
 Run:
 
@@ -134,7 +134,7 @@ Expected:
 [example] sim-or-real run ok.  n_dof=6  t=0.025
 ```
 
-## What's not done
+## What is still missing
 
 - `RealRobotBackend` ships as a stub only. No concrete subclass ships
   in core — the first target is SO-101 (LeRobot's reference driver).

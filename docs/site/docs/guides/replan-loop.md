@@ -1,7 +1,7 @@
 # Replan loop
 
-When a skill fails, the agent doesn't give up. It tells the planner
-what went wrong and asks for a fresh plan. Up to `max_replans` times.
+When a skill fails, the agent can hand that failure back to the planner
+and ask for a new plan instead of stopping immediately.
 
 ![replan loop](../assets/demos/replan_loop.gif){ loading=lazy }
 
@@ -21,8 +21,8 @@ wrong for reasons the plan didn't anticipate:
 - the object moved between perception and the grasp;
 - the target was unreachable.
 
-Rather than require planners to predict failure, the agent **observes
-failure and loops**. That's the R in ReAct.
+Rather than expecting the planner to predict every failure in advance,
+the agent reacts to what actually happened and plans again.
 
 ## The loop
 
@@ -73,12 +73,11 @@ replans += 1
 }
 ```
 
-The VLM sees its previous failure and gets the chance to pick a
-different object, rewrite the args, or give up (emit the `done` tool).
+The planner gets a summary of the failed step and can choose a
+different object, change the arguments, or give up.
 
-`StubPlanner` doesn't look at `prior_attempts` — it always returns the
-same regex-matched plan, so it exhausts replans on every failure. Real
-planners use the feedback.
+`StubPlanner` ignores `prior_attempts`, so it will exhaust replans on
+every deterministic failure. A real planner should use that feedback.
 
 ## Run the demo
 
@@ -107,13 +106,13 @@ FINAL VERDICT
   wall:        0.5s
 ```
 
-Three key fields in `result.json`:
+Three fields in `result.json` matter here:
 
 - **`replans`** — how many times the agent re-entered PLAN
 - **`final_reason`** — `plan_complete`, `replan_exhausted`, `vlm_transport`, etc.
 - **`final_detail`** — the inner skill's `reason_detail`; what actually broke
 
-## When the loop adds value vs. noise
+## When the loop helps and when it does not
 
 **Replan helps** when the failure is:
 
@@ -128,9 +127,8 @@ Three key fields in `result.json`:
 - `bad_arguments` from a planner that always emits the same args;
 - `vlm_transport` (no point retrying a rate-limited API from the same key).
 
-For structural failures the agent exhausts `max_replans` and returns
-fast — the cost is bounded. For transient issues, the loop usually
-recovers in 1–2 tries.
+For structural failures the loop just burns through `max_replans` and
+stops. For transient issues, it often recovers in one or two tries.
 
 ## Tuning `max_replans`
 
@@ -145,8 +143,7 @@ a deterministic failure).
 
 ## Skill-side contract
 
-For replan to do its job, skills must **surface the failure mode**,
-not hide it:
+For replanning to help, skills need to return useful failure reasons:
 
 ```python
 # GOOD — gives planner something to work with
@@ -160,9 +157,9 @@ return SkillResult(
 return SkillResult(success=False, reason="error")
 ```
 
-The `reason` is a short machine slug the planner can switch on. The
-`reason_detail` is the human-readable context that makes it into
-`result.json` and into the next plan's `prior_attempts`.
+`reason` is the short machine-readable slug. `reason_detail` is the
+human-readable context that lands in `result.json` and gets fed back
+into the next plan.
 
 ## Troubleshooting a stuck replan loop
 

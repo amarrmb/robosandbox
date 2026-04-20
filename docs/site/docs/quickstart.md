@@ -1,6 +1,7 @@
 # Quickstart
 
-Install, run a benchmark, open the viewer, record an episode. ~5 minutes.
+This gets you from a fresh checkout to a working run, a benchmark, a
+viewer session, and a recorded episode.
 
 !!! note "Supported platform"
     v0.1 is **Linux-first** — developed and CI-tested on
@@ -18,7 +19,8 @@ uv sync
 uv pip install -e packages/robosandbox-core
 ```
 
-Python 3.10+. MuJoCo 3.2+ arrives as a transitive dep — no GPU needed.
+You need Python 3.10+. MuJoCo 3.2+ comes in as a dependency, and the
+built-in demos do not need a GPU.
 
 Headless rendering (viewer + any test that renders a frame) needs an
 OpenGL backend. On Ubuntu:
@@ -28,7 +30,7 @@ sudo apt-get install -y libosmesa6 libosmesa6-dev libgl1-mesa-dri
 export MUJOCO_GL=osmesa    # or `egl` when a GPU is available
 ```
 
-Optional extras (install only what you need):
+Install extras only if you need them:
 
 ```bash
 uv pip install -e 'packages/robosandbox-core[viewer]'     # FastAPI viewer
@@ -38,26 +40,26 @@ uv pip install -e 'packages/robosandbox-core[docs]'       # this site
 uv pip install -e 'packages/robosandbox-core[dev]'        # pytest, ruff, mypy
 ```
 
-## 1. Run the stub-planner demo
+## 1. Run the simplest demo
 
 ```bash
 uv run robo-sandbox run "pick up the red cube"
 ```
 
-Expected: MuJoCo opens, the built-in arm grasps the cube, the CLI
-prints the plan and final reason. No API key required.
+You should see MuJoCo open, the built-in arm pick the cube, and the CLI
+print the plan and final reason. No API key required.
 
 ## 2. Run the benchmark
 
-The benchmark executes the built-in task suite with the StubPlanner +
-ground-truth perception, so it isolates sim reliability from VLM
-variance.
+The benchmark uses the stub planner and ground-truth perception, so
+what you are measuring here is mostly sim reliability rather than model
+quality.
 
 ```bash
 uv run robo-sandbox-bench
 ```
 
-Expected output (abbreviated):
+Typical output looks like this:
 
 ```
 TASK                 SEED  RESULT   SECS  REPLANS DETAIL
@@ -75,9 +77,10 @@ push_forward         0     OK        1.0        0  displacement_mm=76.5, min_mm=
 SUMMARY: 9/9 successful
 ```
 
-Results append to `benchmark_results.json` (override path with `--out`).
+Results append to `benchmark_results.json`. Use `--out` if you want a
+different path.
 
-Randomize and aggregate:
+If you want something closer to a regression run than a smoke test:
 
 ```bash
 uv run robo-sandbox-bench --seeds 50
@@ -101,14 +104,14 @@ robo-sandbox viewer
 # → open http://localhost:8000
 ```
 
-Pick a task from the dropdown, hit **Run**. Frames stream at 15–50 fps;
-events log to the sidebar. Toggle **Record** before running to capture
-an episode under `./runs/<ts>-<id>/`. Toggle **Teleop** to drive the
-arm with WASD/QE + Space (see [CLI](reference/cli.md#viewer)).
+Pick a task from the dropdown and hit **Run**. Frames stream in the
+browser, events show up in the sidebar, and if you enable **Record**
+first you'll get a run directory under `./runs/<ts>-<id>/`. **Teleop**
+lets you drive the arm with WASD/QE + Space.
 
 ## 4. Record a scripted episode
 
-For a headless pick run that writes MP4 + JSONL + result.json:
+If you want a headless run that writes the usual artifacts to disk:
 
 ```bash
 uv run python examples/record_demo.py --out-dir runs
@@ -125,7 +128,8 @@ recorded episode 1a2b3c4d
     video.mp4 (42980 B)
 ```
 
-More on the layout and schema: [recording & export](concepts/recording-and-export.md).
+If you want the file layout and schema details, see
+[recording & export](concepts/recording-and-export.md).
 
 ## 5. Export to LeRobot v3
 
@@ -134,11 +138,9 @@ uv pip install -e 'packages/robosandbox-core[lerobot]'
 robo-sandbox export-lerobot runs/20260418-094533-1a2b3c4d /tmp/my_dataset
 ```
 
-You now have a LeRobot v3 parquet dataset — pass it to any LeRobot
-training loop or replay it with
-[`robo-sandbox run --policy`](tutorials/policy-replay.md).
-
----
+At that point you have a LeRobot v3 dataset on disk. You can inspect it,
+train on it, or use it as the starting point for the policy replay
+workflow.
 
 ## Next steps
 

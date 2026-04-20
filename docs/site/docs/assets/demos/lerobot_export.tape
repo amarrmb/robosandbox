@@ -18,7 +18,7 @@ Type "# 1. Record a pick episode (writes video.mp4 + events.jsonl + result.json)
 Sleep 900ms
 Enter
 Sleep 300ms
-Type "uv run python examples/record_demo.py --out-dir runs 2>/dev/null"
+Type "uv run python examples/record_demo.py --out-dir runs"
 Sleep 400ms
 Enter
 Sleep 10000ms

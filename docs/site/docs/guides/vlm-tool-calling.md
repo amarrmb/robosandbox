@@ -1,13 +1,13 @@
 # VLM tool-calling
 
-How text becomes `SkillCall`s when the planner is a VLM. End-to-end:
-skills → OpenAI tool definitions → model's tool_calls → `SkillCall`.
+This page shows the exact path from a skill definition in Python to a
+`SkillCall` coming back from a VLM.
 
 ![walkthrough](../assets/demos/vlm_walkthrough.gif){ loading=lazy }
 
-That's [`examples/vlm_tool_calling_walkthrough.py`][walkthrough]
-printing every wire-level step — with a mock VLM client, so you can
-run it yourself without any API key.
+The walkthrough script
+[`examples/vlm_tool_calling_walkthrough.py`][walkthrough] prints every
+step with a mock VLM client, so you can run it without an API key.
 
 [walkthrough]: https://github.com/amarrmb/robosandbox/blob/main/examples/vlm_tool_calling_walkthrough.py
 
@@ -30,11 +30,11 @@ run it yourself without any API key.
                                          └──────────────┘
 ```
 
-`VLMPlanner` is 100 lines in
+`VLMPlanner` is short enough to read in one sitting:
 [`agent/planner.py`](https://github.com/amarrmb/robosandbox/blob/main/packages/robosandbox-core/src/robosandbox/agent/planner.py).
-Everything below is what it does.
+What follows is the whole flow.
 
-## 1. Skills → tool definitions
+## 1. Skills become tool definitions
 
 Every skill exposes `name`, `description`, `parameters_schema` (JSON
 schema). `VLMPlanner._tool_schemas()` wraps them in OpenAI's function
@@ -60,14 +60,13 @@ format:
 }
 ```
 
-A synthetic `done` tool is added so the model can signal "the task is
-already complete — no skills needed" without emitting prose.
+A synthetic `done` tool is added so the model can say "nothing to do"
+without falling back to prose.
 
-The **skill author never writes any of this**. Define
-`parameters_schema` as plain JSON schema; the planner assembles the
-rest.
+The skill author only writes `parameters_schema` as ordinary JSON
+schema. The planner wraps it in the provider-specific tool format.
 
-## 2. Task + observation → VLM request
+## 2. Task + observation become a VLM request
 
 `VLMPlanner._build_messages()` assembles a 2-message chat:
 
@@ -82,7 +81,7 @@ rest.
 ]
 ```
 
-Three things the user message carries:
+The user message carries three useful pieces of context:
 
 - The **task string** verbatim.
 - A **scene summary** from `obs.scene_objects` — gives the model
@@ -95,9 +94,10 @@ On a replan, one more text block is appended:
 {"type": "text", "text": "Previously-failed steps — do NOT repeat them unchanged:\n[{\"step_idx\": 1, \"skill\": \"pick\", \"args\": {...}, \"reason\": \"object_not_found\"}]"}
 ```
 
-That's the ReAct feedback loop — failures become context for the next plan.
+That is the ReAct feedback loop in practice: failed steps become
+context for the next plan.
 
-## 3. Model response → SkillCall's
+## 3. Model response becomes `SkillCall`s
 
 The VLM returns OpenAI-shaped tool calls:
 
@@ -114,8 +114,8 @@ The VLM returns OpenAI-shaped tool calls:
 }
 ```
 
-`_parse_tool_calls()` turns each into a `SkillCall(name, arguments,
-tool_call_id)`. Two concrete guarantees:
+`_parse_tool_calls()` turns each response into a
+`SkillCall(name, arguments, tool_call_id)`. Two details matter:
 
 1. **`arguments` is parsed as JSON.** If it's malformed, the
    SkillCall falls back to `{}` rather than crashing the agent.
@@ -125,20 +125,19 @@ tool_call_id)`. Two concrete guarantees:
 
 ## 4. Recovery when the model emits prose
 
-Smaller / local models sometimes ignore the tool interface and reply
-in free text. `VLMPlanner.plan()` detects that (no tool_calls, no
-`done`) and retries **once** with a nudge:
+Smaller or local models sometimes ignore the tool interface and answer
+in prose. `VLMPlanner.plan()` detects that and retries once with a
+nudge:
 
 ```json
 {"role": "user", "content": "Please respond with tool calls only — no prose."}
 ```
 
-If the second try also produces prose, the plan is empty — the agent
-treats that the same as "no viable plan" and the replan loop takes over.
+If the second try also returns prose, the planner gives up and returns
+an empty plan.
 
-`n_vlm_calls` (returned alongside the plan) records whether the nudge
-happened. Bench runs surface this so you can see how often a given
-model needs hand-holding.
+`n_vlm_calls` tells you whether that extra retry happened, which is
+useful when you are comparing models.
 
 ## Running against real providers
 
@@ -149,8 +148,8 @@ model needs hand-holding.
 | **Any OpenAI-compatible** | vLLM, together, groq, etc. | `uv run robo-sandbox run "..." --vlm-provider custom --base-url https://...` |
 | **No VLM (regex)** | nothing | `uv run robo-sandbox run "pick up the red cube"` — defaults to `stub` |
 
-All four paths use the same `Planner` interface — swapping providers
-is a single flag. The `Agent` and every skill is unaware.
+All four paths use the same `Planner` interface. Swapping providers is
+just a flag change.
 
 ## Zero-setup walkthrough
 
@@ -160,13 +159,11 @@ Run the walkthrough yourself — no API keys, no network:
 uv run python examples/vlm_tool_calling_walkthrough.py
 ```
 
-Output shows four labeled sections: the tool definitions, the exact
-messages that would be sent, the canned tool-call response, and the
-parsed `SkillCall`s.
+The output shows the tool definitions, the request payload, the canned
+tool-call response, and the parsed `SkillCall`s.
 
-This is the best way to understand the pattern before plugging in a
-real model. When you're ready for a live run, swap the
-`MockVLMClient` for `OpenAIVLMClient(VLMConfig(...))`.
+This is the easiest way to understand the pattern before plugging in a
+real model.
 
 ## Cost & latency notes
 

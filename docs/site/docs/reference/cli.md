@@ -27,8 +27,8 @@ Scripted pick with the built-in arm. No VLM, no API key. Useful for
 robo-sandbox viewer [--host HOST] [--port PORT] [--task TASK] [--runs-dir DIR]
 ```
 
-Starts the FastAPI + WebSocket live viewer. Needs `pip install
-'robosandbox[viewer]'`.
+Starts the FastAPI + WebSocket live viewer. Needs the `viewer` extra:
+`uv pip install -e 'packages/robosandbox-core[viewer]'`.
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -109,7 +109,7 @@ LeRobot v3 dataset.
 | `--task` | Override the task string in the exported metadata. |
 | `--fps` | Video framerate. Default `30`. |
 
-Needs `pip install 'robosandbox[lerobot]'`. See
+Needs `uv pip install -e 'packages/robosandbox-core[lerobot]'`. See
 [recording & export](../concepts/recording-and-export.md) for the
 dataset layout.
 

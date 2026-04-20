@@ -47,11 +47,16 @@ def main() -> int:
         print(f"  episode_{e['episode_index']:06d}  length={e['length']}  tasks={e['tasks']}")
 
     # Parquet preview. pyarrow is a direct import so the error message is
-    # actionable if the user skipped `pip install 'robosandbox[lerobot]'`.
+    # actionable if the user skipped the `[lerobot]` extra.
     try:
         import pyarrow.parquet as pq
     except ImportError:
-        print("\n(install 'robosandbox[lerobot]' or 'pyarrow' to preview frame rows)", file=sys.stderr)
+        print(
+            "\n(install the `[lerobot]` extra with "
+            "`uv pip install -e 'packages/robosandbox-core[lerobot]'` "
+            "or install `pyarrow` directly to preview frame rows)",
+            file=sys.stderr,
+        )
         return 0
 
     parquet = root / "data" / "chunk-000" / "episode_000000.parquet"

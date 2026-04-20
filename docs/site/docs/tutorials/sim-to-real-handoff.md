@@ -1,18 +1,18 @@
 # Tutorial — Sim-to-Real Handoff
 
-The third tutorial in the [LeRobot workflow](./policy-replay.md)
-track. Demos 1 and 2 stayed in sim. This one is the recipe for taking
-a sim-validated skill (or policy, or agent) onto real hardware.
+This page is about the handoff from sim code to a real backend. It does
+not ship a hardware driver; it shows the contract that a hardware driver
+has to satisfy and the pieces that already sit on top of that contract.
 
-**This is a handoff guide, not a shipped SO-101 backend.** Nothing
-here drives a physical robot; every command runs headless against a
-software skeleton that tracks commanded state in memory. The
-deliverable is the **contract** a real driver has to satisfy, plus a
-checklist for the first run with torque enabled.
+Everything here runs against a software skeleton that tracks commanded
+state in memory. The useful part is the shape of the interface: what a
+real backend needs to implement, what should carry over unchanged, and
+what still depends on MuJoCo.
 
 ![so101 handoff terminal](../assets/demos/so101_handoff.gif){ loading=lazy }
 
-The `Home` skill — the same one the sim uses — driving a
+The screenshot above shows the `Home` skill — the same one the sim uses
+— driving a
 `RealRobotBackend` subclass from an arbitrary start pose to its
 declared home, with zero joint residual. No branches for
 "sim vs real" in the skill; the `SimBackend` Protocol is the interface.
@@ -28,14 +28,14 @@ declared home, with zero joint residual. No branches for
 | `LeRobotPolicyAdapter` + `run_policy` | **expected to work when observation/action dims and camera keys match the policy contract** — the runtime loop only calls `observe` / `step`, but the adapter still needs the backend's image keys, state dimension, and normalization to line up with what the checkpoint was trained for |
 | `Agent` ReAct loop | **expected to work** — only composes skill calls + observations |
 
-"Certified" means a test in
+Here, "certified" means a test in
 [`test_real_backend_contract.py`](https://github.com/amarrmb/robosandbox/blob/main/packages/robosandbox-core/tests/test_real_backend_contract.py)
 exercises the path end-to-end against a `RealRobotBackend` subclass.
 "Expected to work" means the layer only consumes the same `SimBackend`
 Protocol surface the certified paths do — verify in your own backend
 before relying on it in a production loop.
 
-## What has to be reimplemented
+## What you still have to implement
 
 | Method | What your driver does |
 |---|---|
@@ -47,7 +47,7 @@ before relying on it in a production loop.
 | `set_object_pose(id, pose)` | no-op on real hardware; the sandbox only calls it for sim scene init |
 | `close()` | disable torque, release camera, close serial |
 
-## What does NOT carry over (honest caveat)
+## What does not carry over
 
 **Motion-planning skills (`Pick`, `PlaceOn`, `Push`) depend on
 MuJoCo's kinematic model** via `sim.model` / `sim.data` for their IK
@@ -62,16 +62,16 @@ solver. A real-hardware backend won't have those. Options:
 3. **Replace the motion planner** with one that speaks directly to
    your robot's native kinematics (e.g. curobo on real URDF).
 
-The `Home` skill and any observation+step policy works on either
-backend without change.
+`Home` and any observation+step policy can run on either backend
+without special branching.
 
 ## Implementing your SO-101 backend
 
 The skeleton at
 [`examples/so101_handoff/so101_backend.py`](https://github.com/amarrmb/robosandbox/blob/main/examples/so101_handoff/so101_backend.py)
-is a working starting point with every method stubbed as
-"echo commanded state back through `observe`." Search for `_TODO(real)`
-to find the spots your driver code replaces.
+is a working starting point with every method stubbed as "echo
+commanded state back through `observe`." Search for `_TODO(real)` to
+find the places where real driver code should go.
 
 Key fields in `RealRobotBackendConfig`:
 
@@ -87,7 +87,7 @@ RealRobotBackendConfig(
 )
 ```
 
-Three behaviours the skeleton preserves once your driver is wired:
+Three things are worth preserving when you wire in a real driver:
 
 - **Skills read `home_qpos` via `sim.home_qpos`** (a public
   property on both `MuJoCoBackend` and `RealRobotBackend`). Removes
@@ -103,12 +103,12 @@ Three behaviours the skeleton preserves once your driver is wired:
   consistent, `step` mutates observed state, gripper ordering is
   sane, `Home` runs to within 1 mm-equivalent joint norm.
 
-Copy the skeleton, rename the class, replace the `_TODO(real)` blocks
-with calls into your motor bus and camera, and run the same
-regression tests against your subclass before you ever issue a
-command to the physical arm.
+The intended workflow is simple: copy the skeleton, rename the class,
+replace the `_TODO(real)` blocks with calls into your motor bus and
+camera, and run the same regression tests against your subclass before
+you power the arm.
 
-## First real run — safety checklist
+## First real run: safety checklist
 
 Before enabling torque on the arm for the first time with your new
 backend:
@@ -139,12 +139,12 @@ backend:
    Any residual = your driver's position controller isn't tracking
    the commanded trajectory.
 
-Only after all six pass should you enable higher-velocity skills
-(`Pick`, teleoperated motions, policy rollouts).
+Only after those six checks pass should you enable faster motions,
+teleop, or policy rollouts.
 
 ## Running it
 
-The Home-skill skeleton demo runs zero-hardware:
+The zero-hardware skeleton demo is:
 
 ```bash
 uv run python examples/so101_handoff/run_home_skill.py
@@ -167,22 +167,20 @@ tests:
 uv run pytest packages/robosandbox-core/tests/test_real_backend_contract.py
 ```
 
-If all five pass, the **observation + step contract** holds for your
-backend — the minimum surface `Home`, teleop primitives, custom
-open-loop skills, and `LeRobotPolicyAdapter`-wrapped policies rely on
-via `run_policy`. They do **not** certify motion-planning skills
-(`Pick`, `PlaceOn`, `Push`); those still depend on the MuJoCo
-kinematic model per "What does NOT carry over" above. Plan in sim,
-execute on real is the standard pattern for that class of skill.
+If all five pass, the observation+step contract holds for your backend.
+That is enough for `Home`, teleop primitives, custom open-loop skills,
+and `LeRobotPolicyAdapter`-wrapped policies via `run_policy`. It is not
+enough to certify motion-planning skills like `Pick`, `PlaceOn`, or
+`Push`; those still depend on MuJoCo kinematics.
 
-## Where this tutorial fits
+## Where this fits
 
 1. **[LeRobot Export](./lerobot-export.md)** — proves the data path.
 2. **[LeRobot Policy Replay](./lerobot-policy-replay.md)** —
    proves the policy integration.
-3. **Sim-to-Real Handoff** (you are here) — the deployment recipe.
-   What has to happen between a sim-validated skill/policy and
-   real hardware execution.
+3. **Sim-to-Real Handoff** (you are here) — the deployment side of the
+   story: what has to happen between a sim-validated skill or policy
+   and real hardware.
 
 ## Troubleshooting
 

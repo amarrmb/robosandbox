@@ -1,6 +1,8 @@
 # Running the agent
 
-One command, one pick, three artifacts on disk. Then replay them.
+There are three main ways to run RoboSandbox. They share the same agent
+loop; the differences are in how interactive they are and what they
+write to disk.
 
 ![franka pick](../assets/demos/franka_pick.gif){ loading=lazy }
 
@@ -12,8 +14,7 @@ One command, one pick, three artifacts on disk. Then replay them.
 | **`robo-sandbox viewer`** | Interactive exploration + recording on demand | `runs/<id>/{video.mp4, events.jsonl, result.json}` *(when Record is on)* |
 | **`robo-sandbox run`** | One-off scripted run from the CLI | `runs/<id>/{video.mp4, events.jsonl, result.json}` |
 
-All three share the same `Agent` loop and every skill. The difference
-is in the *scene source* and what gets written out.
+All three use the same `Agent` loop and the same skills.
 
 ## The fastest successful pick
 
@@ -21,7 +22,7 @@ is in the *scene source* and what gets written out.
 uv run robo-sandbox-bench --tasks pick_cube_franka --seeds 1
 ```
 
-Produces (the `franka_bench` GIF from the [URDF guide](./bring-your-own-robot.md)):
+This is the quickest way to confirm the stack is working:
 
 ```
 TASK               SEED  RESULT   SECS  REPLANS DETAIL
@@ -31,20 +32,19 @@ pick_cube_franka   0     OK        1.6        0 dz_mm=166.905, min_mm=50.000
 SUMMARY: 1/1 successful
 ```
 
-Bench runs are headless — no window opens, no video written. If you
-want the video + event log, use the **viewer** or the **`run`** CLI.
+Bench runs are headless: no window, no video. Use the **viewer** or
+`robo-sandbox run` if you want recorded artifacts.
 
-## Running from the viewer (recommended first time)
+## Running from the viewer
 
 ```bash
 uv run robo-sandbox viewer --task pick_cube_franka
 # open http://localhost:8000
 ```
 
-1. Click **Record** (saves MP4 + events.jsonl when the episode ends).
-2. Click **Run**.
-3. Watch the pick.
-4. Scrub the **Inspector** slider to step back through every frame.
+If this is your first time using the repo, the viewer is the best place
+to start. Click **Record**, click **Run**, and then use the
+**Inspector** slider to scrub back through the episode.
 
 ## What's in `runs/<id>/`
 
@@ -58,7 +58,7 @@ runs/20260418-230155-4471d060/
 └── video.mp4         # 30 fps render of the agent's camera
 ```
 
-**`result.json`** is the line most humans read:
+`result.json` is the high-level summary:
 
 ```json
 {
@@ -72,7 +72,8 @@ runs/20260418-230155-4471d060/
 }
 ```
 
-**`events.jsonl`** is the line policies are trained from. One object per sim tick (`dt=0.005`s ≈ 200 Hz) with:
+`events.jsonl` is the raw per-tick stream that policy and export code
+consume. Each line is one sim tick (`dt=0.005`s, about 200 Hz):
 
 - `t` — sim time in seconds
 - `frame_idx` — zero-based
@@ -82,8 +83,7 @@ runs/20260418-230155-4471d060/
 - `objects` — every scene object's current pose
 - `action` — what the skill commanded at that tick (if any)
 
-This is the raw stream. For training off-policy, convert to a LeRobot
-dataset with:
+If you want to train from it, convert the run to a LeRobot dataset:
 
 ```bash
 uv run robo-sandbox export-lerobot runs/<id> datasets/mypolicy
@@ -110,12 +110,13 @@ robo-sandbox run "pick up the red cube" --vlm-provider openai --model gpt-4o-min
 robo-sandbox run "..." --vlm-provider custom --base-url https://... --api-key-env TOGETHER_API_KEY
 ```
 
-The `Agent` loop is identical across all four. Only the `Planner`
-instance differs. See the [VLM tool-calling guide](./vlm-tool-calling.md) for the wire-level view of what each provider sees.
+The agent loop stays the same across all four. Only the `Planner`
+instance changes. If you want to see exactly what the model sees, the
+[VLM tool-calling guide](./vlm-tool-calling.md) walks through it.
 
 ## Watching the phases
 
-`PLAN`/`EXECUTE` log lines surface the ReAct loop:
+`PLAN` and `EXECUTE` log lines make the control loop visible:
 
 ![phase logs](../assets/demos/phases_log.gif){ loading=lazy }
 
@@ -127,9 +128,8 @@ TASK               SEED  RESULT   SECS  REPLANS DETAIL
 pick_cube_franka   0     OK        1.1        0 dz_mm=166.905
 ```
 
-One `PLAN` → one `EXECUTE` → success. On a failed skill, you'd see
-`PLAN` again with a higher `replan=N` counter. That's the recovery
-loop; see [Replan loop](./replan-loop.md) for what prior_attempts feedback looks like.
+If a skill fails, you will see `PLAN` again with a larger `replan=N`
+counter. That is the recovery loop.
 
 ## Reading `result.json` programmatically
 
@@ -143,7 +143,7 @@ for run_dir in sorted(Path("runs").iterdir()):
         print(f"{run_dir.name}  {r['task']}  {r['wall']:.1f}s  {r['frames']} frames")
 ```
 
-Common reasons surfaced in `result.json.reason`:
+Common values in `result.json.reason`:
 
 | reason | meaning |
 |---|---|
