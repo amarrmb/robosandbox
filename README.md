@@ -112,8 +112,8 @@ tutorials, and CLI/API reference. To preview them locally:
 
 ```bash
 uv pip install -e 'packages/robosandbox-core[docs]'
-mkdocs serve -f docs/site/mkdocs.yml          # live preview
-mkdocs build --strict -f docs/site/mkdocs.yml # one-shot build
+uv run mkdocs serve -f docs/site/mkdocs.yml          # live preview
+uv run mkdocs build --strict -f docs/site/mkdocs.yml # one-shot build
 ```
 
 If you're reading this on GitHub, start at
@@ -328,7 +328,7 @@ in real time and can kick off tasks from a dropdown.
 
 ```bash
 uv pip install -e 'packages/robosandbox-core[viewer]'
-robo-sandbox viewer
+uv run robo-sandbox viewer
 # → open http://localhost:8000
 ```
 
@@ -432,7 +432,7 @@ you; it trusts the mesh is convex. For concave objects, always use
 Pre-decompose a mesh once for a bundled asset with the authoring tool:
 
 ```bash
-python scripts/decompose_mesh.py \
+uv run python scripts/decompose_mesh.py \
   --input /path/to/drill.obj \
   --out-dir assets/objects/custom/drill \
   --name drill --mass 0.3 --center-bottom
