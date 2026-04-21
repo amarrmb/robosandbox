@@ -25,6 +25,8 @@ jobs:
           enable-cache: true
 
       - name: Build docs
+        env:
+          GOATCOUNTER_URL: ${{ secrets.GOATCOUNTER_URL }}
         run: uv run --with mkdocs-material mkdocs build --config-file docs/site/mkdocs.yml --strict
 
       - uses: actions/upload-pages-artifact@v3

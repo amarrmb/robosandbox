@@ -9,6 +9,7 @@ docs_dir: docs
 
 theme:
   name: material
+  custom_dir: overrides
   features:
     - navigation.tabs
     - navigation.tabs.sticky
@@ -38,6 +39,11 @@ theme:
         name: Switch to light mode
   icon:
     repo: fontawesome/brands/github
+
+extra:
+  analytics:
+    provider: custom
+    property: !ENV [GOATCOUNTER_URL, '']
 
 markdown_extensions:
   - admonition
