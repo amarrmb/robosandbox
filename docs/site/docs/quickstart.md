@@ -1,7 +1,6 @@
 # Quickstart
 
-This gets you from a fresh checkout to a working run, a benchmark, a
-viewer session, and a recorded episode.
+Five minutes from clone to a recorded episode in the browser.
 
 !!! note "Supported platform"
     v0.1 is **Linux-first** — developed and CI-tested on
@@ -16,136 +15,62 @@ viewer session, and a recorded episode.
 git clone https://github.com/amarrmb/robosandbox
 cd robosandbox
 uv sync
-uv pip install -e packages/robosandbox-core
-```
-
-You need Python 3.10+. MuJoCo 3.2+ comes in as a dependency, and the
-built-in demos do not need a GPU.
-
-Headless rendering (viewer + any test that renders a frame) needs an
-OpenGL backend. On Ubuntu:
-
-```bash
-sudo apt-get install -y libosmesa6 libosmesa6-dev libgl1-mesa-dri
-export MUJOCO_GL=osmesa    # or `egl` when a GPU is available
-```
-
-Install extras only if you need them:
-
-```bash
-uv pip install -e 'packages/robosandbox-core[viewer]'     # FastAPI viewer
-uv pip install -e 'packages/robosandbox-core[meshes]'     # CoACD for BYO meshes
-uv pip install -e 'packages/robosandbox-core[lerobot]'    # pyarrow for export
-uv pip install -e 'packages/robosandbox-core[docs]'       # this site
-uv pip install -e 'packages/robosandbox-core[dev]'        # pytest, ruff, mypy
-```
-
-## 1. Run the simplest demo
-
-```bash
-uv run robo-sandbox run "pick up the red cube"
-```
-
-You should see MuJoCo open, the built-in arm pick the cube, and the CLI
-print the plan and final reason. No API key required.
-
-## 2. Run the benchmark
-
-The benchmark uses the stub planner and ground-truth perception, so
-what you are measuring here is mostly sim reliability rather than model
-quality.
-
-```bash
-uv run robo-sandbox-bench
-```
-
-Typical output looks like this:
-
-```
-TASK                 SEED  RESULT   SECS  REPLANS DETAIL
-------------------------------------------------------------------------------------------
-home                 0     OK        0.0        0
-open_drawer          0     OK        2.0        0  displacement_mm=62.7, min_mm=50.0
-pick_cube            0     OK        1.1        0  dz_mm=159.8, min_mm=50.0
-pick_cube_franka     0     OK        1.5        0  dz_mm=166.9, min_mm=50.0
-pick_cube_scrambled  0     OK        1.5        0  dz_mm=166.9, min_mm=50.0
-pick_from_three      0     OK        1.1        0  dz_mm=160.0, min_mm=50.0
-pick_ycb_mug         0     OK        1.7        0  dz_mm=105.3, min_mm=50.0
-pour_can_into_bowl   0     OK        2.8        0  xy=0.004, dz=0.133
-push_forward         0     OK        1.0        0  displacement_mm=76.5, min_mm=30.0
-
-SUMMARY: 9/9 successful
-```
-
-Results append to `benchmark_results.json`. Use `--out` if you want a
-different path.
-
-If you want something closer to a regression run than a smoke test:
-
-```bash
-uv run robo-sandbox-bench --seeds 50
-```
-
-See the [CLI reference](reference/cli.md#robo-sandbox-bench) for all
-flags.
-
-## 3. Open the browser viewer
-
-Install the viewer extra once:
-
-```bash
 uv pip install -e 'packages/robosandbox-core[viewer]'
 ```
 
-Start it:
+You need Python 3.10+ and `uv` ([install uv](https://docs.astral.sh/uv/getting-started/installation/)). MuJoCo 3.2+ and the browser viewer come in as dependencies. No GPU required.
+
+Headless rendering needs an OpenGL backend. On Ubuntu:
 
 ```bash
-robo-sandbox viewer
-# → open http://localhost:8000
+sudo apt-get install -y libosmesa6 libosmesa6-dev libgl1-mesa-dri
+export MUJOCO_GL=osmesa    # or `egl` if a GPU is available
 ```
 
-Pick a task from the dropdown and hit **Run**. Frames stream in the
-browser, events show up in the sidebar, and if you enable **Record**
-first you'll get a run directory under `./runs/<ts>-<id>/`. **Teleop**
-lets you drive the arm with WASD/QE + Space.
-
-## 4. Record a scripted episode
-
-If you want a headless run that writes the usual artifacts to disk:
+## 1. Open the viewer
 
 ```bash
-uv run python examples/record_demo.py --out-dir runs
+uv run robo-sandbox viewer
 ```
 
-Expected output:
+Then open **http://localhost:8000** in your browser. You'll see a live sim window, a task input field, and a log panel.
+
+![Viewer running a pick task](assets/demos/franka_pick.gif)
+
+Type `pick up the red cube` into the task field and hit **Run**. The arm plans and executes the pick while frames stream into the browser. The log panel shows each step and prints the outcome when the episode ends.
+
+## 2. Record an episode
+
+Enable **Record** in the viewer toolbar, then hit **Run** again. The sim runs the same task and writes a run directory to disk. When it finishes the log prints the exact path:
 
 ```
-recorded episode 1a2b3c4d
-  runs/20260418-094533-1a2b3c4d
-    episode.json (204 B)
-    events.jsonl (84512 B)
-    result.json (178 B)
-    video.mp4 (42980 B)
+✓ Succeeded · 1 skill
+  Next: uv run robo-sandbox export-lerobot runs/20260421-…-…/ datasets/my_demo
 ```
 
-If you want the file layout and schema details, see
-[recording & export](concepts/recording-and-export.md).
+Your `runs/` folder now has a timestamped directory with `video.mp4`, `events.jsonl`, and `result.json`.
 
-## 5. Export to LeRobot v3
+## 3. Export to LeRobot
+
+Copy the path from the log and run:
 
 ```bash
 uv pip install -e 'packages/robosandbox-core[lerobot]'
-robo-sandbox export-lerobot runs/20260418-094533-1a2b3c4d /tmp/my_dataset
+uv run robo-sandbox export-lerobot runs/<your-episode-dir> datasets/my_demo
 ```
 
-At that point you have a LeRobot v3 dataset on disk. You can inspect it,
-train on it, or use it as the starting point for the policy replay
-workflow.
+You now have a LeRobot v3 dataset on disk, ready to inspect or train on.
 
 ## Next steps
 
-- **[Scenes & objects](concepts/scenes.md)** — what `Scene` and
-  `SceneObject` mean; YCB catalog.
-- **[Skills & agents](concepts/skills-and-agents.md)** — how the agent
-  loop plans + executes.
-- **[Custom arm tutorial](tutorials/custom-arm.md)** — swap the robot.
+- **[Guides](guides/how-it-works.md)** — how the agent loop, skills, and replan work
+- **[Bring your own robot](guides/bring-your-own-robot.md)** — swap the arm
+- **[Bring your own task](guides/bring-your-own-task.md)** — write a custom task
+- **[LeRobot workflow](tutorials/lerobot-export.md)** — full sim-to-real pipeline
+
+!!! tip "Smoke test"
+    Want to verify the sim runs correctly across all built-in tasks?
+    ```bash
+    uv run robo-sandbox-bench
+    ```
+    This runs the stub planner headlessly and prints a pass/fail table. Useful after changing environment or dependencies.
