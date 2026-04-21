@@ -10,26 +10,21 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:            #07090f;
-  --surface:       #0c1018;
-  --surface-hi:    #111826;
-  --surface-hi2:   #162030;
-  --border:        #1a2538;
-  --border-hi:     #243450;
-  --accent:        #14b8a6;
-  --accent-glow:   rgba(20,184,166,.18);
-  --accent-dim:    rgba(20,184,166,.08);
-  --green:         #10d98a;
-  --red:           #f05060;
-  --amber:         #f59e0b;
-  --blue:          #4895ef;
-  --text:          #e4eaf6;
-  --text-dim:      #7a8faa;
-  --text-muted:    #3d4f67;
-  --ui:            'DM Sans', -apple-system, system-ui, sans-serif;
-  --mono:          'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
-  --radius:        6px;
-  --transition:    .18s ease;
+  --bg:        #0e1014;
+  --surface:   #131619;
+  --panel:     #181c20;
+  --panel-hi:  #1e2228;
+  --border:    #252b33;
+  --border-hi: #2e3741;
+  --accent:    #4d7fa8;
+  --ok:        #5a9472;
+  --err:       #a85a56;
+  --info:      #4a6e90;
+  --text:      #c4ccd6;
+  --text-dim:  #677480;
+  --text-low:  #38434f;
+  --ui:   'DM Sans', -apple-system, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
 }
 
 html, body { height: 100%; font-family: var(--ui); background: var(--bg); color: var(--text); }
@@ -37,40 +32,36 @@ html, body { height: 100%; font-family: var(--ui); background: var(--bg); color:
 body {
   display: grid;
   grid-template-columns: 268px 1fr 360px;
-  grid-template-rows: 46px auto 1fr 34px;
+  grid-template-rows: 44px auto 1fr 32px;
   height: 100vh;
   overflow: hidden;
 }
 
-/* ══════════════════════════════════════════
-   HEADER
-══════════════════════════════════════════ */
+/* ── Header ─────────────────────────────────────── */
 header {
   grid-column: 1 / -1;
   display: flex; align-items: center;
   padding: 0 16px; gap: 10px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  z-index: 5;
 }
 
-.brand {
-  display: flex; align-items: center; gap: 8px;
-}
+.brand { display: flex; align-items: center; gap: 8px; }
+
 .brand-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--green); box-shadow: 0 0 7px var(--green);
-  flex-shrink: 0; transition: background var(--transition), box-shadow var(--transition);
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok); flex-shrink: 0;
+  transition: background .2s;
 }
-.brand-dot.disconnected { background: var(--red); box-shadow: 0 0 7px var(--red); }
+.brand-dot.disconnected { background: var(--err); }
 
 .brand-name {
-  font-family: var(--mono); font-size: 13px; font-weight: 500;
-  letter-spacing: .05em; color: var(--text);
+  font-family: var(--mono); font-size: 12.5px; font-weight: 500;
+  letter-spacing: .03em; color: var(--text);
 }
-.brand-tag {
-  font-size: 10.5px; color: var(--text-muted);
-  padding: 2px 7px; border: 1px solid var(--border); border-radius: 3px;
+.brand-sub {
+  font-size: 11px; color: var(--text-low);
+  padding: 1px 6px; border: 1px solid var(--border); border-radius: 3px;
   font-family: var(--mono);
 }
 
@@ -78,78 +69,49 @@ header .spacer { flex: 1; }
 
 #dof-badge {
   font-family: var(--mono); font-size: 11px; color: var(--text-dim);
-  padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px;
+  padding: 2px 7px; border: 1px solid var(--border); border-radius: 3px;
   display: none;
 }
 
 #phase {
-  font-family: var(--mono); font-size: 11px; letter-spacing: .05em;
-  padding: 3px 10px; border-radius: 3px;
-  border: 1px solid var(--border); color: var(--text-muted);
-  transition: all var(--transition);
+  font-family: var(--mono); font-size: 11px;
+  padding: 2px 9px; border-radius: 3px;
+  border: 1px solid var(--border); color: var(--text-low);
+  transition: border-color .2s, color .2s;
 }
-.phase.running    { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
-.phase.evaluating { border-color: var(--amber);  color: var(--amber);  background: rgba(245,158,11,.07); }
-.phase.done       { border-color: var(--green);  color: var(--green);  background: rgba(16,217,138,.07); }
-.phase.done.failed{ border-color: var(--red);    color: var(--red);    background: rgba(240,80,96,.07);  }
+.phase.running    { border-color: var(--accent); color: var(--accent); }
+.phase.evaluating { border-color: #8a7a50;  color: #8a7a50; }
+.phase.done       { border-color: var(--ok); color: var(--ok); }
+.phase.done.failed{ border-color: var(--err); color: var(--err); }
 
-#fps { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+#fps { font-family: var(--mono); font-size: 11px; color: var(--text-low); }
 
-/* ══════════════════════════════════════════
-   HOW-TO BANNER (full-width, collapsible)
-══════════════════════════════════════════ */
+/* ── How-to banner ───────────────────────────────── */
 #howto {
   grid-column: 1 / -1;
-  background: linear-gradient(90deg, rgba(20,184,166,.06) 0%, rgba(72,149,239,.04) 100%);
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 10px 16px;
-  display: flex; align-items: center; gap: 12px;
+  padding: 7px 16px;
+  display: flex; align-items: center; gap: 0;
+  font-size: 12px; color: var(--text-dim);
+  font-family: var(--mono);
+  overflow: hidden;
 }
 
-.howto-label {
-  font-family: var(--mono); font-size: 10px;
-  text-transform: uppercase; letter-spacing: .12em;
-  color: var(--accent); flex-shrink: 0;
-  padding-right: 12px;
-  border-right: 1px solid var(--border);
-}
-
-.howto-steps {
-  display: flex; gap: 0; flex: 1; overflow: hidden;
-}
-.howto-step {
-  display: flex; align-items: center; gap: 7px;
-  padding: 0 14px 0 0; flex-shrink: 0;
-}
-.howto-step:not(:last-child)::after {
-  content: '→';
-  margin-left: 14px;
-  color: var(--text-muted); font-size: 11px;
-}
-.howto-step-num {
-  width: 18px; height: 18px;
-  border-radius: 50%; border: 1px solid var(--accent);
-  color: var(--accent); font-size: 10px; font-weight: 600;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; font-family: var(--mono);
-}
-.howto-step-text {
-  font-size: 12px; color: var(--text-dim); line-height: 1.3;
-}
-.howto-step-text b { color: var(--text); font-weight: 600; }
-.howto-step-text code { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+.hw-step { white-space: nowrap; flex-shrink: 0; }
+.hw-step b { color: var(--text); font-weight: 500; }
+.hw-step code { color: #7a9ab8; font-family: var(--mono); }
+.hw-arrow { margin: 0 10px; color: var(--text-low); flex-shrink: 0; }
 
 button.dismiss {
-  background: transparent; border: none;
-  color: var(--text-muted); font-size: 16px; line-height: 1;
-  cursor: pointer; padding: 2px 6px; flex-shrink: 0; margin-left: auto;
-  border-radius: 3px; transition: color var(--transition), background var(--transition);
+  background: none; border: none;
+  color: var(--text-low); font-size: 14px; line-height: 1;
+  cursor: pointer; padding: 1px 6px; margin-left: auto; flex-shrink: 0;
+  border-radius: 3px;
 }
-button.dismiss:hover { color: var(--text-dim); background: var(--surface-hi); }
+button.dismiss:hover { color: var(--text-dim); background: var(--panel); }
 
-/* ══════════════════════════════════════════
-   LEFT PANEL — Controls
-══════════════════════════════════════════ */
+/* ── Left panel ──────────────────────────────────── */
 .left-panel {
   grid-column: 1; grid-row: 3;
   background: var(--surface);
@@ -160,176 +122,145 @@ button.dismiss:hover { color: var(--text-dim); background: var(--surface-hi); }
 .left-panel::-webkit-scrollbar { width: 3px; }
 .left-panel::-webkit-scrollbar-thumb { background: var(--border); }
 
-.lp-section {
-  padding: 12px 14px 14px;
-  border-bottom: 1px solid var(--border);
-}
+.lp-sec { padding: 12px 14px; border-bottom: 1px solid var(--border); }
 
-.sec-label {
+.sec-lbl {
   display: block; font-family: var(--mono);
   font-size: 9.5px; text-transform: uppercase; letter-spacing: .14em;
-  color: var(--text-muted); margin-bottom: 9px;
+  color: var(--text-low); margin-bottom: 8px;
 }
 
-/* Inputs */
-.field-wrap { display: flex; flex-direction: column; gap: 5px; }
-
-label.field-lbl {
-  font-size: 11px; font-weight: 500; color: var(--text-dim);
-  letter-spacing: .01em;
+.fld-lbl {
+  display: block; font-size: 11px; color: var(--text-dim);
+  margin-bottom: 5px; font-weight: 500;
 }
-label.field-lbl small {
-  font-weight: 400; color: var(--text-muted); font-size: 10.5px;
-}
+.fld-lbl small { font-weight: 400; color: var(--text-low); }
 
 select, input[type="text"] {
   font-family: var(--ui); font-size: 13px; color: var(--text);
   background: var(--bg); border: 1px solid var(--border-hi);
-  border-radius: var(--radius); padding: 8px 10px; outline: none; width: 100%;
-  transition: border-color var(--transition), box-shadow var(--transition);
+  border-radius: 4px; padding: 7px 10px; outline: none; width: 100%;
+  transition: border-color .15s;
 }
 select {
   appearance: none; -webkit-appearance: none; cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%233d4f67'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='5'%3E%3Cpath d='M0 0l4.5 5L9 0z' fill='%2338434f'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center;
-  padding-right: 28px;
+  padding-right: 26px;
 }
-select:focus, input[type="text"]:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
-}
-input[type="text"]::placeholder { color: var(--text-muted); }
+select:focus, input[type="text"]:focus { border-color: var(--accent); }
+input[type="text"]::placeholder { color: var(--text-low); }
 
 /* Task info card */
 #task-card {
-  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; margin-top: 8px;
+  margin-top: 8px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 4px;
 }
 #task-card.empty { display: none; }
-.goal { font-size: 12.5px; color: var(--text); font-weight: 500; line-height: 1.35; }
+.goal { font-size: 12.5px; color: var(--text); font-weight: 500; line-height: 1.3; }
 .tc-row { display: flex; gap: 6px; }
 .tc-row .lbl {
   font-family: var(--mono); font-size: 9px; text-transform: uppercase;
-  letter-spacing: .12em; color: var(--text-muted); min-width: 48px;
-  flex-shrink: 0; padding-top: 1px;
+  letter-spacing: .12em; color: var(--text-low); min-width: 46px; flex-shrink: 0;
 }
-.tc-row .val { font-family: var(--mono); font-size: 11px; color: var(--text-dim); flex: 1; }
+.tc-row .val { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
 .pill {
-  display: inline-block; background: var(--surface-hi); border-radius: 3px;
-  padding: 1px 5px; margin-right: 3px; font-size: 10px; color: var(--text-dim);
+  display: inline-block; background: var(--panel); border-radius: 3px;
+  padding: 0px 5px; margin-right: 3px; font-size: 10px; color: var(--text-dim);
+  border: 1px solid var(--border);
 }
-.muted { color: var(--text-muted); }
+.muted { color: var(--text-low); }
 
-/* Action buttons */
-.action-section {
-  padding: 12px 14px 14px;
+/* Action section */
+.action-sec {
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: 7px;
 }
 
 button {
   font-family: var(--ui); font-size: 13px; font-weight: 600;
-  border: none; border-radius: var(--radius);
-  padding: 10px 14px; cursor: pointer;
+  border: none; border-radius: 4px; padding: 9px 14px;
+  cursor: pointer; width: 100%;
   display: flex; align-items: center; justify-content: center; gap: 7px;
-  transition: background var(--transition), box-shadow var(--transition), opacity var(--transition);
-  width: 100%;
+  transition: background .15s, color .15s;
 }
 
 #run {
-  color: #fff; background: var(--accent); font-size: 14px;
-  padding: 12px 14px;
-  box-shadow: 0 2px 12px rgba(20,184,166,.2);
+  background: var(--accent); color: #fff;
+  font-size: 13.5px; padding: 11px 14px;
 }
-#run:hover:not(:disabled) {
-  background: #0fa090;
-  box-shadow: 0 2px 18px rgba(20,184,166,.35);
-}
-#run:disabled { background: var(--surface-hi); color: var(--text-muted); box-shadow: none; cursor: not-allowed; }
+#run:hover:not(:disabled) { background: #3d6f96; }
+#run:disabled { background: var(--panel-hi); color: var(--text-low); cursor: not-allowed; }
 
 #record {
-  color: var(--text-dim); background: var(--surface-hi);
-  border: 1px solid var(--border-hi); padding: 9px 14px;
+  background: var(--panel); color: var(--text-dim);
+  border: 1px solid var(--border-hi); padding: 8px 14px;
 }
-#record:hover:not(:disabled) { background: var(--surface-hi2); color: var(--text); }
+#record:hover:not(:disabled) { background: var(--panel-hi); color: var(--text); }
 #record.recording {
-  background: rgba(240,80,96,.1); color: var(--red); border-color: var(--red);
+  color: var(--err); border-color: var(--err);
+  background: var(--panel);
 }
-#record.recording:hover:not(:disabled) { background: rgba(240,80,96,.18); }
+#record.recording:hover:not(:disabled) { background: var(--panel-hi); }
 
 .rec-dot {
-  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
   background: currentColor; flex-shrink: 0;
 }
 #record.recording .rec-dot { animation: blink 1.2s infinite; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.15} }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.1} }
 
-/* Teleop toggle */
+/* Teleop */
 .teleop-row {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 9px;
   padding: 0 14px 12px;
 }
-.switch { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
-.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
-.switch-track {
-  position: absolute; inset: 0;
-  background: var(--border-hi); border-radius: 9px; cursor: pointer;
-  transition: background var(--transition);
+.switch { position: relative; width: 32px; height: 17px; flex-shrink: 0; }
+.switch input { opacity: 0; position: absolute; }
+.sw-track {
+  position: absolute; inset: 0; background: var(--panel-hi);
+  border: 1px solid var(--border-hi); border-radius: 9px; cursor: pointer;
+  transition: background .15s;
 }
-.switch-track::after {
-  content: ''; position: absolute;
-  width: 14px; height: 14px; left: 2px; top: 2px;
-  background: var(--text-muted); border-radius: 50%;
-  transition: transform var(--transition), background var(--transition);
+.sw-track::after {
+  content: ''; position: absolute; width: 13px; height: 13px;
+  left: 1px; top: 1px; background: var(--text-low); border-radius: 50%;
+  transition: transform .15s, background .15s;
 }
-.switch input:checked + .switch-track {
-  background: var(--accent-dim); border: 1px solid var(--accent);
-}
-.switch input:checked + .switch-track::after {
-  transform: translateX(16px); background: var(--accent);
-}
-.teleop-info { display: flex; flex-direction: column; gap: 1px; }
-.teleop-label { font-size: 12.5px; font-weight: 500; color: var(--text-dim); }
-.teleop-hint  { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+.switch input:checked + .sw-track { background: var(--accent); border-color: var(--accent); }
+.switch input:checked + .sw-track::after { transform: translateX(15px); background: #fff; }
+.tl-info { display: flex; flex-direction: column; gap: 1px; }
+.tl-label { font-size: 12.5px; color: var(--text-dim); }
+.tl-hint  { font-family: var(--mono); font-size: 10px; color: var(--text-low); }
 
-/* Left panel spacer */
 .lp-spacer { flex: 1; }
 
-/* ══════════════════════════════════════════
-   SIM VIEW — center, the hero
-══════════════════════════════════════════ */
+/* ── Sim view ────────────────────────────────────── */
 main {
   grid-column: 2; grid-row: 3;
   background: #000;
   display: flex; align-items: center; justify-content: center;
   overflow: hidden; position: relative;
-  transition: box-shadow var(--transition);
 }
-main.running {
-  box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 30px rgba(20,184,166,.08);
-}
+main.running { outline: 1px solid var(--accent); outline-offset: -1px; }
 
-#frame {
-  width: 100%; height: 100%;
-  object-fit: contain; background: #000;
-  image-rendering: auto;
-}
+#frame { width: 100%; height: 100%; object-fit: contain; background: #000; }
 
 #frame-placeholder {
   font-family: var(--mono); font-size: 12px;
-  color: var(--text-muted); letter-spacing: .08em;
+  color: var(--text-low); letter-spacing: .06em;
   display: flex; flex-direction: column; align-items: center; gap: 10px;
 }
-.ph-spinner {
-  width: 24px; height: 24px; border: 2px solid var(--border-hi);
-  border-top-color: var(--accent); border-radius: 50%;
-  animation: spin 1s linear infinite;
+.ph-ring {
+  width: 20px; height: 20px;
+  border: 1.5px solid var(--border-hi); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 1s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ══════════════════════════════════════════
-   RIGHT PANEL — Events + Inspector
-══════════════════════════════════════════ */
+/* ── Right panel ─────────────────────────────────── */
 .right-panel {
   grid-column: 3; grid-row: 3;
   background: var(--surface);
@@ -338,142 +269,123 @@ main.running {
   overflow: hidden;
 }
 
-/* Events section — gets all remaining space */
 .events-section {
   flex: 1; min-height: 0;
   display: flex; flex-direction: column;
   overflow: hidden;
 }
 
-.panel-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 14px 4px;
-  flex-shrink: 0;
+.rp-header {
+  padding: 9px 14px 3px; flex-shrink: 0;
 }
 
 #log {
   flex: 1; overflow-y: auto;
-  padding: 4px 14px 10px;
+  padding: 4px 14px 8px;
   font-family: var(--mono); font-size: 12.5px; line-height: 1.7;
   display: flex; flex-direction: column;
 }
 #log::-webkit-scrollbar { width: 3px; }
-#log::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+#log::-webkit-scrollbar-thumb { background: var(--border); }
 
 .log-line {
-  padding: 1.5px 0 1.5px 9px;
+  padding: 1px 0 1px 8px;
   border-left: 2px solid transparent;
-  color: var(--text-muted);
-  word-break: break-word;
+  color: var(--text-low); word-break: break-word;
 }
-.log-line.info    { border-left-color: var(--blue);  color: #93c5fd; }
-.log-line.success { border-left-color: var(--green); color: #6ee7b7; }
-.log-line.error   { border-left-color: var(--red);   color: #fca5a5; }
-.log-line .t      { font-size: 10px; color: var(--text-muted); margin-right: 8px; }
+.log-line.info    { border-left-color: var(--info); color: #7a9ab8; }
+.log-line.success { border-left-color: var(--ok);   color: #7aaa88; }
+.log-line.error   { border-left-color: var(--err);  color: #b87a78; }
+.log-line .t      { font-size: 10px; color: var(--text-low); margin-right: 8px; }
 
-/* Inspector section — fixed bottom */
+/* ── Inspector ───────────────────────────────────── */
 #inspector {
   border-top: 1px solid var(--border);
-  padding: 10px 14px 12px;
+  padding: 10px 14px 11px;
   flex-shrink: 0;
   display: flex; flex-direction: column; gap: 7px;
-  background: var(--surface);
 }
 #inspector:not(.active) .insp-controls { opacity: .3; pointer-events: none; }
 #inspector:not(.active) #insp-idle-hint { display: block; }
 #insp-idle-hint {
-  display: none; font-family: var(--mono); font-size: 11px;
-  color: var(--text-muted); line-height: 1.5;
+  display: none; font-family: var(--mono); font-size: 11px; color: var(--text-low);
 }
 
-.insp-row { display: flex; align-items: center; gap: 7px; }
+.insp-row { display: flex; align-items: center; gap: 6px; }
 
 #insp-slider {
-  flex: 1; height: 4px;
+  flex: 1; height: 3px;
   -webkit-appearance: none; appearance: none;
-  background: var(--border-hi); border-radius: 2px;
-  outline: none; cursor: pointer;
+  background: var(--border-hi); border-radius: 2px; outline: none; cursor: pointer;
 }
 #insp-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px; height: 14px; border-radius: 50%;
+  -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
   background: var(--accent); cursor: pointer;
-  box-shadow: 0 0 7px rgba(20,184,166,.5);
 }
 #insp-slider:disabled { opacity: .4; }
 
 button.step {
-  flex: 0 0 auto; padding: 3px 8px; font-size: 11px; font-weight: 400;
-  background: var(--surface-hi); border: 1px solid var(--border-hi);
+  flex: 0 0 auto; padding: 3px 7px; font-size: 11px; font-weight: 400;
+  background: var(--panel); border: 1px solid var(--border-hi);
   color: var(--text-dim); border-radius: 3px; width: auto;
 }
-button.step:hover:not(:disabled) { background: var(--surface-hi2); color: var(--text); }
+button.step:hover:not(:disabled) { background: var(--panel-hi); color: var(--text); }
 
-.insp-meta-row {
-  display: flex; align-items: center; justify-content: space-between;
-}
+.insp-bot { display: flex; align-items: center; justify-content: space-between; }
 .frame-label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
-.insp-hint   { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+.insp-hint   { font-family: var(--mono); font-size: 10px; color: var(--text-low); }
 
 #inspector-meta {
   font-family: var(--mono); font-size: 11px; color: var(--text-dim);
   background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
-  padding: 6px 8px; line-height: 1.65;
-  white-space: pre; overflow-x: auto; max-height: 90px; overflow-y: auto;
+  padding: 5px 8px; line-height: 1.65;
+  white-space: pre; overflow-x: auto; max-height: 88px; overflow-y: auto;
 }
 #inspector-meta::-webkit-scrollbar { width: 3px; height: 3px; }
-#inspector-meta::-webkit-scrollbar-thumb { background: var(--border-hi); }
+#inspector-meta::-webkit-scrollbar-thumb { background: var(--border); }
 
-/* ══════════════════════════════════════════
-   FOOTER
-══════════════════════════════════════════ */
+/* ── Footer ──────────────────────────────────────── */
 footer {
   grid-column: 1 / -1; grid-row: 4;
-  display: flex; align-items: center;
-  padding: 0 14px; gap: 14px;
-  font-size: 11px; color: var(--text-muted);
+  display: flex; align-items: center; padding: 0 14px; gap: 14px;
+  font-size: 11px; color: var(--text-low);
   background: var(--surface); border-top: 1px solid var(--border);
 }
 footer .spacer { flex: 1; }
-.link {
-  color: var(--accent); cursor: pointer;
-  text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px;
-}
-.link:hover { color: #5eead4; }
+.link { color: var(--accent); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+.link:hover { opacity: .8; }
 .kbd {
   font-family: var(--mono); font-size: 10px; padding: 1px 5px;
   background: var(--bg); border: 1px solid var(--border-hi);
   border-bottom-width: 2px; border-radius: 3px; color: var(--text-dim);
 }
 
-/* ══════════════════════════════════════════
-   CHEATSHEET OVERLAY
-══════════════════════════════════════════ */
+/* ── Cheatsheet ──────────────────────────────────── */
 #cheatsheet {
-  position: fixed; right: 8px; bottom: 42px; z-index: 20;
-  background: var(--surface); border: 1px solid var(--border-hi); border-radius: var(--radius);
+  position: fixed; right: 8px; bottom: 40px; z-index: 20;
+  background: var(--surface); border: 1px solid var(--border-hi); border-radius: 5px;
   padding: 10px 14px; font-size: 11.5px; color: var(--text-dim);
-  min-width: 290px; box-shadow: 0 10px 30px rgba(0,0,0,.7);
+  min-width: 280px; box-shadow: 0 8px 24px rgba(0,0,0,.6);
   display: none;
 }
 #cheatsheet.open { display: block; }
 #cheatsheet h4 {
   font-family: var(--mono); font-size: 10px; text-transform: uppercase;
-  letter-spacing: .12em; color: var(--text-muted); margin-bottom: 7px;
+  letter-spacing: .12em; color: var(--text-low); margin-bottom: 7px;
 }
 .sh-row { display: flex; gap: 8px; margin: 4px 0; }
 .sh-row .keys { min-width: 110px; font-family: var(--mono); }
-.sh-row .desc { flex: 1; color: var(--text-muted); }
+.sh-row .desc { flex: 1; color: var(--text-low); }
 </style>
 </head>
 <body>
 
-<!-- ── Header ─────────────────────────────────────────── -->
+<!-- Header -->
 <header>
   <div class="brand">
     <span id="conn" class="brand-dot disconnected" title="disconnected"></span>
     <span class="brand-name">RoboSandbox</span>
-    <span class="brand-tag">live viewer</span>
+    <span class="brand-sub">viewer</span>
   </div>
   <div class="spacer"></div>
   <span id="dof-badge"></span>
@@ -481,38 +393,24 @@ footer .spacer { flex: 1; }
   <span id="fps">0 fps</span>
 </header>
 
-<!-- ── How-to banner ──────────────────────────────────── -->
+<!-- How-to banner -->
 <div id="howto">
-  <span class="howto-label">Quick&nbsp;start</span>
-  <div class="howto-steps">
-    <div class="howto-step">
-      <span class="howto-step-num">1</span>
-      <span class="howto-step-text">Pick a task — <code>pick_cube_franka</code> is a good start</span>
-    </div>
-    <div class="howto-step">
-      <span class="howto-step-num">2</span>
-      <span class="howto-step-text">Click <b>Run</b> to watch the agent execute</span>
-    </div>
-    <div class="howto-step">
-      <span class="howto-step-num">3</span>
-      <span class="howto-step-text">Toggle <b>Record</b>, then <b>Run</b> to save an episode to <code>runs/</code></span>
-    </div>
-    <div class="howto-step">
-      <span class="howto-step-num">4</span>
-      <span class="howto-step-text">Use the export command from the log to create a LeRobot dataset</span>
-    </div>
-  </div>
+  <span class="hw-step">① Pick a task</span>
+  <span class="hw-arrow">→</span>
+  <span class="hw-step">② Click <b>Run</b></span>
+  <span class="hw-arrow">→</span>
+  <span class="hw-step">③ Toggle <b>Record</b>, then <b>Run</b> to save to <code>runs/</code></span>
+  <span class="hw-arrow">→</span>
+  <span class="hw-step">④ Use the export command from the log to build a LeRobot dataset</span>
   <button class="dismiss" id="howto-dismiss" title="Dismiss">&times;</button>
 </div>
 
-<!-- ── Left panel: controls ───────────────────────────── -->
+<!-- Left: controls -->
 <div class="left-panel">
 
-  <div class="lp-section">
-    <span class="sec-label">Task</span>
-    <div class="field-wrap">
-      <select id="task-select"></select>
-    </div>
+  <div class="lp-sec">
+    <span class="sec-lbl">Task</span>
+    <select id="task-select"></select>
     <div id="task-card" class="empty">
       <div class="goal" id="tc-goal"></div>
       <div class="tc-row"><span class="lbl">Robot</span><span class="val" id="tc-robot">—</span></div>
@@ -522,59 +420,52 @@ footer .spacer { flex: 1; }
     </div>
   </div>
 
-  <div class="lp-section">
-    <span class="sec-label">Prompt</span>
-    <div class="field-wrap">
-      <label class="field-lbl" for="prompt">
-        Override &nbsp;<small>(blank = task default)</small>
-      </label>
-      <input id="prompt" type="text" placeholder="e.g. pick up the red cube">
-    </div>
+  <div class="lp-sec">
+    <span class="sec-lbl">Prompt</span>
+    <label class="fld-lbl" for="prompt">Override <small>(blank = task default)</small></label>
+    <input id="prompt" type="text" placeholder="e.g. pick up the red cube">
   </div>
 
-  <div class="action-section">
-    <button id="run">&#9654;&nbsp; Run</button>
-    <button id="record" title="Toggle recording">
-      <span class="rec-dot"></span><span id="record-label">Record</span>
-    </button>
+  <div class="action-sec">
+    <button id="run">&#9654;&nbsp;&nbsp;Run</button>
+    <button id="record"><span class="rec-dot"></span><span id="record-label">Record</span></button>
   </div>
 
   <div class="teleop-row">
     <label class="switch">
       <input type="checkbox" id="teleop-toggle">
-      <span class="switch-track"></span>
+      <span class="sw-track"></span>
     </label>
-    <div class="teleop-info">
-      <span class="teleop-label">Teleop</span>
-      <span class="teleop-hint">WASD · QE · Space</span>
+    <div class="tl-info">
+      <span class="tl-label">Teleop</span>
+      <span class="tl-hint">WASD · QE · Space</span>
     </div>
   </div>
 
   <div class="lp-spacer"></div>
-
 </div>
 
-<!-- ── Center: sim view ───────────────────────────────── -->
+<!-- Center: sim -->
 <main id="sim-main">
   <img id="frame" alt="" style="display:none">
   <div id="frame-placeholder">
-    <div class="ph-spinner"></div>
+    <div class="ph-ring"></div>
     Connecting&hellip;
   </div>
 </main>
 
-<!-- ── Right panel: events + inspector ────────────────── -->
+<!-- Right: events + inspector -->
 <div class="right-panel">
 
   <div class="events-section">
-    <div class="panel-header">
-      <span class="sec-label" style="margin:0">Events</span>
+    <div class="rp-header">
+      <span class="sec-lbl" style="margin:0">Events</span>
     </div>
     <div id="log"></div>
   </div>
 
   <div id="inspector">
-    <span class="sec-label">Inspector</span>
+    <span class="sec-lbl">Inspector</span>
     <span id="insp-idle-hint">Run a task to enable frame scrubbing.</span>
     <div class="insp-controls">
       <div class="insp-row">
@@ -582,9 +473,9 @@ footer .spacer { flex: 1; }
         <input id="insp-slider" type="range" min="0" max="0" value="0" step="1" disabled>
         <button id="insp-next" class="step" title="Next frame">&#x25B6;</button>
       </div>
-      <div class="insp-meta-row">
+      <div class="insp-bot">
         <span class="frame-label" id="insp-frame-label">frame 0 / 0</span>
-        <span class="insp-hint">arrows&nbsp;±1&nbsp;·&nbsp;shift&nbsp;±10&nbsp;·&nbsp;dblclick&nbsp;=&nbsp;live</span>
+        <span class="insp-hint">arrows ±1 · shift ±10 · dblclick = live</span>
       </div>
       <pre id="inspector-meta">(no frame)</pre>
     </div>
@@ -592,14 +483,14 @@ footer .spacer { flex: 1; }
 
 </div>
 
-<!-- ── Footer ─────────────────────────────────────────── -->
+<!-- Footer -->
 <footer>
   <span>Press <span class="kbd">Enter</span> in the prompt to run.</span>
   <div class="spacer"></div>
   <span class="link" id="cheatsheet-toggle">Keyboard &amp; gamepad</span>
 </footer>
 
-<!-- ── Cheatsheet overlay ─────────────────────────────── -->
+<!-- Cheatsheet -->
 <div id="cheatsheet">
   <h4>Keyboard &amp; gamepad</h4>
   <div class="sh-row"><span class="keys"><span class="kbd">Enter</span></span><span class="desc">Run task (focus prompt first)</span></div>
@@ -642,16 +533,12 @@ const cheatsheet  = document.getElementById("cheatsheet");
 const cheatsheetToggle = document.getElementById("cheatsheet-toggle");
 const simMain     = document.getElementById("sim-main");
 
-// How-to dismiss
-if (localStorage.getItem("rs-howto-dismissed") === "1") {
-  howto.style.display = "none";
-}
+if (localStorage.getItem("rs-howto-dismissed") === "1") howto.style.display = "none";
 howtoDismiss.addEventListener("click", () => {
   howto.style.display = "none";
   localStorage.setItem("rs-howto-dismissed", "1");
 });
 
-// Cheatsheet toggle
 cheatsheetToggle.addEventListener("click", () => cheatsheet.classList.toggle("open"));
 document.addEventListener("click", (e) => {
   if (!cheatsheet.classList.contains("open")) return;
@@ -662,16 +549,11 @@ document.addEventListener("click", (e) => {
 function setPhase(phase, label) {
   phaseEl.className = `phase ${phase}`;
   phaseEl.textContent = label;
-  // Pulse the sim border when running
   if (phase === "running") simMain.classList.add("running");
   else simMain.classList.remove("running");
 }
 
-// --- Task card ----------------------------------------------------------
-const ROBOT_LABELS = {
-  franka_panda: "Franka Panda",
-  builtin_6dof: "Built-in 6-DOF arm",
-};
+const ROBOT_LABELS = { franka_panda: "Franka Panda", builtin_6dof: "Built-in 6-DOF arm" };
 
 function formatSuccess(sc) {
   if (!sc || typeof sc !== "object") return "—";
@@ -682,10 +564,7 @@ function formatSuccess(sc) {
     const tol = (sc.xy_tol ?? 0.05) * 100, dz = (sc.min_dz ?? 0.015) * 100;
     return `Move <b>${sc.object}</b> above <b>${sc.target}</b> (xy±${tol.toFixed(0)} cm, z+${dz.toFixed(0)} cm)`;
   }
-  if (k === "all" || k === "any") {
-    const n = (sc.checks || []).length;
-    return `${k === "all" ? "All" : "Any"} of ${n} sub-criteria`;
-  }
+  if (k === "all" || k === "any") return `${k === "all" ? "All" : "Any"} of ${(sc.checks || []).length} sub-criteria`;
   return k || "—";
 }
 
@@ -714,15 +593,15 @@ function formatScene(nDof, objectIds, objectKinds) {
 function populateTaskCard(evt) {
   taskCard.classList.remove("empty");
   tcGoal.textContent = `Goal: ${evt.prompt || "(no prompt)"}`;
-  tcRobot.textContent = ROBOT_LABELS[evt.robot] || evt.robot || "—";
-  tcScene.innerHTML   = formatScene(evt.n_dof, evt.object_ids || [], evt.object_kinds || {});
-  tcSuccess.innerHTML = formatSuccess(evt.success_criterion);
+  tcRobot.textContent   = ROBOT_LABELS[evt.robot] || evt.robot || "—";
+  tcScene.innerHTML     = formatScene(evt.n_dof, evt.object_ids || [], evt.object_kinds || {});
+  tcSuccess.innerHTML   = formatSuccess(evt.success_criterion);
   tcRandomize.innerHTML = formatRandomize(evt.randomize);
 }
 
 let isRecording = false;
 let lastFrameUrl = null;
-let frameCount = 0;
+let frameCount   = 0;
 setInterval(() => { fpsEl.textContent = `${frameCount} fps`; frameCount = 0; }, 1000);
 
 function stamp() {
@@ -740,7 +619,7 @@ function addLog(text, kind = "info") {
 
 async function loadTasks() {
   try {
-    const r = await fetch("/tasks");
+    const r    = await fetch("/tasks");
     const data = await r.json();
     taskSelect.innerHTML = "";
     for (const t of data.tasks) {
@@ -749,35 +628,18 @@ async function loadTasks() {
       taskSelect.appendChild(opt);
     }
     if (data.tasks.includes("pick_cube_franka")) taskSelect.value = "pick_cube_franka";
-  } catch (e) {
-    addLog(`Failed to load tasks: ${e}`, "error");
-  }
+  } catch (e) { addLog(`Failed to load tasks: ${e}`, "error"); }
 }
 
-ws.addEventListener("open", () => {
-  conn.classList.remove("disconnected");
-  conn.title = "connected";
-  addLog("Connected to server.", "info");
-});
-ws.addEventListener("close", () => {
-  conn.classList.add("disconnected");
-  conn.title = "disconnected";
-  addLog("Disconnected.", "error");
-});
-ws.addEventListener("error", () => { addLog("WebSocket error.", "error"); });
+ws.addEventListener("open",  () => { conn.classList.remove("disconnected"); conn.title = "connected"; addLog("Connected to server.", "info"); });
+ws.addEventListener("close", () => { conn.classList.add("disconnected");    conn.title = "disconnected"; addLog("Disconnected.", "error"); });
+ws.addEventListener("error", () => addLog("WebSocket error.", "error"));
 ws.addEventListener("message", (ev) => {
-  if (typeof ev.data === "string") {
-    const msg = JSON.parse(ev.data);
-    if (msg.type === "event") handleEvent(msg.event);
-    return;
-  }
+  if (typeof ev.data === "string") { const m = JSON.parse(ev.data); if (m.type === "event") handleEvent(m.event); return; }
   if (lastFrameUrl) URL.revokeObjectURL(lastFrameUrl);
   lastFrameUrl = URL.createObjectURL(ev.data);
   frame.src = lastFrameUrl;
-  if (frame.style.display === "none") {
-    frame.style.display = "block";
-    placeholder.style.display = "none";
-  }
+  if (frame.style.display === "none") { frame.style.display = "block"; placeholder.style.display = "none"; }
   frameCount++;
 });
 
@@ -790,99 +652,63 @@ function handleEvent(evt) {
     dofBadge.textContent = `${evt.n_dof} DOF`;
     promptInput.placeholder = evt.prompt || "(no prompt)";
     populateTaskCard(evt);
-    const robotLabel = ROBOT_LABELS[evt.robot] || evt.robot;
     const nObj = (evt.object_ids || []).length;
-    addLog(`Scene ready · ${robotLabel} · ${nObj} object${nObj === 1 ? "" : "s"}`, "info");
+    addLog(`Scene ready · ${ROBOT_LABELS[evt.robot] || evt.robot} · ${nObj} object${nObj === 1 ? "" : "s"}`, "info");
     resetInspector();
   } else if (evt.type === "running") {
-    setPhase("running", "Running plan");
-    runBtn.disabled = true;
-    runBtn.textContent = "Running…";
+    setPhase("running", "Running");
+    runBtn.disabled = true; runBtn.textContent = "Running…";
     _runStartedAt = performance.now();
     addLog(`Agent running · "${evt.prompt}"`, "info");
     resetInspector();
   } else if (evt.type === "done") {
     setPhase(evt.success ? "done" : "done failed", evt.success ? "Done ✓" : "Failed ✗");
-    runBtn.disabled = false;
-    runBtn.innerHTML = "&#9654;&nbsp; Run";
+    runBtn.disabled = false; runBtn.innerHTML = "&#9654;&nbsp;&nbsp;Run";
     const elapsed = _runStartedAt ? ((performance.now() - _runStartedAt) / 1000).toFixed(1) : "?";
-    const kind   = evt.success ? "success" : "error";
-    const prefix = evt.success ? "✓ Succeeded" : "✗ Failed";
+    const kind = evt.success ? "success" : "error";
     const nSteps = (evt.steps || []).length;
-    addLog(`${prefix} · ${nSteps} skill${nSteps === 1 ? "" : "s"} · ${elapsed}s${evt.reason ? " · " + evt.reason : ""}`, kind);
+    addLog(`${evt.success ? "✓ Succeeded" : "✗ Failed"} · ${nSteps} skill${nSteps === 1 ? "" : "s"} · ${elapsed}s${evt.reason ? " · " + evt.reason : ""}`, kind);
     if (evt.detail) addLog(`  detail: ${evt.detail}`, kind);
-    if (evt.reason === "unrecognized_prompt") {
-      addLog('  Hint: try "pick [up] [the] <object>", "put <object> on <target>", "push <object> forward/back/left/right", "go home"', "info");
-    }
+    if (evt.reason === "unrecognized_prompt") addLog('  Hint: try "pick [up] [the] <object>", "put <object> on <target>", "push <object> forward/back/left/right", "go home"', "info");
     for (const step of evt.steps) {
-      const tag    = step.success ? "success" : "error";
-      const marker = step.success ? "✓" : "✗";
-      const argStr = Object.entries(step.args || {})
-        .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`).join(", ");
-      addLog(`  ${marker} ${step.skill}(${argStr}) · ${step.reason || ""}`, tag);
+      const argStr = Object.entries(step.args || {}).map(([k,v]) => `${k}=${typeof v==="string"?v:JSON.stringify(v)}`).join(", ");
+      addLog(`  ${step.success ? "✓" : "✗"} ${step.skill}(${argStr}) · ${step.reason || ""}`, step.success ? "success" : "error");
     }
-    if (evt.replans) addLog(`  ${evt.replans} replan${evt.replans === 1 ? "" : "s"} before finishing`, "info");
+    if (evt.replans) addLog(`  ${evt.replans} replan${evt.replans===1?"":"s"} before finishing`, "info");
     if (typeof evt.trajectory_frames === "number" && evt.trajectory_frames > 0) {
       enableInspector(evt.trajectory_frames);
-      addLog(`  ${evt.trajectory_frames} frames recorded — drag the Inspector scrubber below to replay any moment`, "info");
+      addLog(`  ${evt.trajectory_frames} frames recorded — drag the Inspector to replay`, "info");
     }
-    if (evt.success && !isRecording) {
-      addLog("  Next: click Record, then Run again to save this episode for training.", "info");
-    }
+    if (evt.success && !isRecording) addLog("  Next: click Record, then Run again to save this episode for training.", "info");
   } else if (evt.type === "inspect_frame") {
     onInspectFrame(evt);
-  } else if (evt.type === "inspect_cleared") {
-    // Live resumed
   } else if (evt.type === "recording_started") {
-    isRecording = true;
-    recordBtn.classList.add("recording");
-    recordLabel.textContent = "Stop";
+    isRecording = true; recordBtn.classList.add("recording"); recordLabel.textContent = "Stop";
     addLog(`Recording → episode ${evt.episode_id} (${evt.runs_dir})`, "info");
   } else if (evt.type === "recording_stopped") {
-    isRecording = false;
-    recordBtn.classList.remove("recording");
-    recordLabel.textContent = "Record";
-    addLog(`Recording stopped — episode ${evt.episode_id} saved under ${evt.runs_dir}`, "success");
+    isRecording = false; recordBtn.classList.remove("recording"); recordLabel.textContent = "Record";
+    addLog(`Recording stopped — episode ${evt.episode_id} saved`, "success");
     if (evt.episode_dir) addLog(`  Next: uv run robo-sandbox export-lerobot ${evt.episode_dir} datasets/my_demo`, "info");
   } else if (evt.type === "error") {
     addLog(`Server error: ${evt.message}`, "error");
-    runBtn.disabled = false;
-    runBtn.innerHTML = "&#9654;&nbsp; Run";
+    runBtn.disabled = false; runBtn.innerHTML = "&#9654;&nbsp;&nbsp;Run";
   } else {
     addLog(JSON.stringify(evt));
   }
 }
 
-taskSelect.addEventListener("change", () => {
-  ws.send(JSON.stringify({ action: "load", task: taskSelect.value }));
-});
+taskSelect.addEventListener("change", () => ws.send(JSON.stringify({ action: "load", task: taskSelect.value })));
 
-function doRun() {
-  const prompt = promptInput.value.trim();
-  ws.send(JSON.stringify({ action: "run", prompt: prompt || null }));
-}
+function doRun() { ws.send(JSON.stringify({ action: "run", prompt: promptInput.value.trim() || null })); }
 runBtn.addEventListener("click", doRun);
-promptInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !runBtn.disabled) doRun();
-});
+promptInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !runBtn.disabled) doRun(); });
+recordBtn.addEventListener("click", () => ws.send(JSON.stringify({ action: isRecording ? "record_stop" : "record_start" })));
 
-recordBtn.addEventListener("click", () => {
-  ws.send(JSON.stringify({ action: isRecording ? "record_stop" : "record_start" }));
-});
-
-// ------ Teleop -------------------------------------------------------
-const TELEOP_STEP_XY = 0.015;
-const TELEOP_STEP_Z  = 0.015;
-const TELEOP_MIN_MS  = 80;
-
+// Teleop
+const TELEOP_STEP_XY = 0.015, TELEOP_STEP_Z = 0.015, TELEOP_MIN_MS = 80;
 const teleopToggle = document.getElementById("teleop-toggle");
-let teleopEnabled  = false;
-let lastTeleopAt   = 0;
-
-teleopToggle.addEventListener("change", () => {
-  teleopEnabled = teleopToggle.checked;
-  addLog(teleopEnabled ? "Teleop ON — focus the page" : "Teleop off", "info");
-});
+let teleopEnabled = false, lastTeleopAt = 0;
+teleopToggle.addEventListener("change", () => { teleopEnabled = teleopToggle.checked; addLog(teleopEnabled ? "Teleop ON" : "Teleop off", "info"); });
 
 function sendTeleop(dx, dy, dz, gripper) {
   const now = performance.now();
@@ -909,120 +735,73 @@ window.addEventListener("keydown", (e) => {
   if (handled) e.preventDefault();
 });
 
-// ------ Gamepad teleop -----------------------------------------------
-const GAMEPAD_DEADZONE = 0.15;
-const GAMEPAD_STEP_XY  = 0.020;
-const GAMEPAD_STEP_Z   = 0.020;
-let gamepadPollAnim    = null;
-let lastGripperBtnDown = false;
+// Gamepad
+const GAMEPAD_DEADZONE = 0.15, GAMEPAD_STEP_XY = 0.020, GAMEPAD_STEP_Z = 0.020;
+let gamepadPollAnim = null, lastGripperBtnDown = false;
 
 function applyDeadzone(v) {
-  if (Math.abs(v) < GAMEPAD_DEADZONE) return 0.0;
+  if (Math.abs(v) < GAMEPAD_DEADZONE) return 0;
   const sign = v < 0 ? -1 : 1;
-  return sign * (Math.abs(v) - GAMEPAD_DEADZONE) / (1.0 - GAMEPAD_DEADZONE);
+  return sign * (Math.abs(v) - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE);
 }
 
 function pollGamepad() {
   if (!teleopEnabled) { gamepadPollAnim = null; return; }
-  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-  const gp   = Array.from(pads).find(p => p && p.connected);
+  const gp = Array.from(navigator.getGamepads ? navigator.getGamepads() : []).find(p => p && p.connected);
   if (gp) {
-    const lx = applyDeadzone(gp.axes[0] ?? 0);
-    const ly = applyDeadzone(gp.axes[1] ?? 0);
-    const ry = applyDeadzone(gp.axes[3] ?? 0);
-    const dx = -ly * GAMEPAD_STEP_XY;
-    const dy = -lx * GAMEPAD_STEP_XY;
-    const dz = -ry * GAMEPAD_STEP_Z;
-    let gripper = null;
-    const btn = gp.buttons[0];
-    const btnDown = !!(btn && btn.pressed);
-    if (btnDown && !lastGripperBtnDown) gripper = "toggle";
+    const dx = -applyDeadzone(gp.axes[1]??0) * GAMEPAD_STEP_XY;
+    const dy = -applyDeadzone(gp.axes[0]??0) * GAMEPAD_STEP_XY;
+    const dz = -applyDeadzone(gp.axes[3]??0) * GAMEPAD_STEP_Z;
+    const btnDown = !!(gp.buttons[0]?.pressed);
+    const gripper = btnDown && !lastGripperBtnDown ? "toggle" : null;
     lastGripperBtnDown = btnDown;
     if (dx || dy || dz || gripper) sendTeleop(dx, dy, dz, gripper);
   }
   gamepadPollAnim = requestAnimationFrame(pollGamepad);
 }
 
-function ensureGamepadPolling() {
-  if (!gamepadPollAnim) gamepadPollAnim = requestAnimationFrame(pollGamepad);
-}
+function ensureGamepadPolling() { if (!gamepadPollAnim) gamepadPollAnim = requestAnimationFrame(pollGamepad); }
+teleopToggle.addEventListener("change", () => { if (teleopEnabled) ensureGamepadPolling(); });
+window.addEventListener("gamepadconnected",    (e) => { addLog(`Gamepad connected: ${e.gamepad.id}`, "info"); if (teleopEnabled) ensureGamepadPolling(); });
+window.addEventListener("gamepaddisconnected", ()  => addLog("Gamepad disconnected.", "info"));
 
-teleopToggle.addEventListener("change", () => {
-  if (teleopEnabled) ensureGamepadPolling();
-});
-window.addEventListener("gamepadconnected", (e) => {
-  addLog(`Gamepad connected: ${e.gamepad.id}`, "info");
-  if (teleopEnabled) ensureGamepadPolling();
-});
-window.addEventListener("gamepaddisconnected", () => {
-  addLog("Gamepad disconnected.", "info");
-});
-
-// ------ Trajectory inspector -----------------------------------------
+// Inspector
 const inspector  = document.getElementById("inspector");
 const inspSlider = document.getElementById("insp-slider");
 const inspPrev   = document.getElementById("insp-prev");
 const inspNext   = document.getElementById("insp-next");
 const inspLabel  = document.getElementById("insp-frame-label");
 const inspMeta   = document.getElementById("inspector-meta");
-
-let inspectorTotal  = 0;
-let inspectorActive = false;
+let inspectorTotal = 0, inspectorActive = false;
 
 function enableInspector(total) {
-  inspectorTotal = total;
-  inspector.classList.add("active");
-  inspSlider.disabled = false;
-  inspSlider.max      = String(total - 1);
-  inspSlider.value    = String(total - 1);
-  inspLabel.textContent = `frame ${total} / ${total}`;
-  inspMeta.textContent  = "(drag slider to scrub)";
+  inspectorTotal = total; inspector.classList.add("active");
+  inspSlider.disabled = false; inspSlider.max = String(total - 1); inspSlider.value = String(total - 1);
+  inspLabel.textContent = `frame ${total} / ${total}`; inspMeta.textContent = "(drag slider to scrub)";
 }
-
 function resetInspector() {
-  inspectorTotal  = 0;
-  inspectorActive = false;
-  inspector.classList.remove("active");
-  inspSlider.disabled = true;
-  inspSlider.max      = "0";
-  inspSlider.value    = "0";
-  inspLabel.textContent = "frame 0 / 0";
-  inspMeta.textContent  = "(no frame)";
+  inspectorTotal = 0; inspectorActive = false; inspector.classList.remove("active");
+  inspSlider.disabled = true; inspSlider.max = "0"; inspSlider.value = "0";
+  inspLabel.textContent = "frame 0 / 0"; inspMeta.textContent = "(no frame)";
 }
-
 function sendInspectAt(idx) {
-  if (inspectorTotal === 0) return;
-  const clamped = Math.max(0, Math.min(idx, inspectorTotal - 1));
-  inspSlider.value  = String(clamped);
-  inspectorActive   = true;
-  ws.send(JSON.stringify({ action: "inspect_at", frame_idx: clamped }));
+  if (!inspectorTotal) return;
+  const c = Math.max(0, Math.min(idx, inspectorTotal - 1));
+  inspSlider.value = String(c); inspectorActive = true;
+  ws.send(JSON.stringify({ action: "inspect_at", frame_idx: c }));
 }
-
 function sendInspectClear() {
   if (!inspectorActive) return;
-  inspectorActive = false;
-  ws.send(JSON.stringify({ action: "inspect_clear" }));
-  inspMeta.textContent = "(live)";
+  inspectorActive = false; ws.send(JSON.stringify({ action: "inspect_clear" })); inspMeta.textContent = "(live)";
 }
-
-function fmtVec(v, digits = 3) {
-  return "[" + v.map(x => x.toFixed(digits)).join(", ") + "]";
-}
-
+function fmtVec(v, d = 3) { return "[" + v.map(x => x.toFixed(d)).join(", ") + "]"; }
 function onInspectFrame(evt) {
-  inspectorTotal    = evt.total;
-  inspSlider.max    = String(evt.total - 1);
-  inspSlider.value  = String(evt.frame_idx);
+  inspectorTotal = evt.total; inspSlider.max = String(evt.total - 1); inspSlider.value = String(evt.frame_idx);
   inspLabel.textContent = `frame ${evt.frame_idx + 1} / ${evt.total}`;
-  const lines = [];
-  lines.push(`t = ${evt.timestamp.toFixed(3)} s`);
-  lines.push(`joints = ${fmtVec(evt.robot_joints)}`);
-  lines.push(`ee.xyz = ${fmtVec(evt.ee_pose.xyz)}`);
-  lines.push(`ee.quat = ${fmtVec(evt.ee_pose.quat_xyzw, 4)}`);
-  lines.push(`gripper = ${evt.gripper_width.toFixed(4)}`);
-  for (const k of Object.keys(evt.scene_objects)) {
-    lines.push(`${k}.xyz = ${fmtVec(evt.scene_objects[k].xyz)}`);
-  }
+  const lines = [`t = ${evt.timestamp.toFixed(3)} s`, `joints = ${fmtVec(evt.robot_joints)}`,
+    `ee.xyz = ${fmtVec(evt.ee_pose.xyz)}`, `ee.quat = ${fmtVec(evt.ee_pose.quat_xyzw, 4)}`,
+    `gripper = ${evt.gripper_width.toFixed(4)}`];
+  for (const k of Object.keys(evt.scene_objects)) lines.push(`${k}.xyz = ${fmtVec(evt.scene_objects[k].xyz)}`);
   inspMeta.textContent = lines.join("\n");
 }
 
@@ -1031,16 +810,14 @@ inspSlider.addEventListener("dblclick", sendInspectClear);
 inspPrev.addEventListener("click",  () => sendInspectAt(parseInt(inspSlider.value, 10) - 1));
 inspNext.addEventListener("click",  () => sendInspectAt(parseInt(inspSlider.value, 10) + 1));
 inspSlider.addEventListener("keydown", (e) => {
-  if (inspectorTotal === 0) return;
-  const step = e.shiftKey ? 10 : 1;
-  if (e.key === "ArrowLeft"  || e.key === "ArrowDown")  { sendInspectAt(parseInt(inspSlider.value,10) - step); e.preventDefault(); }
-  if (e.key === "ArrowRight" || e.key === "ArrowUp")    { sendInspectAt(parseInt(inspSlider.value,10) + step); e.preventDefault(); }
+  if (!inspectorTotal) return;
+  const s = e.shiftKey ? 10 : 1;
+  if (e.key === "ArrowLeft"  || e.key === "ArrowDown")  { sendInspectAt(parseInt(inspSlider.value,10)-s); e.preventDefault(); }
+  if (e.key === "ArrowRight" || e.key === "ArrowUp")    { sendInspectAt(parseInt(inspSlider.value,10)+s); e.preventDefault(); }
 });
 
 loadTasks().then(() => {
-  setTimeout(() => {
-    if (taskSelect.value) ws.send(JSON.stringify({ action: "load", task: taskSelect.value }));
-  }, 300);
+  setTimeout(() => { if (taskSelect.value) ws.send(JSON.stringify({ action: "load", task: taskSelect.value })); }, 300);
 });
 </script>
 </body>
