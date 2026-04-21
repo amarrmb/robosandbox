@@ -3,187 +3,614 @@
 <head>
 <meta charset="utf-8">
 <title>RoboSandbox — Live Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0c0e12; color: #e5e7eb; }
-  body { display: grid; grid-template-columns: 1fr 360px; grid-template-rows: 48px 1fr 36px; height: 100vh; }
-  header { grid-column: 1 / -1; display: flex; align-items: center; padding: 0 16px; background: #111418; border-bottom: 1px solid #1f2329; }
-  header h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #f3f4f6; }
-  header .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; margin-right: 10px; transition: background 0.2s; }
-  header .brand-dot.disconnected { background: #ef4444; }
-  header .spacer { flex: 1; }
-  header .badge { font-size: 11px; color: #9ca3af; padding: 3px 8px; border: 1px solid #2a2f38; border-radius: 4px; margin-left: 8px; }
-  main { grid-column: 1; grid-row: 2; display: flex; align-items: center; justify-content: center; background: #06080a; position: relative; overflow: hidden; }
-  #frame { width: 100%; height: 100%; object-fit: contain; background: #000; image-rendering: auto; display: block; }
-  #frame-placeholder { color: #4b5563; font-size: 14px; }
-  aside { grid-column: 2; grid-row: 2; background: #0f1217; border-left: 1px solid #1f2329; display: flex; flex-direction: column; padding: 16px; gap: 16px; overflow: hidden; }
-  .group { display: flex; flex-direction: column; gap: 6px; }
-  .group label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; }
-  select, input, button, textarea { font: inherit; font-size: 13px; color: #e5e7eb; background: #1a1e25; border: 1px solid #2a2f38; border-radius: 5px; padding: 8px 10px; outline: none; }
-  select:focus, input:focus, textarea:focus { border-color: #4b5563; }
-  button { background: #3b82f6; border: none; font-weight: 600; cursor: pointer; color: white; }
-  button:hover:not(:disabled) { background: #2563eb; }
-  button:disabled { background: #374151; cursor: not-allowed; color: #6b7280; }
-  button.record { background: #1f2329; color: #d1d5db; border: 1px solid #2a2f38; }
-  button.record:hover:not(:disabled) { background: #2a2f38; }
-  button.record.recording { background: #dc2626; color: white; border-color: #dc2626; }
-  button.record.recording:hover:not(:disabled) { background: #b91c1c; }
-  .rec-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: middle; }
-  button.record.recording .rec-dot { animation: pulse 1.2s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-  .primary-row { display: flex; gap: 8px; }
-  .primary-row button { flex: 1; }
-  #log { flex: 1; overflow-y: auto; background: #0a0c10; border: 1px solid #1f2329; border-radius: 5px; padding: 8px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; display: flex; flex-direction: column; gap: 4px; }
-  .log-line { padding: 2px 0; color: #9ca3af; border-bottom: 1px solid transparent; }
-  .log-line.info { color: #93c5fd; }
-  .log-line.success { color: #6ee7b7; }
-  .log-line.error { color: #fca5a5; }
-  .log-line .t { color: #4b5563; margin-right: 6px; }
-  footer { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; padding: 0 16px; font-size: 11px; color: #6b7280; background: #0a0c10; border-top: 1px solid #1f2329; gap: 12px; }
-  footer .muted { opacity: 0.6; }
-  .kbd { font-family: ui-monospace, monospace; font-size: 10.5px; padding: 1px 5px; background: #1a1e25; border: 1px solid #2a2f38; border-bottom-width: 2px; border-radius: 3px; color: #d1d5db; }
-  /* Trajectory inspector */
-  #inspector { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #1f2329; padding-top: 10px; }
-  #inspector:not(.active) .insp-controls { opacity: 0.35; pointer-events: none; }
-  #inspector:not(.active) #insp-idle-hint { display: block; }
-  #insp-idle-hint { display: none; font-size: 11px; color: #6b7280; }
-  #inspector .row { display: flex; align-items: center; gap: 8px; }
-  #inspector input[type=range] { flex: 1; accent-color: #3b82f6; }
-  #inspector .frame-label { font-family: ui-monospace, monospace; font-size: 11.5px; color: #9ca3af; min-width: 88px; text-align: right; }
-  #inspector button.step { flex: 0 0 auto; padding: 4px 8px; font-size: 12px; background: #1f2329; border: 1px solid #2a2f38; color: #d1d5db; }
-  #inspector button.step:hover:not(:disabled) { background: #2a2f38; }
-  #inspector-meta { font-family: ui-monospace, monospace; font-size: 11px; color: #9ca3af; background: #0a0c10; border: 1px solid #1f2329; border-radius: 5px; padding: 6px 8px; line-height: 1.5; white-space: pre-wrap; max-height: 110px; overflow-y: auto; }
-  #inspector .hint { font-size: 10.5px; color: #6b7280; }
-  /* About-this-task card */
-  #task-card { background: #141821; border: 1px solid #1f2329; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
-  #task-card.empty { display: none; }
-  #task-card .goal { font-size: 14px; color: #f3f4f6; font-weight: 600; line-height: 1.3; }
-  #task-card .row { display: flex; font-size: 11.5px; color: #9ca3af; gap: 6px; }
-  #task-card .row .lbl { color: #6b7280; text-transform: uppercase; font-size: 10px; letter-spacing: 0.08em; min-width: 64px; padding-top: 1px; }
-  #task-card .row .val { color: #cbd5e1; flex: 1; }
-  #task-card .row .val .pill { display: inline-block; background: #1a1e25; border: 1px solid #2a2f38; border-radius: 3px; padding: 1px 5px; margin-right: 4px; font-size: 10.5px; color: #d1d5db; }
-  /* First-visit how-to-use card */
-  #howto { background: #141821; border: 1px solid #1f2329; border-radius: 6px; padding: 10px 12px; font-size: 12px; color: #cbd5e1; }
-  #howto h3 { font-size: 12px; font-weight: 600; color: #f3f4f6; margin-bottom: 6px; }
-  #howto ol { padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
-  #howto li { line-height: 1.45; }
-  #howto .dismiss { float: right; background: transparent; border: none; color: #6b7280; font-size: 11px; padding: 0; cursor: pointer; }
-  #howto .dismiss:hover { color: #9ca3af; background: transparent; }
-  /* Phase indicator (right-hand header badge) */
-  .phase { font-size: 11px; padding: 3px 10px; border-radius: 4px; border: 1px solid #2a2f38; color: #cbd5e1; background: #111418; }
-  .phase.setup   { border-color: #3b3f4a; color: #9ca3af; }
-  .phase.running { border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.08); }
-  .phase.evaluating { border-color: #a855f7; color: #c4b5fd; background: rgba(168,85,247,0.08); }
-  .phase.done    { border-color: #22c55e; color: #86efac; background: rgba(34,197,94,0.08); }
-  .phase.done.failed { border-color: #ef4444; color: #fca5a5; background: rgba(239,68,68,0.08); }
-  /* Keyboard-shortcut cheatsheet */
-  #cheatsheet { position: fixed; right: 8px; bottom: 44px; z-index: 10; background: #0f1217; border: 1px solid #2a2f38; border-radius: 6px; padding: 10px 12px; font-size: 11.5px; color: #cbd5e1; min-width: 260px; box-shadow: 0 6px 18px rgba(0,0,0,0.5); display: none; }
-  #cheatsheet.open { display: block; }
-  #cheatsheet h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; margin-bottom: 4px; }
-  #cheatsheet .sh-row { display: flex; gap: 8px; margin: 3px 0; }
-  #cheatsheet .sh-row .keys { min-width: 100px; }
-  #cheatsheet .sh-row .desc { flex: 1; color: #9ca3af; }
-  footer .link { color: #93c5fd; cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
-  footer .link:hover { color: #bfdbfe; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:            #07090f;
+  --surface:       #0c1018;
+  --surface-hi:    #111826;
+  --surface-hi2:   #162030;
+  --border:        #1a2538;
+  --border-hi:     #243450;
+  --accent:        #14b8a6;
+  --accent-glow:   rgba(20,184,166,.18);
+  --accent-dim:    rgba(20,184,166,.08);
+  --green:         #10d98a;
+  --red:           #f05060;
+  --amber:         #f59e0b;
+  --blue:          #4895ef;
+  --text:          #e4eaf6;
+  --text-dim:      #7a8faa;
+  --text-muted:    #3d4f67;
+  --ui:            'DM Sans', -apple-system, system-ui, sans-serif;
+  --mono:          'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace;
+  --radius:        6px;
+  --transition:    .18s ease;
+}
+
+html, body { height: 100%; font-family: var(--ui); background: var(--bg); color: var(--text); }
+
+body {
+  display: grid;
+  grid-template-columns: 268px 1fr 360px;
+  grid-template-rows: 46px auto 1fr 34px;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ══════════════════════════════════════════
+   HEADER
+══════════════════════════════════════════ */
+header {
+  grid-column: 1 / -1;
+  display: flex; align-items: center;
+  padding: 0 16px; gap: 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  z-index: 5;
+}
+
+.brand {
+  display: flex; align-items: center; gap: 8px;
+}
+.brand-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 7px var(--green);
+  flex-shrink: 0; transition: background var(--transition), box-shadow var(--transition);
+}
+.brand-dot.disconnected { background: var(--red); box-shadow: 0 0 7px var(--red); }
+
+.brand-name {
+  font-family: var(--mono); font-size: 13px; font-weight: 500;
+  letter-spacing: .05em; color: var(--text);
+}
+.brand-tag {
+  font-size: 10.5px; color: var(--text-muted);
+  padding: 2px 7px; border: 1px solid var(--border); border-radius: 3px;
+  font-family: var(--mono);
+}
+
+header .spacer { flex: 1; }
+
+#dof-badge {
+  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+  padding: 2px 8px; border: 1px solid var(--border); border-radius: 3px;
+  display: none;
+}
+
+#phase {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .05em;
+  padding: 3px 10px; border-radius: 3px;
+  border: 1px solid var(--border); color: var(--text-muted);
+  transition: all var(--transition);
+}
+.phase.running    { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.phase.evaluating { border-color: var(--amber);  color: var(--amber);  background: rgba(245,158,11,.07); }
+.phase.done       { border-color: var(--green);  color: var(--green);  background: rgba(16,217,138,.07); }
+.phase.done.failed{ border-color: var(--red);    color: var(--red);    background: rgba(240,80,96,.07);  }
+
+#fps { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+
+/* ══════════════════════════════════════════
+   HOW-TO BANNER (full-width, collapsible)
+══════════════════════════════════════════ */
+#howto {
+  grid-column: 1 / -1;
+  background: linear-gradient(90deg, rgba(20,184,166,.06) 0%, rgba(72,149,239,.04) 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+  display: flex; align-items: center; gap: 12px;
+}
+
+.howto-label {
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: .12em;
+  color: var(--accent); flex-shrink: 0;
+  padding-right: 12px;
+  border-right: 1px solid var(--border);
+}
+
+.howto-steps {
+  display: flex; gap: 0; flex: 1; overflow: hidden;
+}
+.howto-step {
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 14px 0 0; flex-shrink: 0;
+}
+.howto-step:not(:last-child)::after {
+  content: '→';
+  margin-left: 14px;
+  color: var(--text-muted); font-size: 11px;
+}
+.howto-step-num {
+  width: 18px; height: 18px;
+  border-radius: 50%; border: 1px solid var(--accent);
+  color: var(--accent); font-size: 10px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-family: var(--mono);
+}
+.howto-step-text {
+  font-size: 12px; color: var(--text-dim); line-height: 1.3;
+}
+.howto-step-text b { color: var(--text); font-weight: 600; }
+.howto-step-text code { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+
+button.dismiss {
+  background: transparent; border: none;
+  color: var(--text-muted); font-size: 16px; line-height: 1;
+  cursor: pointer; padding: 2px 6px; flex-shrink: 0; margin-left: auto;
+  border-radius: 3px; transition: color var(--transition), background var(--transition);
+}
+button.dismiss:hover { color: var(--text-dim); background: var(--surface-hi); }
+
+/* ══════════════════════════════════════════
+   LEFT PANEL — Controls
+══════════════════════════════════════════ */
+.left-panel {
+  grid-column: 1; grid-row: 3;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden;
+}
+.left-panel::-webkit-scrollbar { width: 3px; }
+.left-panel::-webkit-scrollbar-thumb { background: var(--border); }
+
+.lp-section {
+  padding: 12px 14px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sec-label {
+  display: block; font-family: var(--mono);
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .14em;
+  color: var(--text-muted); margin-bottom: 9px;
+}
+
+/* Inputs */
+.field-wrap { display: flex; flex-direction: column; gap: 5px; }
+
+label.field-lbl {
+  font-size: 11px; font-weight: 500; color: var(--text-dim);
+  letter-spacing: .01em;
+}
+label.field-lbl small {
+  font-weight: 400; color: var(--text-muted); font-size: 10.5px;
+}
+
+select, input[type="text"] {
+  font-family: var(--ui); font-size: 13px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border-hi);
+  border-radius: var(--radius); padding: 8px 10px; outline: none; width: 100%;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+select {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%233d4f67'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+  padding-right: 28px;
+}
+select:focus, input[type="text"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+input[type="text"]::placeholder { color: var(--text-muted); }
+
+/* Task info card */
+#task-card {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; margin-top: 8px;
+}
+#task-card.empty { display: none; }
+.goal { font-size: 12.5px; color: var(--text); font-weight: 500; line-height: 1.35; }
+.tc-row { display: flex; gap: 6px; }
+.tc-row .lbl {
+  font-family: var(--mono); font-size: 9px; text-transform: uppercase;
+  letter-spacing: .12em; color: var(--text-muted); min-width: 48px;
+  flex-shrink: 0; padding-top: 1px;
+}
+.tc-row .val { font-family: var(--mono); font-size: 11px; color: var(--text-dim); flex: 1; }
+.pill {
+  display: inline-block; background: var(--surface-hi); border-radius: 3px;
+  padding: 1px 5px; margin-right: 3px; font-size: 10px; color: var(--text-dim);
+}
+.muted { color: var(--text-muted); }
+
+/* Action buttons */
+.action-section {
+  padding: 12px 14px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+button {
+  font-family: var(--ui); font-size: 13px; font-weight: 600;
+  border: none; border-radius: var(--radius);
+  padding: 10px 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  transition: background var(--transition), box-shadow var(--transition), opacity var(--transition);
+  width: 100%;
+}
+
+#run {
+  color: #fff; background: var(--accent); font-size: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 2px 12px rgba(20,184,166,.2);
+}
+#run:hover:not(:disabled) {
+  background: #0fa090;
+  box-shadow: 0 2px 18px rgba(20,184,166,.35);
+}
+#run:disabled { background: var(--surface-hi); color: var(--text-muted); box-shadow: none; cursor: not-allowed; }
+
+#record {
+  color: var(--text-dim); background: var(--surface-hi);
+  border: 1px solid var(--border-hi); padding: 9px 14px;
+}
+#record:hover:not(:disabled) { background: var(--surface-hi2); color: var(--text); }
+#record.recording {
+  background: rgba(240,80,96,.1); color: var(--red); border-color: var(--red);
+}
+#record.recording:hover:not(:disabled) { background: rgba(240,80,96,.18); }
+
+.rec-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor; flex-shrink: 0;
+}
+#record.recording .rec-dot { animation: blink 1.2s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.15} }
+
+/* Teleop toggle */
+.teleop-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 14px 12px;
+}
+.switch { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch-track {
+  position: absolute; inset: 0;
+  background: var(--border-hi); border-radius: 9px; cursor: pointer;
+  transition: background var(--transition);
+}
+.switch-track::after {
+  content: ''; position: absolute;
+  width: 14px; height: 14px; left: 2px; top: 2px;
+  background: var(--text-muted); border-radius: 50%;
+  transition: transform var(--transition), background var(--transition);
+}
+.switch input:checked + .switch-track {
+  background: var(--accent-dim); border: 1px solid var(--accent);
+}
+.switch input:checked + .switch-track::after {
+  transform: translateX(16px); background: var(--accent);
+}
+.teleop-info { display: flex; flex-direction: column; gap: 1px; }
+.teleop-label { font-size: 12.5px; font-weight: 500; color: var(--text-dim); }
+.teleop-hint  { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+
+/* Left panel spacer */
+.lp-spacer { flex: 1; }
+
+/* ══════════════════════════════════════════
+   SIM VIEW — center, the hero
+══════════════════════════════════════════ */
+main {
+  grid-column: 2; grid-row: 3;
+  background: #000;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; position: relative;
+  transition: box-shadow var(--transition);
+}
+main.running {
+  box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 30px rgba(20,184,166,.08);
+}
+
+#frame {
+  width: 100%; height: 100%;
+  object-fit: contain; background: #000;
+  image-rendering: auto;
+}
+
+#frame-placeholder {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--text-muted); letter-spacing: .08em;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.ph-spinner {
+  width: 24px; height: 24px; border: 2px solid var(--border-hi);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ══════════════════════════════════════════
+   RIGHT PANEL — Events + Inspector
+══════════════════════════════════════════ */
+.right-panel {
+  grid-column: 3; grid-row: 3;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* Events section — gets all remaining space */
+.events-section {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px 4px;
+  flex-shrink: 0;
+}
+
+#log {
+  flex: 1; overflow-y: auto;
+  padding: 4px 14px 10px;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.7;
+  display: flex; flex-direction: column;
+}
+#log::-webkit-scrollbar { width: 3px; }
+#log::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+
+.log-line {
+  padding: 1.5px 0 1.5px 9px;
+  border-left: 2px solid transparent;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+.log-line.info    { border-left-color: var(--blue);  color: #93c5fd; }
+.log-line.success { border-left-color: var(--green); color: #6ee7b7; }
+.log-line.error   { border-left-color: var(--red);   color: #fca5a5; }
+.log-line .t      { font-size: 10px; color: var(--text-muted); margin-right: 8px; }
+
+/* Inspector section — fixed bottom */
+#inspector {
+  border-top: 1px solid var(--border);
+  padding: 10px 14px 12px;
+  flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 7px;
+  background: var(--surface);
+}
+#inspector:not(.active) .insp-controls { opacity: .3; pointer-events: none; }
+#inspector:not(.active) #insp-idle-hint { display: block; }
+#insp-idle-hint {
+  display: none; font-family: var(--mono); font-size: 11px;
+  color: var(--text-muted); line-height: 1.5;
+}
+
+.insp-row { display: flex; align-items: center; gap: 7px; }
+
+#insp-slider {
+  flex: 1; height: 4px;
+  -webkit-appearance: none; appearance: none;
+  background: var(--border-hi); border-radius: 2px;
+  outline: none; cursor: pointer;
+}
+#insp-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); cursor: pointer;
+  box-shadow: 0 0 7px rgba(20,184,166,.5);
+}
+#insp-slider:disabled { opacity: .4; }
+
+button.step {
+  flex: 0 0 auto; padding: 3px 8px; font-size: 11px; font-weight: 400;
+  background: var(--surface-hi); border: 1px solid var(--border-hi);
+  color: var(--text-dim); border-radius: 3px; width: auto;
+}
+button.step:hover:not(:disabled) { background: var(--surface-hi2); color: var(--text); }
+
+.insp-meta-row {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.frame-label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+.insp-hint   { font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+
+#inspector-meta {
+  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 8px; line-height: 1.65;
+  white-space: pre; overflow-x: auto; max-height: 90px; overflow-y: auto;
+}
+#inspector-meta::-webkit-scrollbar { width: 3px; height: 3px; }
+#inspector-meta::-webkit-scrollbar-thumb { background: var(--border-hi); }
+
+/* ══════════════════════════════════════════
+   FOOTER
+══════════════════════════════════════════ */
+footer {
+  grid-column: 1 / -1; grid-row: 4;
+  display: flex; align-items: center;
+  padding: 0 14px; gap: 14px;
+  font-size: 11px; color: var(--text-muted);
+  background: var(--surface); border-top: 1px solid var(--border);
+}
+footer .spacer { flex: 1; }
+.link {
+  color: var(--accent); cursor: pointer;
+  text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px;
+}
+.link:hover { color: #5eead4; }
+.kbd {
+  font-family: var(--mono); font-size: 10px; padding: 1px 5px;
+  background: var(--bg); border: 1px solid var(--border-hi);
+  border-bottom-width: 2px; border-radius: 3px; color: var(--text-dim);
+}
+
+/* ══════════════════════════════════════════
+   CHEATSHEET OVERLAY
+══════════════════════════════════════════ */
+#cheatsheet {
+  position: fixed; right: 8px; bottom: 42px; z-index: 20;
+  background: var(--surface); border: 1px solid var(--border-hi); border-radius: var(--radius);
+  padding: 10px 14px; font-size: 11.5px; color: var(--text-dim);
+  min-width: 290px; box-shadow: 0 10px 30px rgba(0,0,0,.7);
+  display: none;
+}
+#cheatsheet.open { display: block; }
+#cheatsheet h4 {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .12em; color: var(--text-muted); margin-bottom: 7px;
+}
+.sh-row { display: flex; gap: 8px; margin: 4px 0; }
+.sh-row .keys { min-width: 110px; font-family: var(--mono); }
+.sh-row .desc { flex: 1; color: var(--text-muted); }
 </style>
 </head>
 <body>
+
+<!-- ── Header ─────────────────────────────────────────── -->
 <header>
-  <span id="conn" class="brand-dot disconnected" title="disconnected"></span>
-  <h1>RoboSandbox</h1>
-  <span class="badge">live viewer</span>
+  <div class="brand">
+    <span id="conn" class="brand-dot disconnected" title="disconnected"></span>
+    <span class="brand-name">RoboSandbox</span>
+    <span class="brand-tag">live viewer</span>
+  </div>
   <div class="spacer"></div>
+  <span id="dof-badge"></span>
   <span id="phase" class="phase setup">Setup</span>
-  <span id="dof-badge" class="badge" style="display:none"></span>
+  <span id="fps">0 fps</span>
 </header>
 
-<main>
+<!-- ── How-to banner ──────────────────────────────────── -->
+<div id="howto">
+  <span class="howto-label">Quick&nbsp;start</span>
+  <div class="howto-steps">
+    <div class="howto-step">
+      <span class="howto-step-num">1</span>
+      <span class="howto-step-text">Pick a task — <code>pick_cube_franka</code> is a good start</span>
+    </div>
+    <div class="howto-step">
+      <span class="howto-step-num">2</span>
+      <span class="howto-step-text">Click <b>Run</b> to watch the agent execute</span>
+    </div>
+    <div class="howto-step">
+      <span class="howto-step-num">3</span>
+      <span class="howto-step-text">Toggle <b>Record</b>, then <b>Run</b> to save an episode to <code>runs/</code></span>
+    </div>
+    <div class="howto-step">
+      <span class="howto-step-num">4</span>
+      <span class="howto-step-text">Use the export command from the log to create a LeRobot dataset</span>
+    </div>
+  </div>
+  <button class="dismiss" id="howto-dismiss" title="Dismiss">&times;</button>
+</div>
+
+<!-- ── Left panel: controls ───────────────────────────── -->
+<div class="left-panel">
+
+  <div class="lp-section">
+    <span class="sec-label">Task</span>
+    <div class="field-wrap">
+      <select id="task-select"></select>
+    </div>
+    <div id="task-card" class="empty">
+      <div class="goal" id="tc-goal"></div>
+      <div class="tc-row"><span class="lbl">Robot</span><span class="val" id="tc-robot">—</span></div>
+      <div class="tc-row"><span class="lbl">Scene</span><span class="val" id="tc-scene">—</span></div>
+      <div class="tc-row"><span class="lbl">Success</span><span class="val" id="tc-success">—</span></div>
+      <div class="tc-row"><span class="lbl">Jitter</span><span class="val" id="tc-randomize">—</span></div>
+    </div>
+  </div>
+
+  <div class="lp-section">
+    <span class="sec-label">Prompt</span>
+    <div class="field-wrap">
+      <label class="field-lbl" for="prompt">
+        Override &nbsp;<small>(blank = task default)</small>
+      </label>
+      <input id="prompt" type="text" placeholder="e.g. pick up the red cube">
+    </div>
+  </div>
+
+  <div class="action-section">
+    <button id="run">&#9654;&nbsp; Run</button>
+    <button id="record" title="Toggle recording">
+      <span class="rec-dot"></span><span id="record-label">Record</span>
+    </button>
+  </div>
+
+  <div class="teleop-row">
+    <label class="switch">
+      <input type="checkbox" id="teleop-toggle">
+      <span class="switch-track"></span>
+    </label>
+    <div class="teleop-info">
+      <span class="teleop-label">Teleop</span>
+      <span class="teleop-hint">WASD · QE · Space</span>
+    </div>
+  </div>
+
+  <div class="lp-spacer"></div>
+
+</div>
+
+<!-- ── Center: sim view ───────────────────────────────── -->
+<main id="sim-main">
   <img id="frame" alt="" style="display:none">
-  <div id="frame-placeholder">Loading scene&hellip;</div>
+  <div id="frame-placeholder">
+    <div class="ph-spinner"></div>
+    Connecting&hellip;
+  </div>
 </main>
 
-<aside>
-  <div id="howto">
-    <button class="dismiss" id="howto-dismiss" title="Hide">&times;</button>
-    <h3>Quick start</h3>
-    <ol>
-      <li>Pick a task — <code>pick_cube_franka</code> is a good first try.</li>
-      <li>Click <b>Run</b> to watch the agent execute.</li>
-      <li>Click <b>Record</b>, then <b>Run</b> to save an episode (MP4 + JSONL) to <code>runs/</code>. The export command appears in the log when recording stops.</li>
-      <li>Use the <b>Inspector</b> below to scrub through any frame of the last episode.</li>
-      <li>Check <b>Teleop</b> to drive the arm yourself (WASD / gamepad).</li>
-    </ol>
-  </div>
+<!-- ── Right panel: events + inspector ────────────────── -->
+<div class="right-panel">
 
-  <div class="group">
-    <label for="task-select">Task</label>
-    <select id="task-select"></select>
-  </div>
-
-  <div id="task-card" class="empty">
-    <div class="goal" id="tc-goal">Goal: (no task loaded)</div>
-    <div class="row"><span class="lbl">Robot</span><span class="val" id="tc-robot">—</span></div>
-    <div class="row"><span class="lbl">Scene</span><span class="val" id="tc-scene">—</span></div>
-    <div class="row"><span class="lbl">Success</span><span class="val" id="tc-success">—</span></div>
-    <div class="row"><span class="lbl">Randomize</span><span class="val" id="tc-randomize">—</span></div>
-  </div>
-
-  <div class="group">
-    <label for="prompt">Prompt override <span class="muted" style="color:#6b7280; font-size:10.5px;">(blank = use task default)</span></label>
-    <input id="prompt" type="text" placeholder="(uses task's default)">
-  </div>
-  <div class="primary-row">
-    <button id="run">Run</button>
-    <button id="record" class="record" title="Start/stop recording to runs/"><span class="rec-dot"></span><span id="record-label">Record</span></button>
-  </div>
-  <div class="group">
-    <label>
-      <input type="checkbox" id="teleop-toggle" style="vertical-align: middle; margin-right: 6px;">
-      Teleop <span class="muted" style="color:#6b7280; font-size:11px;">(WASD=xy, QE=z, Space=grip; gamepad sticks drive ee)</span>
-    </label>
-  </div>
-  <div class="group" style="flex:1; min-height:0">
-    <label>Events</label>
+  <div class="events-section">
+    <div class="panel-header">
+      <span class="sec-label" style="margin:0">Events</span>
+    </div>
     <div id="log"></div>
   </div>
 
   <div id="inspector">
-    <label>Inspector</label>
-    <span id="insp-idle-hint">Run a task first — then drag to replay any moment in the episode.</span>
+    <span class="sec-label">Inspector</span>
+    <span id="insp-idle-hint">Run a task to enable frame scrubbing.</span>
     <div class="insp-controls">
-      <div class="row">
+      <div class="insp-row">
         <button id="insp-prev" class="step" title="Previous frame">&#x25C0;</button>
         <input id="insp-slider" type="range" min="0" max="0" value="0" step="1" disabled>
         <button id="insp-next" class="step" title="Next frame">&#x25B6;</button>
       </div>
-      <div class="row">
+      <div class="insp-meta-row">
         <span class="frame-label" id="insp-frame-label">frame 0 / 0</span>
-        <span class="spacer" style="flex:1"></span>
-        <span class="hint">arrows: &plusmn;1, shift: &plusmn;10, dblclick: resume live</span>
+        <span class="insp-hint">arrows&nbsp;±1&nbsp;·&nbsp;shift&nbsp;±10&nbsp;·&nbsp;dblclick&nbsp;=&nbsp;live</span>
       </div>
       <pre id="inspector-meta">(no frame)</pre>
     </div>
   </div>
-</aside>
 
+</div>
+
+<!-- ── Footer ─────────────────────────────────────────── -->
 <footer>
-  <span>Tip: press <span class="kbd">Enter</span> in the prompt to run.</span>
-  <span style="flex:1"></span>
+  <span>Press <span class="kbd">Enter</span> in the prompt to run.</span>
+  <div class="spacer"></div>
   <span class="link" id="cheatsheet-toggle">Keyboard &amp; gamepad</span>
-  <span class="muted" id="fps">0 fps</span>
 </footer>
 
+<!-- ── Cheatsheet overlay ─────────────────────────────── -->
 <div id="cheatsheet">
   <h4>Keyboard &amp; gamepad</h4>
-  <div class="sh-row"><span class="keys"><span class="kbd">Enter</span></span><span class="desc">Run current task (focus the prompt box first)</span></div>
-  <div class="sh-row"><span class="keys"><span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span></span><span class="desc">Teleop: move end-effector in xy (1.5 cm per press)</span></div>
-  <div class="sh-row"><span class="keys"><span class="kbd">Q</span> <span class="kbd">E</span></span><span class="desc">Teleop: move end-effector in z</span></div>
-  <div class="sh-row"><span class="keys"><span class="kbd">Space</span></span><span class="desc">Teleop: toggle gripper (open/closed)</span></div>
-  <div class="sh-row"><span class="keys"><span class="kbd">←</span> <span class="kbd">→</span></span><span class="desc">Inspector: step ±1 frame (Shift = ±10)</span></div>
-  <div class="sh-row"><span class="keys">dblclick slider</span><span class="desc">Inspector: resume live view</span></div>
-  <div class="sh-row"><span class="keys">gamepad L stick</span><span class="desc">Teleop: end-effector xy</span></div>
-  <div class="sh-row"><span class="keys">gamepad R stick Y</span><span class="desc">Teleop: end-effector z</span></div>
-  <div class="sh-row"><span class="keys">gamepad A button</span><span class="desc">Teleop: toggle gripper</span></div>
+  <div class="sh-row"><span class="keys"><span class="kbd">Enter</span></span><span class="desc">Run task (focus prompt first)</span></div>
+  <div class="sh-row"><span class="keys"><span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span></span><span class="desc">Teleop: ee xy (1.5 cm/press)</span></div>
+  <div class="sh-row"><span class="keys"><span class="kbd">Q</span> <span class="kbd">E</span></span><span class="desc">Teleop: ee z</span></div>
+  <div class="sh-row"><span class="keys"><span class="kbd">Space</span></span><span class="desc">Teleop: toggle gripper</span></div>
+  <div class="sh-row"><span class="keys"><span class="kbd">←</span> <span class="kbd">→</span></span><span class="desc">Inspector: ±1 frame (Shift = ±10)</span></div>
+  <div class="sh-row"><span class="keys">dblclick slider</span><span class="desc">Resume live view</span></div>
+  <div class="sh-row"><span class="keys">gamepad L stick</span><span class="desc">ee xy</span></div>
+  <div class="sh-row"><span class="keys">gamepad R stick Y</span><span class="desc">ee z</span></div>
+  <div class="sh-row"><span class="keys">gamepad A</span><span class="desc">toggle gripper</span></div>
 </div>
 
 <script>
@@ -191,31 +618,31 @@ const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
 const ws = new WebSocket(`${wsProto}//${location.host}/ws`);
 ws.binaryType = "blob";
 
-const frame = document.getElementById("frame");
+const frame       = document.getElementById("frame");
 const placeholder = document.getElementById("frame-placeholder");
-const conn = document.getElementById("conn");
-const phaseEl = document.getElementById("phase");
-const dofBadge = document.getElementById("dof-badge");
-const log = document.getElementById("log");
-const taskSelect = document.getElementById("task-select");
+const conn        = document.getElementById("conn");
+const phaseEl     = document.getElementById("phase");
+const dofBadge    = document.getElementById("dof-badge");
+const log         = document.getElementById("log");
+const taskSelect  = document.getElementById("task-select");
 const promptInput = document.getElementById("prompt");
-const runBtn = document.getElementById("run");
-const recordBtn = document.getElementById("record");
+const runBtn      = document.getElementById("run");
+const recordBtn   = document.getElementById("record");
 const recordLabel = document.getElementById("record-label");
-const fpsEl = document.getElementById("fps");
-const taskCard = document.getElementById("task-card");
-const tcGoal = document.getElementById("tc-goal");
-const tcRobot = document.getElementById("tc-robot");
-const tcScene = document.getElementById("tc-scene");
-const tcSuccess = document.getElementById("tc-success");
+const fpsEl       = document.getElementById("fps");
+const taskCard    = document.getElementById("task-card");
+const tcGoal      = document.getElementById("tc-goal");
+const tcRobot     = document.getElementById("tc-robot");
+const tcScene     = document.getElementById("tc-scene");
+const tcSuccess   = document.getElementById("tc-success");
 const tcRandomize = document.getElementById("tc-randomize");
-const howto = document.getElementById("howto");
-const howtoDismiss = document.getElementById("howto-dismiss");
-const cheatsheet = document.getElementById("cheatsheet");
+const howto       = document.getElementById("howto");
+const howtoDismiss= document.getElementById("howto-dismiss");
+const cheatsheet  = document.getElementById("cheatsheet");
 const cheatsheetToggle = document.getElementById("cheatsheet-toggle");
+const simMain     = document.getElementById("sim-main");
 
-// Hide the how-to card once the user has actually run something — they
-// know how to use it by then. Persist the dismiss in localStorage too.
+// How-to dismiss
 if (localStorage.getItem("rs-howto-dismissed") === "1") {
   howto.style.display = "none";
 }
@@ -224,9 +651,8 @@ howtoDismiss.addEventListener("click", () => {
   localStorage.setItem("rs-howto-dismissed", "1");
 });
 
-cheatsheetToggle.addEventListener("click", () => {
-  cheatsheet.classList.toggle("open");
-});
+// Cheatsheet toggle
+cheatsheetToggle.addEventListener("click", () => cheatsheet.classList.toggle("open"));
 document.addEventListener("click", (e) => {
   if (!cheatsheet.classList.contains("open")) return;
   if (e.target === cheatsheetToggle || cheatsheet.contains(e.target)) return;
@@ -236,10 +662,12 @@ document.addEventListener("click", (e) => {
 function setPhase(phase, label) {
   phaseEl.className = `phase ${phase}`;
   phaseEl.textContent = label;
+  // Pulse the sim border when running
+  if (phase === "running") simMain.classList.add("running");
+  else simMain.classList.remove("running");
 }
 
-// --- Task card population ------------------------------------------------
-
+// --- Task card ----------------------------------------------------------
 const ROBOT_LABELS = {
   franka_panda: "Franka Panda",
   builtin_6dof: "Built-in 6-DOF arm",
@@ -287,23 +715,19 @@ function populateTaskCard(evt) {
   taskCard.classList.remove("empty");
   tcGoal.textContent = `Goal: ${evt.prompt || "(no prompt)"}`;
   tcRobot.textContent = ROBOT_LABELS[evt.robot] || evt.robot || "—";
-  tcScene.innerHTML = formatScene(evt.n_dof, evt.object_ids || [], evt.object_kinds || {});
+  tcScene.innerHTML   = formatScene(evt.n_dof, evt.object_ids || [], evt.object_kinds || {});
   tcSuccess.innerHTML = formatSuccess(evt.success_criterion);
   tcRandomize.innerHTML = formatRandomize(evt.randomize);
 }
 
 let isRecording = false;
-
 let lastFrameUrl = null;
 let frameCount = 0;
-let fpsTimer = setInterval(() => {
-  fpsEl.textContent = `${frameCount} fps`;
-  frameCount = 0;
-}, 1000);
+setInterval(() => { fpsEl.textContent = `${frameCount} fps`; frameCount = 0; }, 1000);
 
 function stamp() {
   const d = new Date();
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
 }
 
 function addLog(text, kind = "info") {
@@ -321,8 +745,7 @@ async function loadTasks() {
     taskSelect.innerHTML = "";
     for (const t of data.tasks) {
       const opt = document.createElement("option");
-      opt.value = t;
-      opt.textContent = t;
+      opt.value = t; opt.textContent = t;
       taskSelect.appendChild(opt);
     }
     if (data.tasks.includes("pick_cube_franka")) taskSelect.value = "pick_cube_franka";
@@ -335,23 +758,19 @@ ws.addEventListener("open", () => {
   conn.classList.remove("disconnected");
   conn.title = "connected";
   addLog("Connected to server.", "info");
-  // Kick initial task load via the dropdown selection after tasks are fetched
 });
 ws.addEventListener("close", () => {
   conn.classList.add("disconnected");
   conn.title = "disconnected";
   addLog("Disconnected.", "error");
 });
-ws.addEventListener("error", () => {
-  addLog("WebSocket error.", "error");
-});
+ws.addEventListener("error", () => { addLog("WebSocket error.", "error"); });
 ws.addEventListener("message", (ev) => {
   if (typeof ev.data === "string") {
     const msg = JSON.parse(ev.data);
     if (msg.type === "event") handleEvent(msg.event);
     return;
   }
-  // binary JPEG
   if (lastFrameUrl) URL.revokeObjectURL(lastFrameUrl);
   lastFrameUrl = URL.createObjectURL(ev.data);
   frame.src = lastFrameUrl;
@@ -385,9 +804,9 @@ function handleEvent(evt) {
   } else if (evt.type === "done") {
     setPhase(evt.success ? "done" : "done failed", evt.success ? "Done ✓" : "Failed ✗");
     runBtn.disabled = false;
-    runBtn.textContent = "Run";
+    runBtn.innerHTML = "&#9654;&nbsp; Run";
     const elapsed = _runStartedAt ? ((performance.now() - _runStartedAt) / 1000).toFixed(1) : "?";
-    const kind = evt.success ? "success" : "error";
+    const kind   = evt.success ? "success" : "error";
     const prefix = evt.success ? "✓ Succeeded" : "✗ Failed";
     const nSteps = (evt.steps || []).length;
     addLog(`${prefix} · ${nSteps} skill${nSteps === 1 ? "" : "s"} · ${elapsed}s${evt.reason ? " · " + evt.reason : ""}`, kind);
@@ -396,11 +815,10 @@ function handleEvent(evt) {
       addLog('  Hint: try "pick [up] [the] <object>", "put <object> on <target>", "push <object> forward/back/left/right", "go home"', "info");
     }
     for (const step of evt.steps) {
-      const tag = step.success ? "success" : "error";
+      const tag    = step.success ? "success" : "error";
       const marker = step.success ? "✓" : "✗";
       const argStr = Object.entries(step.args || {})
-        .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-        .join(", ");
+        .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`).join(", ");
       addLog(`  ${marker} ${step.skill}(${argStr}) · ${step.reason || ""}`, tag);
     }
     if (evt.replans) addLog(`  ${evt.replans} replan${evt.replans === 1 ? "" : "s"} before finishing`, "info");
@@ -414,7 +832,7 @@ function handleEvent(evt) {
   } else if (evt.type === "inspect_frame") {
     onInspectFrame(evt);
   } else if (evt.type === "inspect_cleared") {
-    // Live resumed — no UI change needed beyond clearing the meta readout hint.
+    // Live resumed
   } else if (evt.type === "recording_started") {
     isRecording = true;
     recordBtn.classList.add("recording");
@@ -429,7 +847,7 @@ function handleEvent(evt) {
   } else if (evt.type === "error") {
     addLog(`Server error: ${evt.message}`, "error");
     runBtn.disabled = false;
-    runBtn.textContent = "Run";
+    runBtn.innerHTML = "&#9654;&nbsp; Run";
   } else {
     addLog(JSON.stringify(evt));
   }
@@ -443,7 +861,6 @@ function doRun() {
   const prompt = promptInput.value.trim();
   ws.send(JSON.stringify({ action: "run", prompt: prompt || null }));
 }
-
 runBtn.addEventListener("click", doRun);
 promptInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !runBtn.disabled) doRun();
@@ -453,17 +870,14 @@ recordBtn.addEventListener("click", () => {
   ws.send(JSON.stringify({ action: isRecording ? "record_stop" : "record_start" }));
 });
 
-// ------ Teleop ------------------------------------------------------------
-// Discrete keypress teleop: WASD/QE emit a delta, Space toggles gripper.
-// The server rate-limits via its queue; we also rate-limit at the client so
-// auto-repeat doesn't flood the socket.
-const TELEOP_STEP_XY = 0.015;   // m per key press
+// ------ Teleop -------------------------------------------------------
+const TELEOP_STEP_XY = 0.015;
 const TELEOP_STEP_Z  = 0.015;
-const TELEOP_MIN_MS  = 80;      // client-side rate limit
+const TELEOP_MIN_MS  = 80;
 
 const teleopToggle = document.getElementById("teleop-toggle");
-let teleopEnabled = false;
-let lastTeleopAt = 0;
+let teleopEnabled  = false;
+let lastTeleopAt   = 0;
 
 teleopToggle.addEventListener("change", () => {
   teleopEnabled = teleopToggle.checked;
@@ -479,14 +893,13 @@ function sendTeleop(dx, dy, dz, gripper) {
 
 window.addEventListener("keydown", (e) => {
   if (!teleopEnabled) return;
-  // Ignore if a form control has focus (prompt input).
   const ae = document.activeElement;
   if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
   let handled = true;
   switch (e.key.toLowerCase()) {
     case "w": sendTeleop(+TELEOP_STEP_XY, 0, 0, null); break;
     case "s": sendTeleop(-TELEOP_STEP_XY, 0, 0, null); break;
-    case "a": sendTeleop(0, +TELEOP_STEP_XY, 0, null); break;  // +y = "left" from the robot's POV
+    case "a": sendTeleop(0, +TELEOP_STEP_XY, 0, null); break;
     case "d": sendTeleop(0, -TELEOP_STEP_XY, 0, null); break;
     case "q": sendTeleop(0, 0, +TELEOP_STEP_Z, null); break;
     case "e": sendTeleop(0, 0, -TELEOP_STEP_Z, null); break;
@@ -496,23 +909,15 @@ window.addEventListener("keydown", (e) => {
   if (handled) e.preventDefault();
 });
 
-// ------ Gamepad teleop ---------------------------------------------------
-// Analog sticks produce continuous motion: left stick = ee xy, right
-// stick Y = ee z, buttons A (0) toggle gripper. We scale each axis by
-// the stick magnitude so a half-pushed stick moves half as fast.
-//
-// The sendTeleop rate limiter (TELEOP_MIN_MS = 80 ms) caps the WS send
-// rate to ~12 Hz regardless of how fast we poll; the server's Cartesian
-// plan runs to completion between messages so motion is smooth.
+// ------ Gamepad teleop -----------------------------------------------
 const GAMEPAD_DEADZONE = 0.15;
-const GAMEPAD_STEP_XY = 0.020;      // m per poll at full stick deflection
-const GAMEPAD_STEP_Z  = 0.020;
-let gamepadPollAnim = null;
+const GAMEPAD_STEP_XY  = 0.020;
+const GAMEPAD_STEP_Z   = 0.020;
+let gamepadPollAnim    = null;
 let lastGripperBtnDown = false;
 
 function applyDeadzone(v) {
   if (Math.abs(v) < GAMEPAD_DEADZONE) return 0.0;
-  // Rescale magnitude back up so just-past-deadzone isn't a dead spot.
   const sign = v < 0 ? -1 : 1;
   return sign * (Math.abs(v) - GAMEPAD_DEADZONE) / (1.0 - GAMEPAD_DEADZONE);
 }
@@ -520,27 +925,20 @@ function applyDeadzone(v) {
 function pollGamepad() {
   if (!teleopEnabled) { gamepadPollAnim = null; return; }
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-  const gp = Array.from(pads).find(p => p && p.connected);
+  const gp   = Array.from(pads).find(p => p && p.connected);
   if (gp) {
-    // Standard gamepad axes: 0=LX, 1=LY, 2=RX, 3=RY. Y is inverted on most.
     const lx = applyDeadzone(gp.axes[0] ?? 0);
     const ly = applyDeadzone(gp.axes[1] ?? 0);
     const ry = applyDeadzone(gp.axes[3] ?? 0);
-    // ee +x is "forward" (away from robot base), gamepad forward is LY<0.
-    // Map LY → dx (invert), LX → dy (invert so right stick = right from operator pov).
     const dx = -ly * GAMEPAD_STEP_XY;
     const dy = -lx * GAMEPAD_STEP_XY;
     const dz = -ry * GAMEPAD_STEP_Z;
-
     let gripper = null;
     const btn = gp.buttons[0];
     const btnDown = !!(btn && btn.pressed);
-    if (btnDown && !lastGripperBtnDown) gripper = "toggle";  // edge-triggered
+    if (btnDown && !lastGripperBtnDown) gripper = "toggle";
     lastGripperBtnDown = btnDown;
-
-    if (dx || dy || dz || gripper) {
-      sendTeleop(dx, dy, dz, gripper);
-    }
+    if (dx || dy || dz || gripper) sendTeleop(dx, dy, dz, gripper);
   }
   gamepadPollAnim = requestAnimationFrame(pollGamepad);
 }
@@ -549,58 +947,54 @@ function ensureGamepadPolling() {
   if (!gamepadPollAnim) gamepadPollAnim = requestAnimationFrame(pollGamepad);
 }
 
-// Kick off the poll loop whenever teleop turns on; the existing
-// `teleopToggle` change handler above flips `teleopEnabled`, and the
-// next RAF tick either cancels or continues the loop.
 teleopToggle.addEventListener("change", () => {
   if (teleopEnabled) ensureGamepadPolling();
 });
 window.addEventListener("gamepadconnected", (e) => {
-  addLog(`Gamepad connected: ${e.gamepad.id} — stick drives ee xy/z, A button toggles gripper`, "info");
+  addLog(`Gamepad connected: ${e.gamepad.id}`, "info");
   if (teleopEnabled) ensureGamepadPolling();
 });
 window.addEventListener("gamepaddisconnected", () => {
   addLog("Gamepad disconnected.", "info");
 });
 
-// ------ Trajectory inspector ----------------------------------------------
-const inspector = document.getElementById("inspector");
+// ------ Trajectory inspector -----------------------------------------
+const inspector  = document.getElementById("inspector");
 const inspSlider = document.getElementById("insp-slider");
-const inspPrev = document.getElementById("insp-prev");
-const inspNext = document.getElementById("insp-next");
-const inspLabel = document.getElementById("insp-frame-label");
-const inspMeta = document.getElementById("inspector-meta");
+const inspPrev   = document.getElementById("insp-prev");
+const inspNext   = document.getElementById("insp-next");
+const inspLabel  = document.getElementById("insp-frame-label");
+const inspMeta   = document.getElementById("inspector-meta");
 
-let inspectorTotal = 0;
-let inspectorActive = false;  // user is currently scrubbing a past frame
+let inspectorTotal  = 0;
+let inspectorActive = false;
 
 function enableInspector(total) {
   inspectorTotal = total;
   inspector.classList.add("active");
   inspSlider.disabled = false;
-  inspSlider.max = String(total - 1);
-  inspSlider.value = String(total - 1);
+  inspSlider.max      = String(total - 1);
+  inspSlider.value    = String(total - 1);
   inspLabel.textContent = `frame ${total} / ${total}`;
-  inspMeta.textContent = "(drag slider to scrub)";
+  inspMeta.textContent  = "(drag slider to scrub)";
 }
 
 function resetInspector() {
-  // Clear the slider between episodes so stale frame counts never confuse.
-  inspectorTotal = 0;
+  inspectorTotal  = 0;
   inspectorActive = false;
   inspector.classList.remove("active");
   inspSlider.disabled = true;
-  inspSlider.max = "0";
-  inspSlider.value = "0";
+  inspSlider.max      = "0";
+  inspSlider.value    = "0";
   inspLabel.textContent = "frame 0 / 0";
-  inspMeta.textContent = "(no frame)";
+  inspMeta.textContent  = "(no frame)";
 }
 
 function sendInspectAt(idx) {
   if (inspectorTotal === 0) return;
   const clamped = Math.max(0, Math.min(idx, inspectorTotal - 1));
-  inspSlider.value = String(clamped);
-  inspectorActive = true;
+  inspSlider.value  = String(clamped);
+  inspectorActive   = true;
   ws.send(JSON.stringify({ action: "inspect_at", frame_idx: clamped }));
 }
 
@@ -612,13 +1006,13 @@ function sendInspectClear() {
 }
 
 function fmtVec(v, digits = 3) {
-  return "[" + v.map((x) => x.toFixed(digits)).join(", ") + "]";
+  return "[" + v.map(x => x.toFixed(digits)).join(", ") + "]";
 }
 
 function onInspectFrame(evt) {
-  inspectorTotal = evt.total;
-  inspSlider.max = String(evt.total - 1);
-  inspSlider.value = String(evt.frame_idx);
+  inspectorTotal    = evt.total;
+  inspSlider.max    = String(evt.total - 1);
+  inspSlider.value  = String(evt.frame_idx);
   inspLabel.textContent = `frame ${evt.frame_idx + 1} / ${evt.total}`;
   const lines = [];
   lines.push(`t = ${evt.timestamp.toFixed(3)} s`);
@@ -626,40 +1020,24 @@ function onInspectFrame(evt) {
   lines.push(`ee.xyz = ${fmtVec(evt.ee_pose.xyz)}`);
   lines.push(`ee.quat = ${fmtVec(evt.ee_pose.quat_xyzw, 4)}`);
   lines.push(`gripper = ${evt.gripper_width.toFixed(4)}`);
-  const objs = Object.keys(evt.scene_objects);
-  if (objs.length) {
-    for (const k of objs) {
-      lines.push(`${k}.xyz = ${fmtVec(evt.scene_objects[k].xyz)}`);
-    }
+  for (const k of Object.keys(evt.scene_objects)) {
+    lines.push(`${k}.xyz = ${fmtVec(evt.scene_objects[k].xyz)}`);
   }
   inspMeta.textContent = lines.join("\n");
 }
 
-inspSlider.addEventListener("input", () => {
-  sendInspectAt(parseInt(inspSlider.value, 10));
-});
+inspSlider.addEventListener("input",    () => sendInspectAt(parseInt(inspSlider.value, 10)));
 inspSlider.addEventListener("dblclick", sendInspectClear);
-inspPrev.addEventListener("click", () => {
-  sendInspectAt(parseInt(inspSlider.value, 10) - 1);
-});
-inspNext.addEventListener("click", () => {
-  sendInspectAt(parseInt(inspSlider.value, 10) + 1);
-});
+inspPrev.addEventListener("click",  () => sendInspectAt(parseInt(inspSlider.value, 10) - 1));
+inspNext.addEventListener("click",  () => sendInspectAt(parseInt(inspSlider.value, 10) + 1));
 inspSlider.addEventListener("keydown", (e) => {
   if (inspectorTotal === 0) return;
   const step = e.shiftKey ? 10 : 1;
-  if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
-    sendInspectAt(parseInt(inspSlider.value, 10) - step);
-    e.preventDefault();
-  } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
-    sendInspectAt(parseInt(inspSlider.value, 10) + step);
-    e.preventDefault();
-  }
+  if (e.key === "ArrowLeft"  || e.key === "ArrowDown")  { sendInspectAt(parseInt(inspSlider.value,10) - step); e.preventDefault(); }
+  if (e.key === "ArrowRight" || e.key === "ArrowUp")    { sendInspectAt(parseInt(inspSlider.value,10) + step); e.preventDefault(); }
 });
 
 loadTasks().then(() => {
-  // If the server preloaded a task, great. Otherwise ask it to load the selected one.
-  // Let server-side preload settle first — dispatch explicit load after ~300ms.
   setTimeout(() => {
     if (taskSelect.value) ws.send(JSON.stringify({ action: "load", task: taskSelect.value }));
   }, 300);
