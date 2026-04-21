@@ -125,22 +125,18 @@ tasks, try `--model gpt-4o`.
 
 ### System prerequisites
 
-> **Linux-first.** v0.1 is developed, CI-tested, and regression-gated
-> on **Ubuntu 22.04/24.04 with Python 3.11/3.12/3.13**. macOS and
-> Windows are not covered by CI — the stack may run, but platform-
-> specific issues (OSMesa / EGL headless rendering, Apple Silicon
-> MuJoCo wheels, Windows path handling) are not tracked.
+Requires Python 3.10–3.13. MuJoCo 3.2+ comes in as a dependency; no GPU needed.
 
-For the viewer and any test that renders, MuJoCo needs a headless GL
-backend:
+**macOS (Apple Silicon or Intel):** works out of the box — no GL configuration needed.
+
+**Linux (Ubuntu 22.04 / 24.04):** CI-tested platform. Headless GL is required for rendering:
 
 ```bash
 sudo apt-get install -y libosmesa6 libosmesa6-dev libgl1-mesa-dri
-export MUJOCO_GL=osmesa    # or `egl` if your machine has it
+export MUJOCO_GL=osmesa    # or `egl` if a GPU is available
 ```
 
-Requires Python 3.10+. MuJoCo 3.2+ comes in as a dep; no GPU needed for
-the built-in arm.
+**Windows:** not directly supported. WSL2 running Ubuntu 22.04 works; follow the Linux path inside WSL.
 
 ### Bring your own…
 

@@ -2,13 +2,6 @@
 
 Five minutes from clone to a recorded episode in the browser.
 
-!!! note "Supported platform"
-    v0.1 is **Linux-first** — developed and CI-tested on
-    Ubuntu 22.04/24.04 with Python 3.11/3.12/3.13. macOS and Windows
-    are not regression-gated; they may work but platform-specific
-    issues (headless GL, Apple Silicon MuJoCo wheels, Windows paths)
-    are not tracked.
-
 ## Install
 
 **Step 1 — install `uv`** (Python package manager, replaces pip + venv):
@@ -17,8 +10,6 @@ Five minutes from clone to a recorded episode in the browser.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env   # or open a new terminal
 ```
-
-On Ubuntu you can also use `sudo snap install astral-uv`, but the curl method is recommended.
 
 **Step 2 — clone and install:**
 
@@ -31,12 +22,22 @@ uv pip install -e 'packages/robosandbox-core[viewer]'
 
 MuJoCo 3.2+ and the browser viewer come in as dependencies. No GPU required.
 
-Headless rendering needs an OpenGL backend. On Ubuntu:
+=== "macOS (Apple Silicon or Intel)"
 
-```bash
-sudo apt-get install -y libosmesa6 libosmesa6-dev libgl1-mesa-dri
-export MUJOCO_GL=osmesa    # or `egl` if a GPU is available
-```
+    Nothing extra needed — MuJoCo uses the system OpenGL automatically.
+
+=== "Linux (Ubuntu 22.04 / 24.04)"
+
+    Install an OSMesa headless GL backend for rendering without a display:
+
+    ```bash
+    sudo apt-get install -y libosmesa6 libosmesa6-dev libgl1-mesa-dri
+    export MUJOCO_GL=osmesa    # or `egl` if a GPU is available
+    ```
+
+=== "Windows"
+
+    Not currently supported. WSL2 running Ubuntu 22.04 works; follow the Linux tab inside WSL.
 
 ## 1. Open the viewer
 

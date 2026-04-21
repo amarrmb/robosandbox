@@ -3,13 +3,10 @@
 > A sim-first sandbox for robot manipulation.
 > **Bring your own arm, objects, and tasks.**
 
-!!! note "v0.1 is Linux-first"
-    Developed and CI-tested on Ubuntu 22.04/24.04 with Python
-    3.11/3.12/3.13. macOS and Windows are not regression-gated —
-    platform-specific issues (headless GL, Apple Silicon MuJoCo
-    wheels, Windows paths) are not tracked. See the
-    [Quickstart](quickstart.md) for the exact apt-get line the
-    viewer and rendering tests need.
+!!! info "Platform support"
+    **macOS** (Apple Silicon and Intel) works out of the box — no GL configuration needed.
+    **Linux** (Ubuntu 22.04/24.04) is the CI-tested platform; headless rendering needs one `apt-get` line (see [Quickstart](quickstart.md)).
+    **Windows** is not directly supported; WSL2 running Ubuntu 22.04 works.
 
 RoboSandbox is a small manipulation sandbox for building and testing
 manipulation loops without needing a giant stack around them. Load a
