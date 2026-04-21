@@ -93,8 +93,7 @@ class Agent:
             ep.plan.extend(plan)
 
             if not plan:
-                ep.success = True
-                ep.final_reason = "already_done" if replans == 0 else "no_plan"
+                ep.final_reason = "unrecognized_prompt" if replans == 0 else "no_plan"
                 return ep
 
             failed_step: StepRecord | None = None

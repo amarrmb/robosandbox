@@ -387,6 +387,9 @@ function handleEvent(evt) {
     const nSteps = (evt.steps || []).length;
     addLog(`${prefix} · ${nSteps} skill${nSteps === 1 ? "" : "s"} · ${elapsed}s${evt.reason ? " · " + evt.reason : ""}`, kind);
     if (evt.detail) addLog(`  detail: ${evt.detail}`, kind);
+    if (evt.reason === "unrecognized_prompt") {
+      addLog('  Hint: try "pick [up] [the] <object>", "put <object> on <target>", "push <object> forward/back/left/right", "go home"', "info");
+    }
     for (const step of evt.steps) {
       const tag = step.success ? "success" : "error";
       const marker = step.success ? "✓" : "✗";

@@ -124,17 +124,17 @@ def test_agent_gives_up_after_max_replans() -> None:
     assert ep.replans == 2
 
 
-def test_agent_treats_empty_plan_as_done() -> None:
+def test_agent_returns_failure_on_empty_plan() -> None:
     ctx, sim = _ctx()
     try:
         planner = MockPlanner([[]])
         agent = Agent(ctx, [Pick()], planner)
-        ep = agent.run("already done")
+        ep = agent.run("do something unrecognized")
     finally:
         sim.close()
 
-    assert ep.success is True
-    assert ep.final_reason == "already_done"
+    assert ep.success is False
+    assert ep.final_reason == "unrecognized_prompt"
 
 
 def test_agent_rejects_unknown_skill() -> None:
