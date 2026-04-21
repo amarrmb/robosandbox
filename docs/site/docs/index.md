@@ -84,59 +84,50 @@ user: "pick up the red cube and put it on the green cube"
  recorder writes runs/<id>/video.mp4 + events.jsonl
 ```
 
-## Three quick ways in
+## Get started
 
-All three paths below use the same
-[agent loop](concepts/skills-and-agents.md). The only thing that changes
-is where the planner gets its intelligence from.
-
-### 1. Zero setup: stub planner
-
-No API key, no model download, just the built-in parser.
+**Open the browser viewer** — no API key, no model download.
 
 ```bash
-uv run robo-sandbox run "pick up the red cube"
+uv run robo-sandbox viewer
+# → open http://localhost:8000
 ```
 
-The [stub planner](concepts/skills-and-agents.md#stubplanner) handles a
-small grammar:
+Pick a task, type a command like `pick up the red cube`, click **Run**.
+The arm plans and executes while frames stream to your browser. Hit
+**Record** before running to save the episode to disk for training.
 
-- `pick (up) the <obj>`
-- `pick (up) the <obj> (and|then|,) (put|place) (it) on (the) <obj2>`
-- `stack <obj> on (top of) <obj2>`
-- `push the <obj> forward|back|left|right`
-- `pour <obj> into <obj2>`
-- `tap/press the <obj>`
-- `open/close the <drawer>`
-- `(go) home`
+The built-in planner understands a small grammar — pick, place, push,
+pour, stack, open/close drawer, go home — which is enough to exercise
+the full [agent loop](concepts/skills-and-agents.md). See the
+**[Quickstart](quickstart.md)** for the install steps and the
+record → export → train flow.
 
-### 2. Local model: Ollama
+**Want richer natural language?** Plug in a VLM for free-form commands
+and visual scene reasoning:
 
-```bash
-ollama pull llama3.2-vision
-ollama serve &
-uv run robo-sandbox run --vlm-provider ollama \
-  "pick up the blue cube and put it on the green cube"
-```
+=== "Ollama (local, no API key)"
 
-Any OpenAI-compatible local endpoint works here too; use `--base-url`
-if you want something other than the default Ollama setup.
+    ```bash
+    ollama pull llama3.2-vision && ollama serve &
+    uv run robo-sandbox run --vlm-provider ollama \
+      "pick up the blue cube and put it on the green cube"
+    ```
 
-### 3. Hosted model: OpenAI
+=== "OpenAI (hosted)"
 
-```bash
-export OPENAI_API_KEY=sk-...
-uv run robo-sandbox run --vlm-provider openai \
-  "stack all three cubes by colour — red on green on blue"
-```
+    ```bash
+    export OPENAI_API_KEY=sk-...
+    uv run robo-sandbox run --vlm-provider openai \
+      "stack all three cubes by colour — red on green on blue"
+    ```
 
-Default model is `gpt-4o-mini` (~$0.002 per episode). Use `--model
-gpt-4o` for harder plans.
+Both use the same agent loop — only the planner changes.
 
 ## Where to go next
 
-- **[Quickstart](quickstart.md)** — install, run the benchmark, open
-  the viewer, record an episode. 5 minutes end-to-end.
+- **[Quickstart](quickstart.md)** — install, open the viewer, record an
+  episode. 5 minutes end-to-end.
 - **Concepts** — [Scenes & objects](concepts/scenes.md), [Skills & agents](concepts/skills-and-agents.md), [Perception & grasping](concepts/perception-and-grasping.md), [Recording & export](concepts/recording-and-export.md), [Real-robot bridge](concepts/real-robot.md).
 - **Tutorials** — [Custom arm](tutorials/custom-arm.md), [Custom task](tutorials/custom-task.md), [Custom skill](tutorials/custom-skill.md), [Policy replay](tutorials/policy-replay.md).
 - **Reference** — [CLI](reference/cli.md), [API](reference/api.md),
@@ -148,7 +139,7 @@ gpt-4o` for harder plans.
   (URDF import path).
 - 9 skills: `pick`, `place_on`, `push`, `home`, `pour`, `tap`,
   `open_drawer`, `close_drawer`, `stack`.
-- 9 default benchmark tasks including a long-horizon
+- 8 default benchmark tasks + 1 experimental, including a long-horizon
   `pour_can_into_bowl` and an articulated-drawer primitive.
 - 10 bundled YCB objects, drop-in via `@ycb:<id>`.
 - Browser live viewer with record + keyboard teleop.

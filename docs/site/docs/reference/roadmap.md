@@ -31,7 +31,7 @@ locally or check the
 
 - Declarative success criteria (`lifted`, `moved_above`, `displaced`, `all`, `any`).
 - `randomize:` YAML block + `--seeds N` aggregation with `mean ± stderr`.
-- 9 default tasks covering pick / stack / push / pour / drawer.
+- 8 default tasks + 1 experimental, covering pick / stack / push / pour / drawer.
 - Authoring-time reachability pre-flight check.
 
 **Interaction**

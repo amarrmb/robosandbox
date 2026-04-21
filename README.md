@@ -17,13 +17,13 @@ make the stack small enough to inspect and easy enough to modify.
 ```bash
 git clone https://github.com/amarrmb/robosandbox.git
 cd robosandbox
-uv sync                                           # one-time
-uv pip install -e packages/robosandbox-core
+uv sync
+uv pip install -e 'packages/robosandbox-core[viewer]'
 
-uv run robo-sandbox run "pick up the red cube"
-# → plan: [pick(object=red_cube)]
-# → MuJoCo opens a 3-cube scene, arm picks the cube
-# → writes runs/<timestamp>/{video.mp4, events.jsonl, result.json}
+uv run robo-sandbox viewer
+# → open http://localhost:8000
+# → pick a task, type "pick up the red cube", click Run
+# → frames stream to the browser; hit Record to save for training
 ```
 
 No API key, no model download. The stub planner handles a small but
@@ -164,8 +164,8 @@ seed. With multiple seeds the summary reports `mean ± stderr`. Results
 append to `benchmark_results.json` locally for regression tracking (the
 file is gitignored).
 
-Nine built-in tasks ship under
-`packages/robosandbox-core/src/robosandbox/tasks/definitions/`:
+Eight default tasks ship under
+`packages/robosandbox-core/src/robosandbox/tasks/definitions/` (plus one experimental):
 
 | Task | What it exercises |
 |---|---|
