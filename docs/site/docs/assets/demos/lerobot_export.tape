@@ -2,48 +2,46 @@ Output "/home/amar/robosandbox/docs/site/docs/assets/demos/lerobot_export.gif"
 
 Set FontSize 14
 Set Width 1200
-Set Height 780
+Set Height 620
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 30ms
+Set PlaybackSpeed 1.5
 Set Padding 18
 
 Hide
 Type "cd /home/amar/robosandbox"
 Enter
+Type "export MUJOCO_GL=osmesa"
+Enter
 Type "clear"
 Enter
 Show
 
-Type "# 1. Record a pick episode (writes video.mp4 + events.jsonl + result.json)"
-Sleep 900ms
-Enter
-Sleep 300ms
-Type "uv run python examples/record_demo.py --out-dir runs"
-Sleep 400ms
-Enter
-Sleep 10000ms
-
-Type "RUN=$(ls -1t runs/ | head -1); echo 'Latest run: '$RUN"
-Enter
-Sleep 1500ms
-Type ""
-Enter
-
-Type "# 2. Export that run to LeRobot v3 layout"
+Type "# A recorded episode already lives under runs/"
 Sleep 700ms
 Enter
-Type "uv run robo-sandbox export-lerobot runs/$RUN datasets/pick_demo"
-Sleep 400ms
+Sleep 300ms
+Type "ls runs/20260421-092948-ff946df8/"
 Enter
-Sleep 2500ms
+Sleep 2000ms
 Type ""
 Enter
 
-Type "# 3. Inspect what got written"
+Type "# Export it to LeRobot v3 layout"
+Sleep 700ms
+Enter
+Type "uv run robo-sandbox export-lerobot runs/20260421-092948-ff946df8 datasets/pick_demo"
+Sleep 400ms
+Enter
+Sleep 4000ms
+Type ""
+Enter
+
+Type "# Inspect what got written"
 Sleep 700ms
 Enter
 Type "uv run python examples/inspect_lerobot_dataset.py datasets/pick_demo"
 Sleep 400ms
 Enter
-Sleep 3500ms
-Sleep 1500ms
+Sleep 4000ms
+Sleep 2000ms

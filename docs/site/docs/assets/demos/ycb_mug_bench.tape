@@ -5,10 +5,13 @@ Set Width 1100
 Set Height 520
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 35ms
+Set PlaybackSpeed 2.5
 Set Padding 20
 
 Hide
 Type "cd /home/amar/robosandbox"
+Enter
+Type "export MUJOCO_GL=osmesa"
 Enter
 Type "clear"
 Enter
@@ -21,5 +24,5 @@ Sleep 500ms
 Type "uv run --quiet robo-sandbox-bench --tasks pick_ycb_mug --seeds 1"
 Sleep 700ms
 Enter
-Sleep 7000ms
+Sleep 35000ms
 Sleep 2000ms

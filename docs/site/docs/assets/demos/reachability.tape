@@ -10,6 +10,8 @@ Set Padding 18
 Hide
 Type "cd /home/amar/robosandbox"
 Enter
+Type "export MUJOCO_GL=osmesa"
+Enter
 Type "clear"
 Enter
 Show
@@ -21,5 +23,5 @@ Sleep 300ms
 Type "uv run --quiet python examples/run_custom_task.py examples/tasks/pick_unreachable_cube.yaml"
 Sleep 500ms
 Enter
-Sleep 6500ms
-Sleep 1500ms
+Wait
+Sleep 2000ms

@@ -21,5 +21,5 @@ Sleep 300ms
 Type "uv run --quiet python examples/vlm_tool_calling_walkthrough.py"
 Sleep 500ms
 Enter
-Sleep 4500ms
-Sleep 1500ms
+Wait
+Sleep 2000ms

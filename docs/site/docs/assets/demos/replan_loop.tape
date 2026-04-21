@@ -10,6 +10,8 @@ Set Padding 18
 Hide
 Type "cd /home/amar/robosandbox"
 Enter
+Type "export MUJOCO_GL=osmesa"
+Enter
 Type "clear"
 Enter
 Show
@@ -21,5 +23,5 @@ Sleep 300ms
 Type "uv run --quiet python examples/replan_demo.py"
 Sleep 500ms
 Enter
-Sleep 9000ms
-Sleep 1500ms
+Wait
+Sleep 2000ms

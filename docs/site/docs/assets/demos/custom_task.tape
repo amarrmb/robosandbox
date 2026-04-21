@@ -5,10 +5,13 @@ Set Width 1100
 Set Height 540
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 32ms
+Set PlaybackSpeed 2.0
 Set Padding 18
 
 Hide
 Type "cd /home/amar/robosandbox"
+Enter
+Type "export MUJOCO_GL=osmesa"
 Enter
 Type "clear"
 Enter
@@ -24,11 +27,11 @@ Enter
 Sleep 3500ms
 Type ""
 Enter
-Type "# Run it through the agent loop across 3 randomized seeds"
+Type "# Run it through the agent loop"
 Sleep 700ms
 Enter
-Type "uv run --quiet python examples/run_custom_task.py examples/tasks/pick_yellow_cube.yaml --seeds 3"
+Type "uv run --quiet python examples/run_custom_task.py examples/tasks/pick_yellow_cube.yaml --seeds 1"
 Sleep 500ms
 Enter
-Sleep 6500ms
-Sleep 1500ms
+Sleep 35000ms
+Sleep 2000ms

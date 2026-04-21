@@ -10,6 +10,8 @@ Set Padding 18
 Hide
 Type "cd /home/amar/robosandbox"
 Enter
+Type "export MUJOCO_GL=osmesa"
+Enter
 Type "clear"
 Enter
 Show
@@ -21,5 +23,5 @@ Sleep 300ms
 Type "uv run --quiet python examples/so101_handoff/run_home_skill.py"
 Sleep 400ms
 Enter
-Sleep 5000ms
-Sleep 1500ms
+Wait
+Sleep 2000ms
