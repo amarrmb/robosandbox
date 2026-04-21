@@ -43,8 +43,10 @@
   footer .muted { opacity: 0.6; }
   .kbd { font-family: ui-monospace, monospace; font-size: 10.5px; padding: 1px 5px; background: #1a1e25; border: 1px solid #2a2f38; border-bottom-width: 2px; border-radius: 3px; color: #d1d5db; }
   /* Trajectory inspector */
-  #inspector { display: none; flex-direction: column; gap: 6px; border-top: 1px solid #1f2329; padding-top: 10px; }
-  #inspector.active { display: flex; }
+  #inspector { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #1f2329; padding-top: 10px; }
+  #inspector:not(.active) .insp-controls { opacity: 0.35; pointer-events: none; }
+  #inspector:not(.active) #insp-idle-hint { display: block; }
+  #insp-idle-hint { display: none; font-size: 11px; color: #6b7280; }
   #inspector .row { display: flex; align-items: center; gap: 8px; }
   #inspector input[type=range] { flex: 1; accent-color: #3b82f6; }
   #inspector .frame-label { font-family: ui-monospace, monospace; font-size: 11.5px; color: #9ca3af; min-width: 88px; text-align: right; }
@@ -103,13 +105,13 @@
 <aside>
   <div id="howto">
     <button class="dismiss" id="howto-dismiss" title="Hide">&times;</button>
-    <h3>How to use</h3>
+    <h3>Quick start</h3>
     <ol>
-      <li>Pick a task below — <code>pick_ycb_mug</code> is a good first try.</li>
-      <li>Click <b>Run</b> to watch the agent plan &amp; execute.</li>
-      <li>Click <b>Record</b> before Run to save an MP4 + events.jsonl to <code>./runs/</code>.</li>
-      <li>Check <b>Teleop</b> to drive the arm yourself (WASD + gamepad).</li>
-      <li>After a run, scrub the Inspector timeline to replay any frame.</li>
+      <li>Pick a task — <code>pick_cube_franka</code> is a good first try.</li>
+      <li>Click <b>Run</b> to watch the agent execute.</li>
+      <li>Click <b>Record</b>, then <b>Run</b> to save an episode (MP4 + JSONL) to <code>runs/</code>. The export command appears in the log when recording stops.</li>
+      <li>Use the <b>Inspector</b> below to scrub through any frame of the last episode.</li>
+      <li>Check <b>Teleop</b> to drive the arm yourself (WASD / gamepad).</li>
     </ol>
   </div>
 
@@ -147,17 +149,20 @@
 
   <div id="inspector">
     <label>Inspector</label>
-    <div class="row">
-      <button id="insp-prev" class="step" title="Previous frame">&#x25C0;</button>
-      <input id="insp-slider" type="range" min="0" max="0" value="0" step="1" disabled>
-      <button id="insp-next" class="step" title="Next frame">&#x25B6;</button>
+    <span id="insp-idle-hint">Run a task first — then drag to replay any moment in the episode.</span>
+    <div class="insp-controls">
+      <div class="row">
+        <button id="insp-prev" class="step" title="Previous frame">&#x25C0;</button>
+        <input id="insp-slider" type="range" min="0" max="0" value="0" step="1" disabled>
+        <button id="insp-next" class="step" title="Next frame">&#x25B6;</button>
+      </div>
+      <div class="row">
+        <span class="frame-label" id="insp-frame-label">frame 0 / 0</span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="hint">arrows: &plusmn;1, shift: &plusmn;10, dblclick: resume live</span>
+      </div>
+      <pre id="inspector-meta">(no frame)</pre>
     </div>
-    <div class="row">
-      <span class="frame-label" id="insp-frame-label">frame 0 / 0</span>
-      <span class="spacer" style="flex:1"></span>
-      <span class="hint">arrows: &plusmn;1, shift: &plusmn;10, dblclick: resume live</span>
-    </div>
-    <pre id="inspector-meta">(no frame)</pre>
   </div>
 </aside>
 
@@ -401,7 +406,10 @@ function handleEvent(evt) {
     if (evt.replans) addLog(`  ${evt.replans} replan${evt.replans === 1 ? "" : "s"} before finishing`, "info");
     if (typeof evt.trajectory_frames === "number" && evt.trajectory_frames > 0) {
       enableInspector(evt.trajectory_frames);
-      addLog(`  ${evt.trajectory_frames} frames recorded — drag the scrubber below to inspect any moment`, "info");
+      addLog(`  ${evt.trajectory_frames} frames recorded — drag the Inspector scrubber below to replay any moment`, "info");
+    }
+    if (evt.success && !isRecording) {
+      addLog("  Next: click Record, then Run again to save this episode for training.", "info");
     }
   } else if (evt.type === "inspect_frame") {
     onInspectFrame(evt);
@@ -417,6 +425,7 @@ function handleEvent(evt) {
     recordBtn.classList.remove("recording");
     recordLabel.textContent = "Record";
     addLog(`Recording stopped — episode ${evt.episode_id} saved under ${evt.runs_dir}`, "success");
+    if (evt.episode_dir) addLog(`  Next: uv run robo-sandbox export-lerobot ${evt.episode_dir} datasets/my_demo`, "info");
   } else if (evt.type === "error") {
     addLog(`Server error: ${evt.message}`, "error");
     runBtn.disabled = false;

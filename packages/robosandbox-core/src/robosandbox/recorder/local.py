@@ -39,6 +39,10 @@ class LocalRecorder:
         self._last_recorded_t: float = -1e9
         self._sim_dt: float | None = None
 
+    @property
+    def current_episode_dir(self) -> Path | None:
+        return self._episode_dir
+
     # ---- RecordSink protocol -------------------------------------------
     def start_episode(self, task: str, metadata: dict) -> str:
         self._episode_id = metadata.get("episode_id") or str(uuid.uuid4())[:8]

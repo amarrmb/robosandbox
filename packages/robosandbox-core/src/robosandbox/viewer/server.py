@@ -107,6 +107,7 @@ class SimThread(threading.Thread):
         self._recorder = LocalRecorder(root=runs_dir)
         self._recording = False
         self._rec_episode_id: str | None = None
+        self._rec_episode_dir: str | None = None
         # Teleop persists a gripper state (0=open, 1=closed) between clicks.
         self._teleop_gripper = 0.0
         # In-RAM trajectory buffer for the inspector. Reset on each load_task.
@@ -280,6 +281,7 @@ class SimThread(threading.Thread):
         )
         self._recording = True
         self._rec_episode_id = episode_id
+        self._rec_episode_dir = str(self._recorder.current_episode_dir)
         # Write one immediate frame so the recorded video is not empty if the
         # user stops quickly with no agent running.
         try:
@@ -381,9 +383,11 @@ class SimThread(threading.Thread):
             {
                 "type": "recording_stopped",
                 "episode_id": ep_id,
+                "episode_dir": self._rec_episode_dir or "",
                 "runs_dir": str(self._runs_dir.resolve()),
             }
         )
+        self._rec_episode_dir = None
 
     # -- inspector -----------------------------------------------------------
 
