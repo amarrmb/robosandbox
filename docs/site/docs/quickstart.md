@@ -44,7 +44,21 @@ export MUJOCO_GL=osmesa    # or `egl` if a GPU is available
 uv run robo-sandbox viewer
 ```
 
-Then open **http://localhost:8000** in your browser. You'll see a live sim window, a task input field, and a log panel.
+Then open **http://localhost:8000** in your browser.
+
+!!! tip "Running on a remote machine?"
+    The viewer binds to `127.0.0.1` by default. To reach it from another machine, either:
+
+    **SSH tunnel (recommended)** — run this on your laptop, then open `http://localhost:8000`:
+    ```bash
+    ssh -L 8000:127.0.0.1:8000 user@remote-host
+    ```
+
+    **Bind to all interfaces** — use on trusted/private networks only:
+    ```bash
+    uv run robo-sandbox viewer --host 0.0.0.0
+    # → open http://<remote-ip>:8000
+    ``` You'll see a live sim window, a task input field, and a log panel.
 
 ![Viewer running a pick task](assets/demos/franka_pick.gif)
 
