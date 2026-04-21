@@ -650,7 +650,9 @@ function handleEvent(evt) {
     setPhase("setup", "Ready");
     dofBadge.style.display = "inline-block";
     dofBadge.textContent = `${evt.n_dof} DOF`;
+    promptInput.value = "";
     promptInput.placeholder = evt.prompt || "(no prompt)";
+    taskSelect.disabled = false;
     populateTaskCard(evt);
     const nObj = (evt.object_ids || []).length;
     addLog(`Scene ready · ${ROBOT_LABELS[evt.robot] || evt.robot} · ${nObj} object${nObj === 1 ? "" : "s"}`, "info");
@@ -658,12 +660,15 @@ function handleEvent(evt) {
   } else if (evt.type === "running") {
     setPhase("running", "Running");
     runBtn.disabled = true; runBtn.textContent = "Running…";
+    taskSelect.disabled = true;
     _runStartedAt = performance.now();
     addLog(`Agent running · "${evt.prompt}"`, "info");
+    tcGoal.textContent = `Goal: ${evt.prompt}`;
     resetInspector();
   } else if (evt.type === "done") {
     setPhase(evt.success ? "done" : "done failed", evt.success ? "Done ✓" : "Failed ✗");
     runBtn.disabled = false; runBtn.innerHTML = "&#9654;&nbsp;&nbsp;Run";
+    taskSelect.disabled = false;
     const elapsed = _runStartedAt ? ((performance.now() - _runStartedAt) / 1000).toFixed(1) : "?";
     const kind = evt.success ? "success" : "error";
     const nSteps = (evt.steps || []).length;
@@ -692,6 +697,7 @@ function handleEvent(evt) {
   } else if (evt.type === "error") {
     addLog(`Server error: ${evt.message}`, "error");
     runBtn.disabled = false; runBtn.innerHTML = "&#9654;&nbsp;&nbsp;Run";
+    taskSelect.disabled = false;
   } else {
     addLog(JSON.stringify(evt));
   }

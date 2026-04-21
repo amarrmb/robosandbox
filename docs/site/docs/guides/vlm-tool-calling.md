@@ -1,5 +1,17 @@
 # VLM tool-calling
 
+!!! info "What this is — and what it isn't"
+    **The browser viewer uses a regex-based planner (StubPlanner) by default. No API key, no VLM, no network call.** It handles everyday phrasings like "pick up the red cube" without any model.
+
+    A VLM (Vision-Language Model) becomes relevant when you want **richer natural-language understanding** — sentences the regex grammar doesn't cover, multi-step descriptions, or reasoning from the camera image. You enable it via the CLI:
+
+    ```bash
+    export OPENAI_API_KEY=sk-...
+    uv run robo-sandbox run "stack the red cube on the green cube" --vlm-provider openai
+    ```
+
+    The VLM sees the task string + a live camera frame, then emits tool calls that drive the same skills the viewer uses. The agent loop is identical — only the planner changes.
+
 This page shows the exact path from a skill definition in Python to a
 `SkillCall` coming back from a VLM.
 

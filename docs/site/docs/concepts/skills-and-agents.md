@@ -94,7 +94,9 @@ to exercise the agent loop without involving a model. It handles:
 Object names are fuzzy-matched against scene object IDs (exact →
 substring → word-overlap).
 
-Used by default in the benchmark runner and in tests.
+**Used by the browser viewer** (no API key required), the benchmark
+runner, and tests. If your prompt hits the pattern grammar it works
+immediately; for anything outside that grammar, switch to `VLMPlanner`.
 
 ## Agent loop
 
