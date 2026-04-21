@@ -205,6 +205,16 @@ button {
 }
 #record.recording:hover:not(:disabled) { background: var(--panel-hi); }
 
+.btn-row { display: flex; gap: 7px; }
+.btn-row button { flex: 1; }
+
+#reset {
+  background: var(--panel); color: var(--text-dim);
+  border: 1px solid var(--border-hi); padding: 8px 14px;
+}
+#reset:hover:not(:disabled) { background: var(--panel-hi); color: var(--text); }
+#reset:disabled { opacity: .4; cursor: not-allowed; }
+
 .rec-dot {
   display: inline-block; width: 6px; height: 6px; border-radius: 50%;
   background: currentColor; flex-shrink: 0;
@@ -428,7 +438,10 @@ footer .spacer { flex: 1; }
 
   <div class="action-sec">
     <button id="run">&#9654;&nbsp;&nbsp;Run</button>
-    <button id="record"><span class="rec-dot"></span><span id="record-label">Record</span></button>
+    <div class="btn-row">
+      <button id="record"><span class="rec-dot"></span><span id="record-label">Record</span></button>
+      <button id="reset" disabled>↺&nbsp;&nbsp;Reset</button>
+    </div>
   </div>
 
   <div class="teleop-row">
@@ -520,6 +533,7 @@ const promptInput = document.getElementById("prompt");
 const runBtn      = document.getElementById("run");
 const recordBtn   = document.getElementById("record");
 const recordLabel = document.getElementById("record-label");
+const resetBtn    = document.getElementById("reset");
 const fpsEl       = document.getElementById("fps");
 const taskCard    = document.getElementById("task-card");
 const tcGoal      = document.getElementById("tc-goal");
@@ -653,6 +667,7 @@ function handleEvent(evt) {
     promptInput.value = "";
     promptInput.placeholder = evt.prompt || "(no prompt)";
     taskSelect.disabled = false;
+    resetBtn.disabled = false;
     populateTaskCard(evt);
     const nObj = (evt.object_ids || []).length;
     addLog(`Scene ready · ${ROBOT_LABELS[evt.robot] || evt.robot} · ${nObj} object${nObj === 1 ? "" : "s"}`, "info");
@@ -661,6 +676,7 @@ function handleEvent(evt) {
     setPhase("running", "Running");
     runBtn.disabled = true; runBtn.textContent = "Running…";
     taskSelect.disabled = true;
+    resetBtn.disabled = true;
     _runStartedAt = performance.now();
     addLog(`Agent running · "${evt.prompt}"`, "info");
     tcGoal.textContent = `Goal: ${evt.prompt}`;
@@ -669,6 +685,7 @@ function handleEvent(evt) {
     setPhase(evt.success ? "done" : "done failed", evt.success ? "Done ✓" : "Failed ✗");
     runBtn.disabled = false; runBtn.innerHTML = "&#9654;&nbsp;&nbsp;Run";
     taskSelect.disabled = false;
+    resetBtn.disabled = false;
     const elapsed = _runStartedAt ? ((performance.now() - _runStartedAt) / 1000).toFixed(1) : "?";
     const kind = evt.success ? "success" : "error";
     const nSteps = (evt.steps || []).length;
@@ -698,6 +715,7 @@ function handleEvent(evt) {
     addLog(`Server error: ${evt.message}`, "error");
     runBtn.disabled = false; runBtn.innerHTML = "&#9654;&nbsp;&nbsp;Run";
     taskSelect.disabled = false;
+    resetBtn.disabled = false;
   } else {
     addLog(JSON.stringify(evt));
   }
@@ -709,6 +727,7 @@ function doRun() { ws.send(JSON.stringify({ action: "run", prompt: promptInput.v
 runBtn.addEventListener("click", doRun);
 promptInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !runBtn.disabled) doRun(); });
 recordBtn.addEventListener("click", () => ws.send(JSON.stringify({ action: isRecording ? "record_stop" : "record_start" })));
+resetBtn.addEventListener("click", () => ws.send(JSON.stringify({ action: "load", task: taskSelect.value })));
 
 // Teleop
 const TELEOP_STEP_XY = 0.015, TELEOP_STEP_Z = 0.015, TELEOP_MIN_MS = 80;
