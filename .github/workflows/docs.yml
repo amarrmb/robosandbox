@@ -24,11 +24,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install mkdocs-material
-        run: uv pip install --system mkdocs-material
-
       - name: Build docs
-        run: mkdocs build --config-file docs/site/mkdocs.yml --strict
+        run: uv run --with mkdocs-material mkdocs build --config-file docs/site/mkdocs.yml --strict
 
       - uses: actions/upload-pages-artifact@v3
         with:
