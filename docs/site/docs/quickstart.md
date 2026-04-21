@@ -11,6 +11,17 @@ Five minutes from clone to a recorded episode in the browser.
 
 ## Install
 
+**Step 1 — install `uv`** (Python package manager, replaces pip + venv):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env   # or open a new terminal
+```
+
+On Ubuntu you can also use `sudo snap install astral-uv`, but the curl method is recommended.
+
+**Step 2 — clone and install:**
+
 ```bash
 git clone https://github.com/amarrmb/robosandbox
 cd robosandbox
@@ -18,7 +29,7 @@ uv sync
 uv pip install -e 'packages/robosandbox-core[viewer]'
 ```
 
-You need Python 3.10+ and `uv` ([install uv](https://docs.astral.sh/uv/getting-started/installation/)). MuJoCo 3.2+ and the browser viewer come in as dependencies. No GPU required.
+MuJoCo 3.2+ and the browser viewer come in as dependencies. No GPU required.
 
 Headless rendering needs an OpenGL backend. On Ubuntu:
 
