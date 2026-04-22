@@ -52,13 +52,13 @@ echo "[probe] Viser tunnel: localhost:${LOCAL_PORT} -> ${REMOTE_HOST}:localhost:
 echo "[probe] open RoboSandbox viewer: http://127.0.0.1:${LOCAL_VIEWER}"
 echo "[probe]   or Viser direct:       http://127.0.0.1:${LOCAL_PORT}"
 
-ssh -o ExitOnForwardFailure=yes \
+ssh \
   -L "${LOCAL_VIEWER}:127.0.0.1:${REMOTE_VIEWER}" \
   -L "${LOCAL_PORT}:127.0.0.1:${REMOTE_PORT}" \
   "${REMOTE_HOST}" \
   "pkill -f 'robo-sandbox viewer --sim-backend newton' >/dev/null 2>&1 || true; \
    cd ${REMOTE_NEWTON} && \
    . .venv/bin/activate && \
-   python -m pip install -e '${REMOTE_REPO}/packages/robosandbox-core[viewer]' -q && \
+   _repo=\$(eval echo ${REMOTE_REPO}) && pip install -e "\${_repo}/packages/robosandbox-core[viewer]" -q && \
    cd ${REMOTE_REPO} && \
    exec robo-sandbox viewer --sim-backend newton --viser-port ${REMOTE_PORT} --task ${TASK} --device ${DEVICE}"

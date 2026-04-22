@@ -584,7 +584,7 @@ async function initConfig() {
     }
   } catch (_) {}
 }
-initConfig();
+const _configReady = initConfig();
 
 if (localStorage.getItem("rs-howto-dismissed") === "1") howto.style.display = "none";
 howtoDismiss.addEventListener("click", () => {
@@ -887,7 +887,7 @@ inspSlider.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight" || e.key === "ArrowUp")    { sendInspectAt(parseInt(inspSlider.value,10)+s); e.preventDefault(); }
 });
 
-loadTasks().then(() => {
+_configReady.then(loadTasks).then(() => {
   setTimeout(() => { if (taskSelect.value) ws.send(JSON.stringify({ action: "load", task: taskSelect.value })); }, 300);
 });
 </script>
