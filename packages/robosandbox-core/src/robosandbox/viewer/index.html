@@ -73,6 +73,19 @@ header .spacer { flex: 1; }
   display: none;
 }
 
+#backend-badge {
+  font-family: var(--mono); font-size: 11px;
+  padding: 2px 8px; border-radius: 3px;
+}
+#backend-badge.newton {
+  color: #bd93f9; border: 1px solid rgba(189,147,249,0.4);
+  background: rgba(189,147,249,0.08);
+}
+
+/* Newton mode: inspector grayed out, fps hidden */
+body[data-backend="newton"] #fps { display: none; }
+body[data-backend="newton"] #inspector { opacity: 0.35; pointer-events: none; }
+
 #phase {
   font-family: var(--mono); font-size: 11px;
   padding: 2px 9px; border-radius: 3px;
@@ -399,6 +412,7 @@ footer .spacer { flex: 1; }
   </div>
   <div class="spacer"></div>
   <span id="dof-badge"></span>
+  <span id="backend-badge" style="display:none"></span>
   <span id="phase" class="phase setup">Setup</span>
   <span id="fps">0 fps</span>
 </header>
@@ -461,6 +475,7 @@ footer .spacer { flex: 1; }
 <!-- Center: sim -->
 <main id="sim-main">
   <img id="frame" alt="" style="display:none">
+  <iframe id="viser-frame" style="display:none;width:100%;height:100%;border:0;" title="Newton Viser viewer" allowfullscreen></iframe>
   <div id="frame-placeholder">
     <div class="ph-ring"></div>
     Connecting&hellip;
@@ -522,7 +537,7 @@ const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
 const ws = new WebSocket(`${wsProto}//${location.host}/ws`);
 ws.binaryType = "blob";
 
-const frame       = document.getElementById("frame");
+const frame       = document.getElementById("frame");  // MuJoCo JPEG stream
 const placeholder = document.getElementById("frame-placeholder");
 const conn        = document.getElementById("conn");
 const phaseEl     = document.getElementById("phase");
@@ -546,6 +561,30 @@ const howtoDismiss= document.getElementById("howto-dismiss");
 const cheatsheet  = document.getElementById("cheatsheet");
 const cheatsheetToggle = document.getElementById("cheatsheet-toggle");
 const simMain     = document.getElementById("sim-main");
+const frameImg    = document.getElementById("frame");
+const viserFrame  = document.getElementById("viser-frame");
+const backendBadge = document.getElementById("backend-badge");
+
+let _backend = "mujoco";
+
+async function initConfig() {
+  try {
+    const r = await fetch("/config");
+    const cfg = await r.json();
+    _backend = cfg.backend || "mujoco";
+    document.body.dataset.backend = _backend;
+    if (_backend === "newton") {
+      backendBadge.textContent = "⚡ newton";
+      backendBadge.className = "newton";
+      backendBadge.style.display = "";
+      if (cfg.viser_url) {
+        viserFrame.src = cfg.viser_url;
+        viserFrame.style.display = "";
+      }
+    }
+  } catch (_) {}
+}
+initConfig();
 
 if (localStorage.getItem("rs-howto-dismissed") === "1") howto.style.display = "none";
 howtoDismiss.addEventListener("click", () => {
@@ -633,7 +672,7 @@ function addLog(text, kind = "info") {
 
 async function loadTasks() {
   try {
-    const r    = await fetch("/tasks");
+    const r    = await fetch(`/tasks?backend=${_backend}`);
     const data = await r.json();
     taskSelect.innerHTML = "";
     for (const t of data.tasks) {
@@ -650,6 +689,8 @@ ws.addEventListener("close", () => { conn.classList.add("disconnected");    conn
 ws.addEventListener("error", () => addLog("WebSocket error.", "error"));
 ws.addEventListener("message", (ev) => {
   if (typeof ev.data === "string") { const m = JSON.parse(ev.data); if (m.type === "event") handleEvent(m.event); return; }
+  // Binary frames — MuJoCo only. Newton uses Viser iframe; ignore stray blobs.
+  if (_backend !== "mujoco") return;
   if (lastFrameUrl) URL.revokeObjectURL(lastFrameUrl);
   lastFrameUrl = URL.createObjectURL(ev.data);
   frame.src = lastFrameUrl;
@@ -672,6 +713,11 @@ function handleEvent(evt) {
     const nObj = (evt.object_ids || []).length;
     addLog(`Scene ready · ${ROBOT_LABELS[evt.robot] || evt.robot} · ${nObj} object${nObj === 1 ? "" : "s"}`, "info");
     resetInspector();
+    // Newton: show Viser iframe as soon as scene is loaded (no JPEG frames coming).
+    if (_backend === "newton") {
+      viserFrame.style.display = "";
+      placeholder.style.display = "none";
+    }
   } else if (evt.type === "running") {
     setPhase("running", "Running");
     runBtn.disabled = true; runBtn.textContent = "Running…";

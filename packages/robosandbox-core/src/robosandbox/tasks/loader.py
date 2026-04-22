@@ -42,6 +42,7 @@ class Task:
     success: SuccessCriterion
     seed_note: str = ""
     randomize: dict[str, Any] | None = None
+    supported_backends: tuple[str, ...] = ("mujoco",)
 
 
 def _pose_from_dict(d: dict[str, Any]) -> Pose:
@@ -223,13 +224,16 @@ def load_task(path: Path) -> Task:
                 raise ValueError(
                     f"task {path}: 'randomize.{key}' must be >= 0, got {val}"
                 )
+    raw_backends = raw.get("supported_backends", ["mujoco"])
+    raw_success = raw.get("success") or {}
     return Task(
         name=str(raw.get("name", path.stem)),
         scene=scene,
         prompt=str(raw["prompt"]),
-        success=SuccessCriterion(data=raw["success"]),
+        success=SuccessCriterion(data=raw_success),
         seed_note=str(raw.get("seed_note", "")),
         randomize=randomize,
+        supported_backends=tuple(str(b) for b in raw_backends),
     )
 
 
@@ -242,8 +246,17 @@ def load_builtin_task(name: str) -> Task:
     return load_task(path)
 
 
-def list_builtin_tasks() -> list[str]:
-    """List non-experimental builtin tasks (those not prefixed ``_``)."""
-    return sorted(
-        p.stem for p in _BUILTIN_DIR.glob("*.yaml") if not p.stem.startswith("_")
-    )
+def list_builtin_tasks(backend: str | None = None) -> list[str]:
+    """List non-experimental builtin tasks, optionally filtered by backend."""
+    names = sorted(p.stem for p in _BUILTIN_DIR.glob("*.yaml") if not p.stem.startswith("_"))
+    if backend is None:
+        return names
+    result = []
+    for name in names:
+        try:
+            task = load_builtin_task(name)
+            if backend in task.supported_backends:
+                result.append(name)
+        except Exception:
+            pass
+    return result

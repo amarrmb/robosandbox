@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+import numpy as np
+
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="robo-sandbox")
@@ -27,6 +29,11 @@ def main(argv: list[str] | None = None) -> int:
         default="runs",
         help="Directory to write recorded episodes (default: ./runs)",
     )
+    viewer_p.add_argument("--sim-backend", default="mujoco", choices=["mujoco", "newton"])
+    viewer_p.add_argument("--viser-port", type=int, default=8090,
+                          help="Port for Newton's Viser 3D viewer (Newton mode only)")
+    viewer_p.add_argument("--device", default="cuda:0",
+                          help="Compute device for Newton backend (Newton mode only)")
 
     run_p = sub.add_parser("run", help="Agent-driven run (stub / openai / ollama / custom)")
     run_p.add_argument(
@@ -58,7 +65,25 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--api-key-env", default=None)
     run_p.add_argument("--perception", choices=["vlm", "ground_truth"], default=None)
     run_p.add_argument("--max-replans", type=int, default=3)
+    run_p.add_argument("--sim-backend", default="mujoco")
+    run_p.add_argument("--sim-viewer", default="null")
+    run_p.add_argument("--viewer-port", type=int, default=8080)
+    run_p.add_argument("--device", default="cuda:0")
     run_p.add_argument("--log-level", default="INFO")
+
+    sim_p = sub.add_parser(
+        "simulate",
+        help="Load a built-in task in a sim backend and step it forward",
+    )
+    sim_p.add_argument("--task", default="pick_cube_franka")
+    sim_p.add_argument("--sim-backend", default="mujoco")
+    sim_p.add_argument("--steps", type=int, default=240)
+    sim_p.add_argument("--render-height", type=int, default=480)
+    sim_p.add_argument("--render-width", type=int, default=640)
+    sim_p.add_argument("--sim-viewer", default="null")
+    sim_p.add_argument("--viewer-port", type=int, default=8080)
+    sim_p.add_argument("--device", default="cuda:0")
+    sim_p.add_argument("--hold", action="store_true")
 
     exp_p = sub.add_parser(
         "export-lerobot",
@@ -90,8 +115,15 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "viewer":
         from robosandbox.viewer.server import run as viewer_run
 
-        print(f"RoboSandbox viewer — open http://{args.host}:{args.port}")
-        viewer_run(host=args.host, port=args.port, initial_task=args.task, runs_dir=args.runs_dir)
+        backend = args.sim_backend
+        print(f"RoboSandbox viewer [{backend}] — open http://{args.host}:{args.port}")
+        if backend == "newton":
+            print(f"Newton Viser 3D viewer — http://127.0.0.1:{args.viser_port}")
+        viewer_run(
+            host=args.host, port=args.port, initial_task=args.task,
+            runs_dir=args.runs_dir, sim_backend=backend, viser_port=args.viser_port,
+            device=getattr(args, "device", "cuda:0"),
+        )
         return 0
     elif args.cmd == "run":
         if args.policy is not None:
@@ -99,6 +131,11 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.task is None:
             run_p.error("task is required unless --policy is set")
+        if args.sim_backend != "mujoco":
+            run_p.error(
+                "planner-driven runs currently require --sim-backend mujoco; "
+                "use `simulate` or `run --policy` for Newton"
+            )
         from robosandbox.agentic_demo import main as agentic_main
 
         forwarded = [
@@ -119,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.perception is not None:
             forwarded += ["--perception", args.perception]
         return agentic_main(forwarded)
+    elif args.cmd == "simulate":
+        return _simulate_cli(args)
     elif args.cmd == "export-lerobot":
         from pathlib import Path
 
@@ -148,7 +187,7 @@ def _run_policy_cli(args: argparse.Namespace) -> int:
     from pathlib import Path
 
     from robosandbox.policy import load_policy, run_policy
-    from robosandbox.sim.mujoco_backend import MuJoCoBackend
+    from robosandbox.sim import create_sim_backend
     from robosandbox.tasks.loader import load_builtin_task
 
     logging.basicConfig(
@@ -173,7 +212,14 @@ def _run_policy_cli(args: argparse.Namespace) -> int:
         print(f"[run --policy] failed to load policy: {e}", file=sys.stderr)
         return 2
 
-    sim = MuJoCoBackend(render_size=(240, 320), camera="scene")
+    sim = create_sim_backend(
+        args.sim_backend,
+        render_size=(240, 320),
+        camera="scene",
+        viewer=args.sim_viewer,
+        port=args.viewer_port,
+        device=args.device,
+    )
     sim.load(task.scene)
     try:
         # Settle gravity so the initial observation is at rest.
@@ -196,11 +242,64 @@ def _run_policy_cli(args: argparse.Namespace) -> int:
     )
     print(f"[run --policy] task:        {task.name}")
     print(f"[run --policy] policy:      {args.policy}")
+    print(f"[run --policy] sim_backend: {args.sim_backend}")
     print(f"[run --policy] verdict:     {verdict}")
     print(f"[run --policy] steps:       {result['steps']}")
     print(f"[run --policy] final_reason: {final_reason}")
     print(f"[run --policy] wall:        {elapsed:.1f}s")
     return 0 if success_ok else 1
+
+
+def _simulate_cli(args: argparse.Namespace) -> int:
+    import time
+
+    from robosandbox.sim import create_sim_backend
+    from robosandbox.tasks.loader import load_builtin_task
+
+    try:
+        task = load_builtin_task(args.task)
+    except FileNotFoundError as e:
+        print(f"[simulate] {e}", file=sys.stderr)
+        return 2
+
+    try:
+        sim = create_sim_backend(
+            args.sim_backend,
+            render_size=(args.render_height, args.render_width),
+            camera="scene",
+            viewer=args.sim_viewer,
+            port=args.viewer_port,
+            device=args.device,
+        )
+    except (ImportError, ValueError) as e:
+        print(f"[simulate] failed to create backend: {e}", file=sys.stderr)
+        return 2
+
+    sim.load(task.scene)
+    try:
+        for _ in range(args.steps):
+            sim.step()
+        obs = sim.observe()
+        print(f"[simulate] task:        {task.name}")
+        print(f"[simulate] sim_backend: {args.sim_backend}")
+        print(f"[simulate] steps:       {args.steps}")
+        print(f"[simulate] joints:      {np.array2string(obs.robot_joints, precision=4)}")
+        for oid, pose in obs.scene_objects.items():
+            print(
+                "[simulate] object:      "
+                f"{oid} xyz=({pose.xyz[0]:.4f}, {pose.xyz[1]:.4f}, {pose.xyz[2]:.4f})"
+            )
+        if args.sim_backend == "newton" and args.sim_viewer == "viser":
+            print(f"[simulate] viewer_url:  http://127.0.0.1:{args.viewer_port}")
+            if args.hold:
+                try:
+                    while True:
+                        time.sleep(1.0)
+                except KeyboardInterrupt:
+                    pass
+    finally:
+        sim.close()
+    return 0
 
 
 if __name__ == "__main__":

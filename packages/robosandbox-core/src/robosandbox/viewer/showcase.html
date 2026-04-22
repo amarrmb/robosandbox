@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoboSandbox x Newton Showcase</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --bg: #09111a;
+  --bg-hi: #0d1824;
+  --panel: rgba(10, 18, 28, 0.82);
+  --panel-hi: rgba(14, 25, 38, 0.92);
+  --border: rgba(126, 164, 198, 0.20);
+  --text: #d8e7f5;
+  --text-dim: #91a4b8;
+  --text-low: #5e7388;
+  --accent: #86d3ff;
+  --accent-warm: #ffb65c;
+  --ok: #7ed6a7;
+  --warn: #f0ba6b;
+  --danger: #f28a7b;
+  --ui: "Space Grotesk", sans-serif;
+  --mono: "IBM Plex Mono", monospace;
+}
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(134, 211, 255, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 182, 92, 0.09), transparent 26%),
+    linear-gradient(180deg, #081019, #0a1119 55%, #070d15);
+  color: var(--text);
+  font-family: var(--ui);
+}
+
+body {
+  padding: 18px;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  grid-template-rows: auto auto 1fr;
+  gap: 14px;
+  min-height: calc(100vh - 36px);
+}
+
+.hero {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1.4fr 0.9fr;
+  gap: 14px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.34);
+}
+
+.title-card {
+  padding: 22px 24px 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.title-card::after {
+  content: "";
+  position: absolute;
+  inset: auto -60px -60px auto;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(134, 211, 255, 0.14), transparent 68%);
+  pointer-events: none;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(134, 211, 255, 0.08);
+  color: var(--accent);
+  font: 500 11px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+h1 {
+  margin: 14px 0 10px;
+  font-size: clamp(28px, 4vw, 48px);
+  line-height: 0.96;
+  letter-spacing: -0.04em;
+}
+
+.lede {
+  max-width: 58ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.metric {
+  padding: 12px 13px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.metric .label {
+  color: var(--text-low);
+  font: 500 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.metric .value {
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.guide-card {
+  padding: 20px 20px 18px;
+}
+
+.guide-card h2,
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-low);
+}
+
+.steps {
+  display: grid;
+  gap: 10px;
+}
+
+.step {
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.step b {
+  color: var(--text);
+}
+
+.strip {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 14px;
+}
+
+.panel {
+  padding: 14px;
+}
+
+.url-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.endpoint {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--panel-hi);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.endpoint .label {
+  color: var(--text-low);
+  font: 500 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.endpoint code {
+  display: block;
+  margin-top: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--accent);
+  font: 500 12px var(--mono);
+}
+
+.notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pill {
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-dim);
+  font: 500 11px var(--mono);
+}
+
+.pill.ok { color: var(--ok); }
+.pill.warn { color: var(--warn); }
+.pill.hot { color: var(--accent-warm); }
+
+.windows {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 14px;
+  min-height: 0;
+}
+
+.window {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.window-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px 10px;
+}
+
+.window-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.window-title strong {
+  display: block;
+  font-size: 17px;
+}
+
+.window-title span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.badge {
+  padding: 6px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-dim);
+  font: 500 11px var(--mono);
+}
+
+.frame {
+  flex: 1;
+  min-height: 420px;
+  margin: 0 14px 14px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #04070b;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #05080d;
+}
+
+.window-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px 16px;
+  color: var(--text-low);
+  font: 500 11px var(--mono);
+}
+
+a {
+  color: var(--accent);
+}
+
+@media (max-width: 1100px) {
+  .hero,
+  .strip,
+  .windows {
+    grid-template-columns: 1fr;
+  }
+
+  .meta-grid,
+  .url-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <section class="hero">
+    <article class="card title-card">
+      <div class="eyebrow"><span class="dot"></span>Experimental Control Room</div>
+      <h1>RoboSandbox x Newton</h1>
+      <p class="lede">
+        Side-by-side showcase for a Newton-on-DGX Spark spike. The left window keeps the current
+        RoboSandbox task UI intact. The right window is reserved for Newton's live web viewer,
+        forwarded from <code>dgxspark</code> to your laptop and embedded into this layout.
+      </p>
+      <div class="meta-grid">
+        <div class="metric">
+          <div class="label">Goal</div>
+          <div class="value">Visible backend spike</div>
+        </div>
+        <div class="metric">
+          <div class="label">Host</div>
+          <div class="value">DGX Spark</div>
+        </div>
+        <div class="metric">
+          <div class="label">Viewer</div>
+          <div class="value">Newton Viser</div>
+        </div>
+      </div>
+    </article>
+
+    <aside class="card guide-card">
+      <h2>Launch Flow</h2>
+      <div class="steps">
+        <div class="step"><b>1.</b> Start the local RoboSandbox viewer on this machine.</div>
+        <div class="step"><b>2.</b> Run <code>bash scripts/newton_dgxspark_showcase.sh</code> to start Newton remotely and forward the viewer to a local port.</div>
+        <div class="step"><b>3.</b> Open this page at <code>/showcase</code> and keep both panes visible during the demo.</div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="strip">
+    <article class="card panel">
+      <h2>Endpoints</h2>
+      <div class="url-grid">
+        <div class="endpoint">
+          <div class="label">RoboSandbox Pane</div>
+          <code id="robosandbox-url"></code>
+        </div>
+        <div class="endpoint">
+          <div class="label">Newton Pane</div>
+          <code id="newton-url"></code>
+        </div>
+      </div>
+    </article>
+
+    <article class="card panel">
+      <h2>Showcase Notes</h2>
+      <div class="notes">
+        <span class="pill ok">UI-first spike</span>
+        <span class="pill hot">Live 3D Newton window</span>
+        <span class="pill warn">Backend parity not implied</span>
+        <span class="pill">Best with 2 monitors</span>
+      </div>
+    </article>
+  </section>
+
+  <section class="windows">
+    <article class="card window">
+      <div class="window-head">
+        <div class="window-title">
+          <div class="dot" style="color: var(--accent)"></div>
+          <div>
+            <strong>RoboSandbox</strong>
+            <span>Current browser viewer, task controls, logs, inspector</span>
+          </div>
+        </div>
+        <div class="badge">localhost</div>
+      </div>
+      <div class="frame">
+        <iframe id="robosandbox-frame" title="RoboSandbox viewer"></iframe>
+      </div>
+      <div class="window-foot">
+        <span>Primary operator pane</span>
+        <span><a id="robosandbox-open" target="_blank" rel="noreferrer">open standalone</a></span>
+      </div>
+    </article>
+
+    <article class="card window">
+      <div class="window-head">
+        <div class="window-title">
+          <div class="dot" style="color: var(--accent-warm)"></div>
+          <div>
+            <strong>Newton</strong>
+            <span>Remote Viser session forwarded from DGX Spark</span>
+          </div>
+        </div>
+        <div class="badge">ssh tunnel</div>
+      </div>
+      <div class="frame">
+        <iframe id="newton-frame" title="Newton viewer"></iframe>
+      </div>
+      <div class="window-foot">
+        <span>Use for visual proof, interaction, and camera work</span>
+        <span><a id="newton-open" target="_blank" rel="noreferrer">open standalone</a></span>
+      </div>
+    </article>
+  </section>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const robosandboxUrl = params.get("robosandboxUrl") || `${window.location.origin}/`;
+const newtonUrl = params.get("newtonUrl") || "http://127.0.0.1:8080";
+
+document.getElementById("robosandbox-frame").src = robosandboxUrl;
+document.getElementById("newton-frame").src = newtonUrl;
+
+document.getElementById("robosandbox-url").textContent = robosandboxUrl;
+document.getElementById("newton-url").textContent = newtonUrl;
+
+document.getElementById("robosandbox-open").href = robosandboxUrl;
+document.getElementById("newton-open").href = newtonUrl;
+</script>
+</body>
+</html>
