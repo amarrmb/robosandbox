@@ -39,6 +39,7 @@ from robosandbox.types import Observation
 
 __all__ = [
     "LeRobotPolicyAdapter",
+    "NeuralPolicy",
     "Policy",
     "ReplayTrajectoryPolicy",
     "load_policy",
@@ -328,6 +329,9 @@ def load_policy(path: str | Path) -> Policy:
                 return ReplayTrajectoryPolicy.from_jsonl(
                     traj_path, action_lookahead=lookahead
                 )
+            if kind == "ppo_neural":
+                from robosandbox.rl.ppo import NeuralPolicy
+                return NeuralPolicy.load(p)
             raise ImportError(
                 _BRING_YOUR_OWN_CHECKPOINT_HINT.format(path=str(p))
                 + f" (policy.json kind={kind!r} not recognised)"

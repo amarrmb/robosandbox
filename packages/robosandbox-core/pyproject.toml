@@ -42,6 +42,7 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.4", "mypy>=1.10"]
 viewer = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 meshes = ["coacd>=1.0"]
 lerobot = ["pyarrow>=15"]
+rl = ["torch>=2.0"]
 docs = ["mkdocs>=1.6", "mkdocs-material>=9.5"]
 
 [project.urls]

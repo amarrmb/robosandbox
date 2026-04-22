@@ -425,6 +425,52 @@ class NewtonBackend:
             camera_extrinsics=None,
         )
 
+    def step_all(
+        self,
+        targets: np.ndarray,
+        grippers: np.ndarray,
+    ) -> None:
+        """Per-world joint targets for RL training.
+
+        Args:
+            targets:  (N, n_arm) — absolute joint positions per world
+            grippers: (N,) — gripper command ∈ [0, 1] per world
+        """
+        assert self._state_0 is not None
+        assert self._control is not None
+
+        targets = np.asarray(targets, dtype=np.float64)
+        grippers_arr = np.asarray(grippers, dtype=np.float64)
+        N = self._world_count
+        n_arm = len(self._w_arm_q)
+
+        if targets.shape != (N, n_arm):
+            raise ValueError(f"targets must be ({N}, {n_arm}), got {targets.shape}")
+        if grippers_arr.shape != (N,):
+            raise ValueError(f"grippers must be ({N},), got {grippers_arr.shape}")
+
+        target = self._control.joint_target_pos.numpy()
+        for w in range(N):
+            for local_q, q in zip(self._w_arm_q, targets[w]):
+                target[w * self._dof_per_world + local_q] = float(q)
+            t = float(np.clip(grippers_arr[w], 0.0, 1.0))
+            finger_q = (
+                self._robot.gripper_open_qpos * (1.0 - t)
+                + self._robot.gripper_closed_qpos * t
+            )
+            for local_q in self._w_gripper_q:
+                target[w * self._dof_per_world + local_q] = finger_q
+
+        arr_wp = self._wp.array(target, dtype=self._control.joint_target_pos.dtype)
+        self._wp.copy(self._control.joint_target_pos, arr_wp)
+
+        self._state_0.clear_forces()
+        self._model.collide(self._state_0, self._contacts)
+        self._solver.step(self._state_0, self._state_1, self._control, self._contacts, self._dt)
+        self._state_0, self._state_1 = self._state_1, self._state_0
+        self._t += self._dt
+        self._log_viewer_state()
+
     def observe(self) -> Observation:
         """World-0 observation (backward-compatible single-world interface)."""
         assert self._state_0 is not None

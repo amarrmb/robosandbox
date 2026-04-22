@@ -94,6 +94,23 @@ def main(argv: list[str] | None = None) -> int:
     exp_p.add_argument("--task", default=None, help="Override task string")
     exp_p.add_argument("--fps", type=int, default=30)
 
+    train_p = sub.add_parser(
+        "train",
+        help="Train a PPO policy from scratch via Newton GPU-parallel RL (no demonstrations needed)",
+    )
+    train_p.add_argument("--task", required=True, help="Built-in task name (e.g. pick_cube_franka)")
+    train_p.add_argument("--world-count", type=int, default=512, help="Parallel Newton worlds")
+    train_p.add_argument("--total-steps", type=int, default=5_000_000, help="Total env steps to train")
+    train_p.add_argument("--n-steps", type=int, default=256, help="Steps per rollout per world")
+    train_p.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
+    train_p.add_argument("--delta-scale", type=float, default=0.05,
+                         help="Max joint angle change per step (radians)")
+    train_p.add_argument("--settle-steps", type=int, default=50,
+                         help="Physics settle steps after each reset")
+    train_p.add_argument("--device", default="cuda:0", help="GPU device for Newton + PyTorch")
+    train_p.add_argument("--output", default="runs/rl/policy", help="Output checkpoint directory")
+    train_p.add_argument("--log-interval", type=int, default=5, help="Log every N iterations")
+
     eval_p = sub.add_parser(
         "eval",
         help="GPU-parallel policy evaluation via Newton multi-world backend",
@@ -182,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"Exported LeRobot dataset to: {out}")
         return 0
+    elif args.cmd == "train":
+        return _train_ppo_cli(args)
     elif args.cmd == "eval":
         return _eval_parallel_cli(args)
     elif args.cmd == "download-franka-visuals":
@@ -312,6 +331,83 @@ def _simulate_cli(args: argparse.Namespace) -> int:
                     pass
     finally:
         sim.close()
+    return 0
+
+
+def _train_ppo_cli(args: argparse.Namespace) -> int:
+    """RL training: PPO from scratch via Newton GPU-parallel worlds."""
+    from pathlib import Path
+
+    from robosandbox.sim import create_sim_backend
+    from robosandbox.tasks.loader import load_builtin_task
+
+    try:
+        task = load_builtin_task(args.task)
+    except FileNotFoundError as e:
+        print(f"[train] {e}", file=sys.stderr)
+        return 2
+
+    if "newton" not in task.supported_backends:
+        print(
+            f"[train] task {args.task!r} does not support newton "
+            f"(supported: {', '.join(task.supported_backends)})",
+            file=sys.stderr,
+        )
+        return 2
+
+    if task.success.data.get("kind") is None:
+        print(
+            f"[train] task {args.task!r} has no success criterion — cannot compute reward",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        from robosandbox.rl.ppo import train_ppo
+    except ImportError as e:
+        print(
+            f"[train] RL training requires PyTorch.\n"
+            f"  pip install torch --index-url https://download.pytorch.org/whl/cu121\n"
+            f"  ({e})",
+            file=sys.stderr,
+        )
+        return 2
+
+    print(f"[train] task:          {task.name}")
+    print(f"[train] world_count:   {args.world_count}")
+    print(f"[train] total_steps:   {args.total_steps:,}")
+    print(f"[train] output:        {args.output}")
+
+    try:
+        sim = create_sim_backend(
+            "newton",
+            render_size=(240, 320),
+            camera="scene",
+            viewer="null",
+            device=args.device,
+            world_count=args.world_count,
+        )
+    except (ImportError, ValueError) as e:
+        print(f"[train] failed to create Newton backend: {e}", file=sys.stderr)
+        return 2
+
+    sim.load(task.scene)
+    try:
+        train_ppo(
+            sim,
+            task,
+            total_steps=args.total_steps,
+            n_steps=args.n_steps,
+            lr=args.lr,
+            delta_scale=args.delta_scale,
+            settle_steps=args.settle_steps,
+            device=args.device,
+            save_path=Path(args.output),
+            log_interval=args.log_interval,
+        )
+    finally:
+        sim.close()
+
     return 0
 
 
