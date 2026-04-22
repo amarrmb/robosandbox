@@ -23,6 +23,9 @@ NEWTON_VENV=${NEWTON_VENV:-/home/amar/newton/.venv}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Ensure ~/.local/bin is on PATH (pip install --user puts robo-sandbox there)
+export PATH="$HOME/.local/bin:$PATH"
+
 SKIP_NEWTON=0
 if [ -f "$NEWTON_VENV/bin/python3" ]; then
   # Ensure robosandbox is installed in the newton venv (idempotent, quiet)
