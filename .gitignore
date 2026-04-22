@@ -15,6 +15,7 @@ runs/
 .DS_Store
 MUJOCO_LOG.TXT
 .claude/
+CLAUDE.md
 docs/site/site/
 benchmark_results.json
 docs/superpowers/
