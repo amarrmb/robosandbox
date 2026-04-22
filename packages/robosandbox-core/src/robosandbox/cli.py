@@ -117,7 +117,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     eval_p.add_argument("--task", required=True, help="Built-in task name (e.g. pick_cube_franka)")
     eval_p.add_argument("--policy", required=True, help="Path to policy checkpoint or episode dir")
-    eval_p.add_argument("--world-count", type=int, default=64, help="Number of parallel Newton worlds")
+    eval_p.add_argument("--sim-backend", default="newton", choices=["mujoco", "newton"],
+                        help="mujoco = single world + RGB; newton = N parallel worlds, state only")
+    eval_p.add_argument("--world-count", type=int, default=64,
+                        help="Parallel worlds (newton only, ignored for mujoco)")
     eval_p.add_argument("--max-steps", type=int, default=500, help="Max sim steps per world")
     eval_p.add_argument("--settle-steps", type=int, default=100, help="Physics settle steps before eval")
     eval_p.add_argument("--device", default="cuda:0", help="GPU device for Newton")
@@ -412,12 +415,14 @@ def _train_ppo_cli(args: argparse.Namespace) -> int:
 
 
 def _eval_parallel_cli(args: argparse.Namespace) -> int:
-    """GPU-parallel policy evaluation using Newton multi-world backend."""
+    """Evaluate a policy in sim — MuJoCo (single world) or Newton (N parallel worlds)."""
     from pathlib import Path
 
-    from robosandbox.policy import load_policy, run_eval_parallel
+    from robosandbox.policy import load_policy, run_eval_parallel, run_policy
     from robosandbox.sim import create_sim_backend
     from robosandbox.tasks.loader import load_builtin_task
+
+    backend = getattr(args, "sim_backend", "newton")
 
     try:
         task = load_builtin_task(args.task)
@@ -425,9 +430,9 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
         print(f"[eval] {e}", file=sys.stderr)
         return 2
 
-    if "newton" not in task.supported_backends:
+    if backend not in task.supported_backends:
         print(
-            f"[eval] task {args.task!r} does not support the newton backend "
+            f"[eval] task {args.task!r} does not list '{backend}' as a supported backend "
             f"(supported: {', '.join(task.supported_backends)})",
             file=sys.stderr,
         )
@@ -439,9 +444,36 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
         print(f"[eval] failed to load policy: {e}", file=sys.stderr)
         return 2
 
-    world_count: int = args.world_count
     print(f"[eval] task:          {task.name}")
     print(f"[eval] policy:        {args.policy}")
+    print(f"[eval] sim_backend:   {backend}")
+
+    # ---- MuJoCo: single world, RGB available ----------------------------
+    if backend == "mujoco":
+        try:
+            sim = create_sim_backend(
+                "mujoco", render_size=(240, 320), camera="scene"
+            )
+        except (ImportError, ValueError) as e:
+            print(f"[eval] failed to create MuJoCo backend: {e}", file=sys.stderr)
+            return 2
+        sim.load(task.scene)
+        try:
+            result = run_policy(
+                sim, policy,
+                max_steps=args.max_steps,
+                success=task.success,
+            )
+        finally:
+            sim.close()
+        ok = result["success"]
+        verdict = "success" if ok else ("failure" if ok is False else "unknown")
+        print(f"[eval] verdict:       {verdict}")
+        print(f"[eval] steps:         {result['steps']}")
+        return 0 if ok else 1
+
+    # ---- Newton: N parallel worlds, state-only --------------------------
+    world_count: int = args.world_count
     print(f"[eval] world_count:   {world_count}")
     print(f"[eval] device:        {args.device}")
     print(f"[eval] max_steps:     {args.max_steps}")
