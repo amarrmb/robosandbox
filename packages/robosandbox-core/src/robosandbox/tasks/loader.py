@@ -43,6 +43,8 @@ class Task:
     seed_note: str = ""
     randomize: dict[str, Any] | None = None
     supported_backends: tuple[str, ...] = ("mujoco",)
+    backend_override: str | None = None
+    backend_kwargs: dict[str, Any] | None = None
 
 
 def _pose_from_dict(d: dict[str, Any]) -> Pose:
@@ -226,6 +228,9 @@ def load_task(path: Path) -> Task:
                 )
     raw_backends = raw.get("supported_backends", ["mujoco"])
     raw_success = raw.get("success") or {}
+    raw_backend_kwargs = raw.get("backend_kwargs")
+    if raw_backend_kwargs is not None and not isinstance(raw_backend_kwargs, dict):
+        raise ValueError(f"task {path}: 'backend_kwargs:' must be a mapping")
     return Task(
         name=str(raw.get("name", path.stem)),
         scene=scene,
@@ -234,6 +239,8 @@ def load_task(path: Path) -> Task:
         seed_note=str(raw.get("seed_note", "")),
         randomize=randomize,
         supported_backends=tuple(str(b) for b in raw_backends),
+        backend_override=str(raw["backend_override"]) if raw.get("backend_override") else None,
+        backend_kwargs=raw_backend_kwargs,
     )
 
 

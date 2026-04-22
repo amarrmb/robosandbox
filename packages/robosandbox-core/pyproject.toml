@@ -56,6 +56,7 @@ robo-sandbox-bench = "robosandbox.tasks.runner:main"
 [project.entry-points."robosandbox.sim"]
 mujoco = "robosandbox.sim.mujoco_backend:MuJoCoBackend"
 newton = "robosandbox.sim.newton_backend:NewtonBackend"
+newton_cloth = "robosandbox.sim.newton_backend:NewtonClothBackend"
 
 [project.entry-points."robosandbox.perception"]
 ground_truth = "robosandbox.perception.ground_truth:GroundTruthPerception"

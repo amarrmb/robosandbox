@@ -1,8 +1,12 @@
 name: cloth_fold_franka
 prompt: "fold the cloth on the table"
-seed_note: "Newton-only: Franka Panda + cloth mesh via Warp VBD solver. Scene geometry sourced from Newton upstream cloth example (USD-based). success_criterion is null pending deformable-body metric."
+seed_note: "Newton-only: Franka + cloth mesh via Warp VBD solver. Scene built from Newton upstream USD assets. success_criterion null pending deformable-body metric."
 supported_backends:
   - newton
+  - newton_cloth
+backend_override: newton_cloth
+backend_kwargs:
+  world_count: 1
 scene:
   robot_urdf: "@builtin:robots/franka_panda/panda.xml"
   robot_config: "@builtin:robots/franka_panda/panda.robosandbox.yaml"

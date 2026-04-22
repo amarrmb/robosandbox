@@ -1,8 +1,12 @@
 name: cloth_fold_franka_x10
 prompt: "fold the cloth on the table"
-seed_note: "Newton-only: 10 parallel GPU worlds (world_count=10) each running cloth_fold_franka. Demonstrates policy evaluation at scale. Viser aggregates all 10 worlds in a single 3D view."
+seed_note: "Newton-only: 10 parallel GPU worlds each running cloth_fold_franka. Demonstrates GPU-parallel policy evaluation. Viser aggregates all 10 worlds in a single 3D view."
 supported_backends:
   - newton
+  - newton_cloth
+backend_override: newton_cloth
+backend_kwargs:
+  world_count: 10
 scene:
   robot_urdf: "@builtin:robots/franka_panda/panda.xml"
   robot_config: "@builtin:robots/franka_panda/panda.robosandbox.yaml"
