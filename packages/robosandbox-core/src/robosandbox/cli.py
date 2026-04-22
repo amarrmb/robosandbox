@@ -94,6 +94,17 @@ def main(argv: list[str] | None = None) -> int:
     exp_p.add_argument("--task", default=None, help="Override task string")
     exp_p.add_argument("--fps", type=int, default=30)
 
+    eval_p = sub.add_parser(
+        "eval",
+        help="GPU-parallel policy evaluation via Newton multi-world backend",
+    )
+    eval_p.add_argument("--task", required=True, help="Built-in task name (e.g. pick_cube_franka)")
+    eval_p.add_argument("--policy", required=True, help="Path to policy checkpoint or episode dir")
+    eval_p.add_argument("--world-count", type=int, default=64, help="Number of parallel Newton worlds")
+    eval_p.add_argument("--max-steps", type=int, default=500, help="Max sim steps per world")
+    eval_p.add_argument("--settle-steps", type=int, default=100, help="Physics settle steps before eval")
+    eval_p.add_argument("--device", default="cuda:0", help="GPU device for Newton")
+
     viz_p = sub.add_parser(
         "download-franka-visuals",
         help="Download full-resolution Franka visual meshes from mujoco_menagerie "
@@ -171,6 +182,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"Exported LeRobot dataset to: {out}")
         return 0
+    elif args.cmd == "eval":
+        return _eval_parallel_cli(args)
     elif args.cmd == "download-franka-visuals":
         from robosandbox.assets.franka_visuals import cli as download_cli
 
@@ -300,6 +313,79 @@ def _simulate_cli(args: argparse.Namespace) -> int:
     finally:
         sim.close()
     return 0
+
+
+def _eval_parallel_cli(args: argparse.Namespace) -> int:
+    """GPU-parallel policy evaluation using Newton multi-world backend."""
+    from pathlib import Path
+
+    from robosandbox.policy import load_policy, run_eval_parallel
+    from robosandbox.sim import create_sim_backend
+    from robosandbox.tasks.loader import load_builtin_task
+
+    try:
+        task = load_builtin_task(args.task)
+    except FileNotFoundError as e:
+        print(f"[eval] {e}", file=sys.stderr)
+        return 2
+
+    if "newton" not in task.supported_backends:
+        print(
+            f"[eval] task {args.task!r} does not support the newton backend "
+            f"(supported: {', '.join(task.supported_backends)})",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        policy = load_policy(Path(args.policy))
+    except (ImportError, FileNotFoundError, ValueError) as e:
+        print(f"[eval] failed to load policy: {e}", file=sys.stderr)
+        return 2
+
+    world_count: int = args.world_count
+    print(f"[eval] task:          {task.name}")
+    print(f"[eval] policy:        {args.policy}")
+    print(f"[eval] world_count:   {world_count}")
+    print(f"[eval] device:        {args.device}")
+    print(f"[eval] max_steps:     {args.max_steps}")
+
+    try:
+        sim = create_sim_backend(
+            "newton",
+            render_size=(240, 320),
+            camera="scene",
+            viewer="null",
+            device=args.device,
+            world_count=world_count,
+        )
+    except (ImportError, ValueError) as e:
+        print(f"[eval] failed to create Newton backend: {e}", file=sys.stderr)
+        return 2
+
+    sim.load(task.scene)
+    try:
+        result = run_eval_parallel(
+            sim,
+            policy,
+            max_steps=args.max_steps,
+            success=task.success,
+            settle_steps=args.settle_steps,
+        )
+    finally:
+        sim.close()
+
+    n = result["n_worlds"]
+    s = result["successes"]
+    rate_pct = result["rate"] * 100.0
+    wall = result["wall"]
+    throughput = result["throughput"]
+
+    print(f"[eval] successes:     {s} / {n}  ({rate_pct:.1f}%)")
+    print(f"[eval] steps:         {result['steps']}")
+    print(f"[eval] wall:          {wall:.1f}s")
+    print(f"[eval] throughput:    {throughput:,.0f} env-steps/s")
+    return 0 if s > 0 else 1
 
 
 if __name__ == "__main__":

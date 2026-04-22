@@ -9,10 +9,20 @@ This is intentionally narrower than the MuJoCo backend today:
 
 The point of this backend is to make Newton a first-class integration
 surface for scene loading, policy replay, and interactive viewer demos.
+
+Multi-world (world_count > 1)
+------------------------------
+Pass ``world_count=N`` to run N identical scenes in parallel on one GPU.
+Newton tiles the worlds in a 2-D grid with 2.5 m spacing so they don't
+interfere physically.  ``observe_all()`` returns one Observation per world;
+``step()`` broadcasts the same joint targets to every world.  This is
+exactly what GPU-parallel policy evaluation needs.
 """
 
 from __future__ import annotations
 
+import copy
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -66,8 +76,22 @@ class _RobotConfig:
     ee_offset_xyz: tuple[float, float, float]
 
 
+def _grid_offsets(n: int, spacing: float = 2.5) -> list[tuple[float, float, float]]:
+    """Lay out N worlds in a square-ish grid with ``spacing`` metres between centres."""
+    cols = int(math.ceil(math.sqrt(n)))
+    rows = int(math.ceil(n / cols))
+    offsets: list[tuple[float, float, float]] = []
+    for i in range(n):
+        r, c = i // cols, i % cols
+        x = (c - (cols - 1) * 0.5) * spacing
+        y = (r - (rows - 1) * 0.5) * spacing
+        offsets.append((x, y, 0.0))
+    return offsets
+
+
 class NewtonBackend:
-    """Experimental Newton-backed simulator."""
+    """Newton rigid-body sim backend.  Supports ``world_count`` ≥ 1 for
+    GPU-parallel policy evaluation."""
 
     def __init__(
         self,
@@ -77,6 +101,7 @@ class NewtonBackend:
         port: int = 8080,
         device: str = "cuda:0",
         dt: float = 1.0 / 240.0,
+        world_count: int = 1,
     ):
         self._render_h, self._render_w = render_size
         self._camera = camera
@@ -84,6 +109,7 @@ class NewtonBackend:
         self._port = int(port)
         self._device = device
         self._dt = float(dt)
+        self._world_count = max(1, int(world_count))
 
         self._scene: Scene | None = None
         self._robot: _RobotConfig | None = None
@@ -100,13 +126,22 @@ class NewtonBackend:
         self._viewer_null_cls: Any = None
         self._viewer_viser_cls: Any = None
 
+        # Per-world layout (set during load)
+        self._bodies_per_world: int = 0
+        self._dof_per_world: int = 0
+        # Indices *within one world* (0-indexed from world start)
+        self._w_arm_q: list[int] = []       # relative joint_q indices for arm
+        self._w_gripper_q: list[int] = []   # relative joint_q indices for fingers
+        self._w_ee_body: int = -1           # relative body index for EE
+        self._w_obj_body: dict[str, int] = {}  # obj_id -> relative body index
+
         self._arm_joint_names: list[str] = []
-        self._arm_joint_q_indices: list[int] = []
-        self._gripper_joint_q_indices: list[int] = []
-        self._ee_body_idx: int = -1
         self._ee_offset_xyz: tuple[float, float, float] = (0.0, 0.0, 0.0)
-        self._obj_body_indices: dict[str, int] = {}
         self._t: float = 0.0
+
+    # ------------------------------------------------------------------
+    # Runtime bootstrap
+    # ------------------------------------------------------------------
 
     def _ensure_runtime(self) -> None:
         if self._newton is not None:
@@ -120,7 +155,6 @@ class NewtonBackend:
             raise ImportError(
                 "Newton backend requires `warp` and `newton` installed in the active environment"
             ) from e
-
         self._wp = wp
         self._newton = newton
         self._joint_target_mode = JointTargetMode
@@ -140,16 +174,20 @@ class NewtonBackend:
             ee_offset_xyz=tuple(float(v) for v in raw["ee_site"]["inject"]["xyz"]),
         )
 
-    def _create_viewer(self):
+    def _create_viewer(self) -> Any:
         if self._viewer_kind == "null":
             return self._viewer_null_cls(num_frames=1_000_000)
         if self._viewer_kind == "viser":
             return self._viewer_viser_cls(port=self._port)
         raise ValueError(f"unknown Newton viewer {self._viewer_kind!r}")
 
-    def _build_model(self, scene: Scene):
+    # ------------------------------------------------------------------
+    # Model building
+    # ------------------------------------------------------------------
+
+    def _build_single_builder(self, scene: Scene) -> Any:
+        """Build an unfinalized ModelBuilder for one world."""
         assert scene.robot_urdf is not None
-        assert scene.robot_config is not None
         assert self._robot is not None
 
         wp = self._wp
@@ -174,9 +212,7 @@ class NewtonBackend:
         )
         builder.add_shape_box(
             body=-1,
-            hx=hx,
-            hy=hy,
-            hz=table_thickness,
+            hx=hx, hy=hy, hz=table_thickness,
             xform=wp.transform(table_center, wp.quat_identity()),
         )
         builder.add_ground_plane()
@@ -189,12 +225,12 @@ class NewtonBackend:
             x, y, z = obj.pose.xyz
             qx, qy, qz, qw = obj.pose.quat_xyzw
             sx, sy, sz = obj.size
-            body = builder.add_body(
+            builder.add_body(
                 xform=wp.transform(wp.vec3(x, y, z), wp.quat(qx, qy, qz, qw)),
                 mass=float(obj.mass),
                 label=obj.id,
             )
-            builder.add_shape_box(body=body, hx=sx, hy=sy, hz=sz)
+            builder.add_shape_box(body=builder.body_count - 1, hx=sx, hy=sy, hz=sz)
 
         target_q = [*self._robot.home_qpos, self._robot.gripper_open_qpos, self._robot.gripper_open_qpos]
         builder.joint_q[: len(target_q)] = target_q
@@ -203,24 +239,73 @@ class NewtonBackend:
         builder.joint_target_kd[: len(target_q)] = [450, 450, 350, 350, 200, 200, 200, 10, 10]
         for i in range(len(target_q)):
             builder.joint_target_mode[i] = int(self._joint_target_mode.POSITION)
-        return builder.finalize()
+        return builder
 
-    def _find_joint_q_index(self, joint_name: str) -> int:
-        assert self._model is not None
-        labels = list(self._model.joint_label)
-        starts = self._model.joint_q_start.numpy()
+    def _build_model(self, scene: Scene) -> Any:
+        single = self._build_single_builder(scene)
+
+        # Record per-world layout sizes from the unfinalized builder
+        self._bodies_per_world = single.body_count
+        self._dof_per_world = single.joint_coord_count
+
+        # Discover joint/body indices from a finalized single-world model
+        ref_model = copy.deepcopy(single).finalize()
+        self._w_arm_q = [self._find_joint_q_index_in(ref_model, n) for n in self._robot.arm_joint_names]
+        self._w_gripper_q = [self._find_joint_q_index_in(ref_model, n) for n in self._robot.gripper_joint_names]
+        self._w_ee_body = self._find_body_index_in(ref_model, self._robot.ee_attach_body)
+        self._w_obj_body = {obj.id: self._find_body_index_in(ref_model, obj.id) for obj in scene.objects}
+
+        if self._world_count == 1:
+            return single.finalize()
+
+        # Tile N worlds in a grid
+        wp = self._wp
+        newton = self._newton
+        multi = newton.ModelBuilder()
+        for ox, oy, oz in _grid_offsets(self._world_count):
+            multi.add_world(
+                single,
+                xform=wp.transform(wp.vec3(ox, oy, oz), wp.quat_identity()),
+            )
+        return multi.finalize()
+
+    # ------------------------------------------------------------------
+    # Index helpers
+    # ------------------------------------------------------------------
+
+    def _find_joint_q_index_in(self, model: Any, joint_name: str) -> int:
+        labels = list(model.joint_label)
+        starts = model.joint_q_start.numpy()
         for i, label in enumerate(labels):
             if label.endswith(f"/{joint_name}") or label == joint_name:
                 return int(starts[i])
         raise KeyError(f"joint {joint_name!r} not found in Newton model")
 
-    def _find_body_index(self, body_name: str) -> int:
-        assert self._model is not None
-        labels = list(self._model.body_label)
+    def _find_body_index_in(self, model: Any, body_name: str) -> int:
+        labels = list(model.body_label)
         for i, label in enumerate(labels):
             if label.endswith(f"/{body_name}") or label == body_name:
                 return i
         raise KeyError(f"body {body_name!r} not found in Newton model")
+
+    # absolute index for world w
+    def _arm_q_abs(self, w: int) -> list[int]:
+        off = w * self._dof_per_world
+        return [off + i for i in self._w_arm_q]
+
+    def _gripper_q_abs(self, w: int) -> list[int]:
+        off = w * self._dof_per_world
+        return [off + i for i in self._w_gripper_q]
+
+    def _ee_body_abs(self, w: int) -> int:
+        return w * self._bodies_per_world + self._w_ee_body
+
+    def _obj_body_abs(self, obj_id: str, w: int) -> int:
+        return w * self._bodies_per_world + self._w_obj_body[obj_id]
+
+    # ------------------------------------------------------------------
+    # Viewer
+    # ------------------------------------------------------------------
 
     def _log_viewer_state(self) -> None:
         if self._viewer is None or self._state_0 is None:
@@ -229,17 +314,16 @@ class NewtonBackend:
         self._viewer.log_state(self._state_0)
         self._viewer.end_frame()
 
-    def _write_control_targets(self, target: np.ndarray) -> None:
-        assert self._control is not None
-        arr = self._wp.array(target, dtype=self._control.joint_target_pos.dtype)
-        self._wp.copy(self._control.joint_target_pos, arr)
+    # ------------------------------------------------------------------
+    # SimBackend protocol
+    # ------------------------------------------------------------------
 
     def load(self, scene: Scene) -> None:
         self._ensure_runtime()
         self._wp.set_device(self._device)
         if scene.robot_urdf is None or scene.robot_config is None:
             raise NotImplementedError(
-                "Newton backend currently requires an explicit robot_urdf and robot_config"
+                "Newton backend requires an explicit robot_urdf and robot_config"
             )
         self._scene = scene
         self._robot = self._load_robot_config(scene.robot_config)
@@ -247,21 +331,12 @@ class NewtonBackend:
         self._ee_offset_xyz = self._robot.ee_offset_xyz
 
         self._model = self._build_model(scene)
-        self._arm_joint_q_indices = [
-            self._find_joint_q_index(name) for name in self._robot.arm_joint_names
-        ]
-        self._gripper_joint_q_indices = [
-            self._find_joint_q_index(name) for name in self._robot.gripper_joint_names
-        ]
-        self._ee_body_idx = self._find_body_index(self._robot.ee_attach_body)
-        self._obj_body_indices = {}
-        for obj in scene.objects:
-            self._obj_body_indices[obj.id] = self._find_body_index(obj.id)
-
         self._viewer = self._create_viewer()
         self._viewer.set_model(self._model)
         if hasattr(self._viewer, "set_camera"):
-            self._viewer.set_camera(pos=self._wp.vec3(1.1, -1.4, 0.9), pitch=-18.0, yaw=45.0)
+            self._viewer.set_camera(
+                pos=self._wp.vec3(1.1, -1.4, 0.9), pitch=-18.0, yaw=45.0
+            )
         self.reset()
 
     def reset(self) -> None:
@@ -288,22 +363,19 @@ class NewtonBackend:
         gripper: float | None = None,
     ) -> None:
         assert self._state_0 is not None
-        assert self._state_1 is not None
         assert self._control is not None
-        assert self._contacts is not None
-        assert self._solver is not None
-        assert self._robot is not None
 
         if target_joints is not None:
             arr = np.asarray(target_joints, dtype=np.float64).ravel()
-            if arr.shape != (len(self._arm_joint_q_indices),):
-                raise ValueError(
-                    f"target_joints must have shape ({len(self._arm_joint_q_indices)},), got {arr.shape}"
-                )
+            n_arm = len(self._w_arm_q)
+            if arr.shape != (n_arm,):
+                raise ValueError(f"target_joints must have shape ({n_arm},), got {arr.shape}")
             target = self._control.joint_target_pos.numpy()
-            for q_idx, q in zip(self._arm_joint_q_indices, arr):
-                target[q_idx] = float(q)
-            self._write_control_targets(target)
+            for w in range(self._world_count):
+                for local_q, q in zip(self._w_arm_q, arr):
+                    target[w * self._dof_per_world + local_q] = float(q)
+            arr_wp = self._wp.array(target, dtype=self._control.joint_target_pos.dtype)
+            self._wp.copy(self._control.joint_target_pos, arr_wp)
 
         if gripper is not None:
             t = float(np.clip(gripper, 0.0, 1.0))
@@ -312,9 +384,11 @@ class NewtonBackend:
                 + self._robot.gripper_closed_qpos * t
             )
             target = self._control.joint_target_pos.numpy()
-            for q_idx in self._gripper_joint_q_indices:
-                target[q_idx] = finger_q
-            self._write_control_targets(target)
+            for w in range(self._world_count):
+                for local_q in self._w_gripper_q:
+                    target[w * self._dof_per_world + local_q] = finger_q
+            arr_wp = self._wp.array(target, dtype=self._control.joint_target_pos.dtype)
+            self._wp.copy(self._control.joint_target_pos, arr_wp)
 
         self._state_0.clear_forces()
         self._model.collide(self._state_0, self._contacts)
@@ -323,34 +397,27 @@ class NewtonBackend:
         self._t += self._dt
         self._log_viewer_state()
 
-    def _ee_pose(self) -> Pose:
-        assert self._state_0 is not None
-        row = self._state_0.body_q.numpy()[self._ee_body_idx]
-        body_pose = _body_pose_from_row(row)
-        rotated = _rotate_vec(body_pose.quat_xyzw, self._ee_offset_xyz)
-        xyz = np.asarray(body_pose.xyz, dtype=np.float64) + rotated
-        return Pose(
-            xyz=(float(xyz[0]), float(xyz[1]), float(xyz[2])),
-            quat_xyzw=body_pose.quat_xyzw,
-        )
-
-    def _body_pose(self, body_idx: int) -> Pose:
-        assert self._state_0 is not None
-        row = self._state_0.body_q.numpy()[body_idx]
-        return _body_pose_from_row(row)
-
-    def observe(self) -> Observation:
-        assert self._state_0 is not None
-        q = self._state_0.joint_q.numpy()
-        arm_joints = np.array([q[i] for i in self._arm_joint_q_indices], dtype=np.float64)
-        finger_positions = [float(q[i]) for i in self._gripper_joint_q_indices]
+    def _obs_for_world(self, w: int, q: np.ndarray, body_q: np.ndarray) -> Observation:
+        arm_joints = np.array([q[self._dof_per_world * w + i] for i in self._w_arm_q], dtype=np.float64)
+        finger_positions = [float(q[self._dof_per_world * w + i]) for i in self._w_gripper_q]
         gripper_width = float(sum(abs(v) for v in finger_positions))
-        objects = {oid: self._body_pose(idx) for oid, idx in self._obj_body_indices.items()}
+        ee_row = body_q[self._ee_body_abs(w)]
+        ee_body_pose = _body_pose_from_row(ee_row)
+        rotated = _rotate_vec(ee_body_pose.quat_xyzw, self._ee_offset_xyz)
+        ee_xyz = np.asarray(ee_body_pose.xyz, dtype=np.float64) + rotated
+        ee_pose = Pose(
+            xyz=(float(ee_xyz[0]), float(ee_xyz[1]), float(ee_xyz[2])),
+            quat_xyzw=ee_body_pose.quat_xyzw,
+        )
+        objects = {
+            oid: _body_pose_from_row(body_q[self._obj_body_abs(oid, w)])
+            for oid in self._w_obj_body
+        }
         return Observation(
             rgb=np.zeros((self._render_h, self._render_w, 3), dtype=np.uint8),
             depth=None,
             robot_joints=arm_joints,
-            ee_pose=self._ee_pose(),
+            ee_pose=ee_pose,
             gripper_width=gripper_width,
             scene_objects=objects,
             timestamp=self._t,
@@ -358,16 +425,32 @@ class NewtonBackend:
             camera_extrinsics=None,
         )
 
+    def observe(self) -> Observation:
+        """World-0 observation (backward-compatible single-world interface)."""
+        assert self._state_0 is not None
+        q = self._state_0.joint_q.numpy()
+        body_q = self._state_0.body_q.numpy()
+        return self._obs_for_world(0, q, body_q)
+
+    def observe_all(self) -> list[Observation]:
+        """One Observation per parallel world."""
+        assert self._state_0 is not None
+        q = self._state_0.joint_q.numpy()
+        body_q = self._state_0.body_q.numpy()
+        return [self._obs_for_world(w, q, body_q) for w in range(self._world_count)]
+
     def get_object_pose(self, object_id: str) -> Pose | None:
-        body_idx = self._obj_body_indices.get(object_id)
-        if body_idx is None:
+        if object_id not in self._w_obj_body or self._state_0 is None:
             return None
-        return self._body_pose(body_idx)
+        body_q = self._state_0.body_q.numpy()
+        return _body_pose_from_row(body_q[self._obj_body_abs(object_id, 0)])
 
     def set_object_pose(self, object_id: str, pose: Pose) -> None:
-        raise NotImplementedError(
-            "Newton backend does not yet support teleporting objects in-place"
-        )
+        raise NotImplementedError("Newton backend does not support teleporting objects in-place")
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
 
     @property
     def n_dof(self) -> int:
@@ -381,3 +464,7 @@ class NewtonBackend:
     def home_qpos(self) -> np.ndarray:
         assert self._robot is not None
         return np.asarray(self._robot.home_qpos, dtype=np.float64)
+
+    @property
+    def n_worlds(self) -> int:
+        return self._world_count

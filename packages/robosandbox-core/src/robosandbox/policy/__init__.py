@@ -42,6 +42,7 @@ __all__ = [
     "Policy",
     "ReplayTrajectoryPolicy",
     "load_policy",
+    "run_eval_parallel",
     "run_policy",
 ]
 
@@ -197,6 +198,92 @@ def run_policy(
         "initial_obs": initial_obs,
         "final_obs": final_obs,
         "last_obs_before_final": last_obs,
+    }
+
+
+# ---- run_eval_parallel -------------------------------------------------
+
+
+def run_eval_parallel(
+    sim: Any,
+    policy: Policy,
+    max_steps: int = 500,
+    *,
+    success: Any = None,
+    settle_steps: int = 100,
+) -> dict:
+    """GPU-parallel policy evaluation across all worlds in ``sim``.
+
+    Calls ``sim.observe_all()`` once per step, runs ``policy.act`` on
+    world-0's observation (broadcast to all worlds), then checks
+    ``success`` per world.  Returns aggregated stats.
+
+    ``sim`` must expose ``observe_all() -> list[Observation]`` and
+    ``n_worlds: int`` — i.e., a :class:`~robosandbox.sim.newton_backend.NewtonBackend`
+    with ``world_count > 1`` (also works with ``world_count=1``).
+    """
+    import time
+
+    n_worlds: int = getattr(sim, "n_worlds", 1)
+    n_dof: int = getattr(sim, "n_dof", 6)
+
+    observe_all = getattr(sim, "observe_all", None)
+    if observe_all is None:
+        raise TypeError("sim must expose observe_all() for parallel eval")
+
+    # Settle physics before recording initial state
+    for _ in range(settle_steps):
+        sim.step()
+
+    initial_obs_all: list[Any] = observe_all()
+
+    done = [False] * n_worlds
+    success_per_world = [False] * n_worlds
+    steps_done = 0
+
+    t0 = time.time()
+    for _ in range(max_steps):
+        obs_all: list[Any] = observe_all()
+        # Drive policy on world-0 observation; broadcast to all worlds
+        obs_0 = obs_all[0]
+        action = np.asarray(policy.act(obs_0), dtype=np.float64).ravel()
+        if action.shape != (n_dof + 1,):
+            raise ValueError(
+                f"policy.act must return shape ({n_dof + 1},), got {action.shape}"
+            )
+        target_joints = action[:n_dof]
+        gripper = float(action[n_dof])
+        sim.step(target_joints=target_joints, gripper=gripper)
+        steps_done += 1
+
+        # Evaluate success criterion per world
+        if success is not None:
+            from robosandbox.tasks.runner import _eval_criterion
+
+            for w in range(n_worlds):
+                if done[w]:
+                    continue
+                ok, _ = _eval_criterion(success, initial_obs_all[w], obs_all[w])
+                if ok:
+                    success_per_world[w] = True
+                    done[w] = True
+
+            if all(done):
+                break
+
+    wall = time.time() - t0
+    n_success = sum(success_per_world)
+    total_env_steps = steps_done * n_worlds
+    throughput = total_env_steps / wall if wall > 0 else 0.0
+
+    return {
+        "n_worlds": n_worlds,
+        "successes": n_success,
+        "rate": n_success / n_worlds if n_worlds > 0 else 0.0,
+        "steps": steps_done,
+        "wall": wall,
+        "throughput": throughput,
+        "success_per_world": success_per_world,
     }
 
 
