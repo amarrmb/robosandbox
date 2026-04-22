@@ -128,6 +128,10 @@ Both use the same agent loop — only the planner changes.
 
 - **[Quickstart](quickstart.md)** — install, open the viewer, record an
   episode. 5 minutes end-to-end.
+- **Start here if you want the product thesis first** —
+  [Why RoboSandbox exists](concepts/why-robosandbox-exists.md) explains
+  the robot loop, where modern model families fit, and what problem
+  RoboSandbox is actually trying to solve.
 - **Concepts** — [Scenes & objects](concepts/scenes.md), [Skills & agents](concepts/skills-and-agents.md), [Perception & grasping](concepts/perception-and-grasping.md), [Recording & export](concepts/recording-and-export.md), [Real-robot bridge](concepts/real-robot.md).
 - **Tutorials** — [Custom arm](tutorials/custom-arm.md), [Custom task](tutorials/custom-task.md), [Custom skill](tutorials/custom-skill.md), [Policy replay](tutorials/policy-replay.md).
 - **Reference** — [CLI](reference/cli.md), [API](reference/api.md),

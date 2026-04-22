@@ -81,6 +81,7 @@ nav:
       - Reachability pre-flight: guides/reachability.md
       - Replan loop: guides/replan-loop.md
   - Concepts:
+      - Why RoboSandbox exists: concepts/why-robosandbox-exists.md
       - Scenes & objects: concepts/scenes.md
       - Skills & agents: concepts/skills-and-agents.md
       - Perception & grasping: concepts/perception-and-grasping.md
