@@ -23,16 +23,24 @@ NEWTON_VENV=${NEWTON_VENV:-/home/amar/newton/.venv}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+SKIP_NEWTON=0
 if [ -f "$NEWTON_VENV/bin/python3" ]; then
   # Ensure robosandbox is installed in the newton venv (idempotent, quiet)
   echo "[setup] Installing robosandbox into Newton venv: $NEWTON_VENV"
   "$NEWTON_VENV/bin/pip" install -q -e "$REPO_ROOT/packages/robosandbox-core"
   NEWTON_CLI="$NEWTON_VENV/bin/robo-sandbox"
 else
-  # Fall back to system robo-sandbox — will fail if warp not in PATH Python
-  echo "[setup] Newton venv not found at $NEWTON_VENV — using system robo-sandbox"
-  echo "        (Set NEWTON_VENV=/path/to/venv if warp is installed elsewhere)"
-  NEWTON_CLI="robo-sandbox"
+  # Check if warp is available in the system Python
+  if python3 -c "import warp" 2>/dev/null; then
+    echo "[setup] warp found in system Python — using system robo-sandbox"
+    NEWTON_CLI="robo-sandbox"
+  else
+    echo "[setup] Newton venv not found at $NEWTON_VENV and warp not in system Python"
+    echo "        Step 3 (Newton eval) will be SKIPPED on this machine."
+    echo "        To enable: set NEWTON_VENV=/path/to/venv with warp installed."
+    SKIP_NEWTON=1
+    NEWTON_CLI="robo-sandbox"  # unused when SKIP_NEWTON=1
+  fi
 fi
 
 echo "========================================"
@@ -80,18 +88,23 @@ fi
 echo ""
 
 # ---- Step 3: Newton eval (N parallel worlds, validates parallel harness) ----
-echo "[ 3/3 ] Newton eval ($WORLD_COUNT parallel worlds) via: $NEWTON_CLI"
-"$NEWTON_CLI" eval \
-  --task "$TASK" \
-  --policy "$EPISODE_DIR" \
-  --sim-backend newton \
-  --world-count "$WORLD_COUNT" \
-  --max-steps 600 && NEWTON_EXIT=0 || NEWTON_EXIT=$?
-if [ $NEWTON_EXIT -eq 0 ] || [ $NEWTON_EXIT -eq 1 ]; then
-  echo "    harness ran cleanly (exit $NEWTON_EXIT)"
+if [ $SKIP_NEWTON -eq 1 ]; then
+  echo "[ 3/3 ] Newton eval — SKIPPED (warp not available, run on GPU machine)"
+  NEWTON_EXIT="skipped"
 else
-  echo "ERROR: Newton eval crashed (exit $NEWTON_EXIT)"
-  exit $NEWTON_EXIT
+  echo "[ 3/3 ] Newton eval ($WORLD_COUNT parallel worlds) via: $NEWTON_CLI"
+  "$NEWTON_CLI" eval \
+    --task "$TASK" \
+    --policy "$EPISODE_DIR" \
+    --sim-backend newton \
+    --world-count "$WORLD_COUNT" \
+    --max-steps 600 && NEWTON_EXIT=0 || NEWTON_EXIT=$?
+  if [ $NEWTON_EXIT -eq 0 ] || [ $NEWTON_EXIT -eq 1 ]; then
+    echo "    harness ran cleanly (exit $NEWTON_EXIT)"
+  else
+    echo "ERROR: Newton eval crashed (exit $NEWTON_EXIT)"
+    exit $NEWTON_EXIT
+  fi
 fi
 echo ""
 

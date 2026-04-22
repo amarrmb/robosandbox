@@ -487,11 +487,11 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
             device=args.device,
             world_count=world_count,
         )
+        sim.load(task.scene)
     except (ImportError, ValueError) as e:
         print(f"[eval] failed to create Newton backend: {e}", file=sys.stderr)
         return 2
 
-    sim.load(task.scene)
     try:
         result = run_eval_parallel(
             sim,
