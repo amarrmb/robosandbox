@@ -15,7 +15,6 @@ from typing import Any
 _BUILTIN_BACKENDS: dict[str, str] = {
     "mujoco": "robosandbox.sim.mujoco_backend:MuJoCoBackend",
     "newton": "robosandbox.sim.newton_backend:NewtonBackend",
-    "newton_cloth": "robosandbox.sim.newton_backend:NewtonClothBackend",
 }
 
 

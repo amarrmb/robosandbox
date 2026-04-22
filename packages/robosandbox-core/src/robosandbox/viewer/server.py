@@ -101,7 +101,6 @@ class SimThread(threading.Thread):
         super().__init__(daemon=True, name="robosandbox-viewer-sim")
         self._backend = backend
         self._backend_kwargs: dict = backend_kwargs or {}
-        self._active_backend: str = backend  # updated per task when backend_override is set
         self._cmds: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.frames: queue.Queue[bytes] = queue.Queue(maxsize=2)
         self.events: queue.Queue[dict] = queue.Queue()
@@ -128,32 +127,17 @@ class SimThread(threading.Thread):
     def run(self) -> None:
         idle_dt = 1.0 / _IDLE_HZ
         while not self._stop.is_set():
-            # Cloth backends need continuous stepping; use non-blocking command
-            # check so we spin as fast as the physics allows.
-            if (
-                self._sim is not None
-                and getattr(self._sim, "continuous_step", False)
-            ):
-                try:
-                    cmd = self._cmds.get_nowait()
-                except queue.Empty:
-                    try:
-                        self._sim.step()
-                    except Exception as e:  # pragma: no cover
-                        self._emit({"type": "error", "message": str(e)})
-                    continue
-            else:
-                try:
-                    cmd = self._cmds.get(timeout=idle_dt)
-                except queue.Empty:
-                    cmd = None
-                if cmd is None:
-                    # MuJoCo only: push a live frame at idle rate so the browser
-                    # sees the scene even when nothing is happening. Newton's
-                    # visual output is Viser — no JPEG to publish.
-                    if self._sim is not None and self._active_backend == "mujoco" and not self._inspecting:
-                        self._publish_frame()
-                    continue
+            try:
+                cmd = self._cmds.get(timeout=idle_dt)
+            except queue.Empty:
+                cmd = None
+            if cmd is None:
+                # MuJoCo only: push a live frame at idle rate so the browser
+                # sees the scene even when nothing is happening. Newton's
+                # visual output is Viser — no JPEG to publish.
+                if self._sim is not None and self._backend == "mujoco" and not self._inspecting:
+                    self._publish_frame()
+                continue
             kind, args = cmd
             try:
                 if kind == "load":
@@ -193,25 +177,17 @@ class SimThread(threading.Thread):
         self._trajectory.clear()
         self._inspecting = False
         task = load_builtin_task(task_name)
-        # Tasks may declare a backend_override (e.g. newton_cloth) that takes
-        # precedence over the server-level --sim-backend.
-        effective_backend = task.backend_override or self._backend
-        self._active_backend = effective_backend
         kwargs = dict(self._backend_kwargs)
-        if task.backend_kwargs:
-            kwargs.update(task.backend_kwargs)
-        if effective_backend == "mujoco":
+        if self._backend == "mujoco":
             kwargs.setdefault("render_size", _RENDER_SIZE)
-        sim = create_sim_backend(effective_backend, **kwargs)
+        sim = create_sim_backend(self._backend, **kwargs)
         sim.load(task.scene)
-        # Settle physics. Cloth backends run their own substep loop per step()
-        # call so 60 frames here initialises a stable cloth drape.
         for _ in range(60):
             sim.step()
         self._sim = sim
         self._task_name = task_name
         self._task_prompt = task.prompt
-        if effective_backend == "mujoco":
+        if self._backend == "mujoco":
             self._publish_frame()
         self._emit(
             {
@@ -250,7 +226,7 @@ class SimThread(threading.Thread):
         )
         step_counter = {"n": 0}
 
-        is_mujoco = self._active_backend == "mujoco"
+        is_mujoco = self._backend == "mujoco"
 
         def on_step() -> None:
             step_counter["n"] += 1
