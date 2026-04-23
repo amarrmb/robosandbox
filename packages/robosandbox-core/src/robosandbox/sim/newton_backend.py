@@ -241,7 +241,15 @@ class NewtonBackend:
             builder.joint_target_mode[i] = int(self._joint_target_mode.POSITION)
         return builder
 
-    def _build_model(self, scene: Scene) -> Any:
+    def _build_model(
+        self,
+        scene: Scene,
+        *,
+        per_world_scenes: list[Scene] | None = None,
+    ) -> Any:
+        # `single` defines the per-world topology used for index discovery.
+        # When `per_world_scenes` is set, every entry must have matching
+        # topology — `load()` already validated that.
         single = self._build_single_builder(scene)
 
         # Record per-world layout sizes from the unfinalized builder
@@ -256,15 +264,26 @@ class NewtonBackend:
         self._w_obj_body = {obj.id: self._find_body_index_in(ref_model, obj.id) for obj in scene.objects}
 
         if self._world_count == 1:
+            # World 0 honours the per-world scene if one was passed.
+            if per_world_scenes is not None:
+                return self._build_single_builder(per_world_scenes[0]).finalize()
             return single.finalize()
 
-        # Tile N worlds in a grid
+        # Tile N worlds in a grid. Each world gets its own builder when
+        # per_world_scenes is set so randomization actually lands in the
+        # finalized model (object xform is baked at add_body time).
         wp = self._wp
         newton = self._newton
         multi = newton.ModelBuilder()
-        for ox, oy, oz in _grid_offsets(self._world_count):
+        for w, (ox, oy, oz) in enumerate(_grid_offsets(self._world_count)):
+            world_scene = per_world_scenes[w] if per_world_scenes is not None else scene
+            world_builder = (
+                self._build_single_builder(world_scene)
+                if per_world_scenes is not None
+                else single
+            )
             multi.add_world(
-                single,
+                world_builder,
                 xform=wp.transform(wp.vec3(ox, oy, oz), wp.quat_identity()),
             )
         return multi.finalize()
@@ -318,19 +337,44 @@ class NewtonBackend:
     # SimBackend protocol
     # ------------------------------------------------------------------
 
-    def load(self, scene: Scene) -> None:
+    def load(self, scene: Scene, *, per_world_scenes: list[Scene] | None = None) -> None:
+        """Build the multi-world model.
+
+        ``per_world_scenes``: optional list of length ``world_count``. When
+        provided, each world is built from the corresponding Scene (so e.g.
+        each world can hold a different randomized object pose). The base
+        ``scene`` still defines the robot URDF / sidecar / workspace; only
+        the per-world ``objects`` differ. Topology must match across the
+        list (same number and kinds of objects) — that is the contract
+        ``robosandbox.tasks.randomize.jitter_scene`` already satisfies.
+        """
         self._ensure_runtime()
         self._wp.set_device(self._device)
         if scene.robot_urdf is None or scene.robot_config is None:
             raise NotImplementedError(
                 "Newton backend requires an explicit robot_urdf and robot_config"
             )
+        if per_world_scenes is not None:
+            if len(per_world_scenes) != self._world_count:
+                raise ValueError(
+                    f"per_world_scenes has length {len(per_world_scenes)} but "
+                    f"world_count={self._world_count}"
+                )
+            base_kinds = tuple((o.id, o.kind) for o in scene.objects)
+            for w, ws in enumerate(per_world_scenes):
+                ws_kinds = tuple((o.id, o.kind) for o in ws.objects)
+                if ws_kinds != base_kinds:
+                    raise ValueError(
+                        f"per_world_scenes[{w}] topology differs from base scene "
+                        f"({ws_kinds} vs {base_kinds}); only pose/mass/size/rgba "
+                        f"may be randomized"
+                    )
         self._scene = scene
         self._robot = self._load_robot_config(scene.robot_config)
         self._arm_joint_names = list(self._robot.arm_joint_names)
         self._ee_offset_xyz = self._robot.ee_offset_xyz
 
-        self._model = self._build_model(scene)
+        self._model = self._build_model(scene, per_world_scenes=per_world_scenes)
         self._viewer = self._create_viewer()
         self._viewer.set_model(self._model)
         if hasattr(self._viewer, "set_camera"):

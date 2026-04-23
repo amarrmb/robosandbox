@@ -693,9 +693,21 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
         import time as _time
 
         from robosandbox.eval import summarise_eval
+        from robosandbox.tasks.randomize import jitter_scene
 
         n_trials = max(1, int(getattr(args, "n_trials", 1) or 1))
+        base_seed = getattr(args, "seed", None)
+        randomize_active = bool(task.randomize) and n_trials > 1
         print(f"[eval] n_trials:      {n_trials}")
+        if task.randomize and n_trials == 1:
+            print(
+                "[eval] note:         task has randomize spec but --n-trials=1; "
+                "using base scene (seed=0). Pass --n-trials N to randomize.",
+                file=sys.stderr,
+            )
+        if randomize_active:
+            seed_origin = "user-provided" if base_seed is not None else "auto-derived"
+            print(f"[eval] randomize:     {sorted(task.randomize.keys())}  ({seed_origin} seeds)")
         success_per_trial: list[bool] = []
         total_steps = 0
         t0 = _time.time()
@@ -707,7 +719,15 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
             except (ImportError, ValueError) as e:
                 print(f"[eval] failed to create MuJoCo backend: {e}", file=sys.stderr)
                 return 2
-            sim.load(task.scene)
+            # Per-trial seed: 0 returns the base scene unchanged, so we shift
+            # the trial index by 1 in the auto-derived path. With --seed S,
+            # trial t uses S + t (still skipping 0 -> identity).
+            if randomize_active:
+                trial_seed = (int(base_seed) + trial + 1) if base_seed is not None else (trial + 1)
+                trial_scene = jitter_scene(task.scene, task.randomize, trial_seed)
+            else:
+                trial_scene = task.scene
+            sim.load(trial_scene)
             try:
                 # Reset replay-style policies so each trial starts at step 0.
                 reset = getattr(policy, "reset", None)
@@ -757,6 +777,30 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
+    # Per-world randomization: build N different scenes when the task's
+    # randomize spec is set. Topology is invariant under jitter_scene so
+    # the Newton backend's per-world layout assumptions still hold.
+    per_world_scenes = None
+    if task.randomize and world_count > 1:
+        from robosandbox.tasks.randomize import jitter_scene as _jitter
+        base_seed = getattr(args, "seed", None)
+        per_world_scenes = [
+            _jitter(
+                task.scene,
+                task.randomize,
+                seed=((int(base_seed) + w + 1) if base_seed is not None else (w + 1)),
+            )
+            for w in range(world_count)
+        ]
+        seed_origin = "user-provided" if base_seed is not None else "auto-derived"
+        print(f"[eval] randomize:     {sorted(task.randomize.keys())}  ({seed_origin} seeds, per-world)")
+    elif task.randomize and world_count == 1:
+        print(
+            "[eval] note:         task has randomize spec but --world-count=1; "
+            "using base scene. Increase --world-count to randomize.",
+            file=sys.stderr,
+        )
+
     try:
         sim = create_sim_backend(
             "newton",
@@ -766,7 +810,7 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
             device=args.device,
             world_count=world_count,
         )
-        sim.load(task.scene)
+        sim.load(task.scene, per_world_scenes=per_world_scenes)
     except (ImportError, ValueError) as e:
         print(f"[eval] failed to create Newton backend: {e}", file=sys.stderr)
         return 2
