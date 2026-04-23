@@ -131,6 +131,22 @@ def main(argv: list[str] | None = None) -> int:
     eval_p.add_argument("--seed", type=int, default=None,
                         help="Seed for any randomization (item 3 will use this).")
 
+    sc_p = sub.add_parser(
+        "sim-check",
+        help="Drive the same policy through MuJoCo and Newton; report agreement",
+    )
+    sc_p.add_argument("--task", required=True)
+    sc_p.add_argument("--policy", required=True)
+    sc_p.add_argument("--max-steps", type=int, default=600)
+    sc_p.add_argument("--settle-steps", type=int, default=100)
+    sc_p.add_argument("--joint-tol-rad", type=float, default=0.087,
+                      help="Per-joint tolerance for end-state agreement (~5 deg).")
+    sc_p.add_argument("--xy-tol-m", type=float, default=0.005,
+                      help="Per-object xy tolerance for end-state agreement (5 mm).")
+    sc_p.add_argument("--device", default="cuda:0")
+    sc_p.add_argument("--output", default=None,
+                      help="Write the full report as JSON to this path.")
+
     cmp_p = sub.add_parser(
         "compare",
         help="Statistical comparison of two eval JSON outputs (two-proportion z-test)",
@@ -249,6 +265,8 @@ def main(argv: list[str] | None = None) -> int:
         return _eval_parallel_cli(args)
     elif args.cmd == "compare":
         return _compare_cli(args)
+    elif args.cmd == "sim-check":
+        return _sim_check_cli(args)
     elif args.cmd == "download-franka-visuals":
         from robosandbox.assets.franka_visuals import cli as download_cli
 
@@ -523,6 +541,60 @@ def _maybe_write_json(path: str | None, summary: dict) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(summary, indent=2))
     print(f"[eval] wrote JSON:    {out}")
+
+
+def _sim_check_cli(args: argparse.Namespace) -> int:
+    """Run the cross-backend agreement check; print the report."""
+    import json
+    from pathlib import Path
+
+    from robosandbox.eval.sim_check import report_to_dict, run_sim_check
+
+    rep = run_sim_check(
+        task_name=args.task,
+        policy_path=args.policy,
+        max_steps=int(args.max_steps),
+        settle_steps=int(args.settle_steps),
+        joint_tol_rad=float(args.joint_tol_rad),
+        xy_tol_m=float(args.xy_tol_m),
+        device=args.device,
+    )
+
+    print(f"[sim-check] task:           {rep.task}")
+    print(f"[sim-check] policy:         {rep.policy}")
+    print(f"[sim-check] tolerances:     joint <= {rep.tolerances['joint_rad']:.3f} rad, xy <= {rep.tolerances['xy_m'] * 1000:.1f} mm")
+
+    if "error" in rep.mujoco:
+        print(f"[sim-check] MuJoCo FAILED: {rep.mujoco['error']}", file=sys.stderr)
+    else:
+        print(f"[sim-check] MuJoCo:         success={rep.mujoco['success']}  steps={rep.mujoco['steps']}")
+    if "error" in rep.newton:
+        print(f"[sim-check] Newton FAILED:  {rep.newton['error']}", file=sys.stderr)
+    elif rep.newton:
+        print(f"[sim-check] Newton:         success={rep.newton['success']}  steps={rep.newton['steps']}")
+
+    if rep.verdict != "RUN_FAILED":
+        print(f"[sim-check] outcome match:  {rep.outcome_match}")
+        print(f"[sim-check] joint max diff: {rep.joint_max_abs_diff_rad:.4f} rad")
+        print(f"[sim-check] object max xy:  {rep.object_max_xy_diff_m * 1000:.2f} mm")
+        for oid, d in sorted(rep.object_diffs.items()):
+            print(f"[sim-check]   {oid}: {d * 1000:.2f} mm")
+    print(f"[sim-check] verdict:        {rep.verdict}")
+
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report_to_dict(rep), indent=2))
+        print(f"[sim-check] wrote JSON:     {out}")
+
+    # Exit code: 0 on PASS, 1 on STATE_DRIFT (the backends agreed on outcome
+    # but drifted in state — a softer failure), 2 on OUTCOME_MISMATCH or
+    # RUN_FAILED (the load-bearing claim broke).
+    if rep.verdict == "PASS":
+        return 0
+    if rep.verdict == "STATE_DRIFT":
+        return 1
+    return 2
 
 
 def _compare_cli(args: argparse.Namespace) -> int:
