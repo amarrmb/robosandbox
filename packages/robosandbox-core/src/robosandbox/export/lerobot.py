@@ -48,15 +48,26 @@ def _require_pyarrow():  # pragma: no cover - import guard
         ) from e
 
 
-def _coerce_action(action: Any, fallback: list[float]) -> list[float]:
+def _coerce_action(
+    action: Any,
+    fallback: list[float],
+    target_dim: int | None = None,
+) -> list[float]:
     """Turn a recorded `action` field into a flat float vector.
 
-    Falls back to `fallback` (typically the current state) if the action is
-    missing or not a numeric sequence.
+    Falls back to ``fallback`` (typically the current state) if the action is
+    missing or not a numeric sequence. When the recorded action dict carries
+    a ``gripper`` field alongside ``joints``, the gripper command is appended
+    so the resulting action matches ``state_dim = n_joints + 1``. Without
+    this, ACT/Diffusion policies trained on the dataset would learn 7-D
+    actions while seeing 8-D states — a silent gripper-open-by-default bias.
     """
     if action is None:
         return list(fallback)
-    # Common shapes: {"joints": [...]}, {"qpos_target": [...]}, plain list.
+    # Common shapes: {"joints": [...]}, {"qpos_target": [...]}, plain list,
+    # or {"joints": [...], "gripper": float}.
+    seq: list | None = None
+    gripper: float | None = None
     if isinstance(action, list):
         seq = action
     elif isinstance(action, dict):
@@ -65,14 +76,24 @@ def _coerce_action(action: Any, fallback: list[float]) -> list[float]:
             if isinstance(val, list):
                 seq = val
                 break
-        else:
-            return list(fallback)
-    else:
+        if "gripper" in action:
+            try:
+                gripper = float(action["gripper"])
+            except (TypeError, ValueError):
+                gripper = None
+    if seq is None:
         return list(fallback)
     try:
-        return [float(x) for x in seq]
+        out = [float(x) for x in seq]
     except (TypeError, ValueError):
         return list(fallback)
+    if gripper is not None:
+        out.append(gripper)
+    # If the resulting action is shorter than the state vector, pad with
+    # the corresponding fallback element so policies see consistent dims.
+    if target_dim is not None and len(out) < target_dim:
+        out = out + list(fallback[len(out):target_dim])
+    return out
 
 
 def _read_events(events_path: Path) -> list[dict]:
@@ -88,6 +109,153 @@ def _read_events(events_path: Path) -> list[dict]:
     if not events:
         raise ValueError(f"events.jsonl is empty: {events_path}")
     return events
+
+
+def export_episodes(
+    src_dirs: list[Path],
+    dst_dir: Path,
+    *,
+    task: str | None = None,
+    fps: int = 30,
+) -> Path:
+    """Convert multiple recorded episodes into a single LeRobot v3 dataset.
+
+    Each ``src_dirs`` entry must be a directory produced by
+    :class:`LocalRecorder` (containing ``events.jsonl`` and ideally
+    ``video.mp4``). The output dataset has one parquet + one video per
+    episode, indexed 0..N-1, with a single combined ``info.json`` /
+    ``episodes.jsonl`` covering all of them. This is the format
+    ``lerobot train`` consumes for multi-demonstration training.
+    """
+    _require_pyarrow()
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    if not src_dirs:
+        raise ValueError("export_episodes requires at least one source episode")
+    src_dirs = [Path(s) for s in src_dirs]
+    for s in src_dirs:
+        if not s.exists() or not s.is_dir():
+            raise FileNotFoundError(f"source episode directory does not exist: {s}")
+    dst_dir = Path(dst_dir)
+    meta_dir = dst_dir / "meta"
+    data_dir = dst_dir / "data" / _CHUNK
+    video_dir = dst_dir / "videos" / _CHUNK / _VIDEO_KEY
+    for d in (meta_dir, data_dir, video_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    state_dim: int | None = None
+    episode_records: list[dict] = []
+    total_frames = 0
+    total_videos = 0
+    task_str = task or "unknown"
+    robot_type: str | None = None
+
+    for ep_idx, src in enumerate(src_dirs):
+        events = _read_events(src / "events.jsonl")
+        ep_meta: dict = {}
+        ep_json = src / "episode.json"
+        if ep_json.exists():
+            ep_meta = json.loads(ep_json.read_text())
+        if task is None and ep_meta.get("task"):
+            task_str = ep_meta["task"]
+        if robot_type is None and ep_meta.get("robot_type"):
+            robot_type = ep_meta["robot_type"]
+
+        n_frames = len(events)
+        ep_state_dim = len(events[0]["robot_joints"]) + 1
+        if state_dim is None:
+            state_dim = ep_state_dim
+        elif state_dim != ep_state_dim:
+            raise ValueError(
+                f"episode {src} state_dim={ep_state_dim} != dataset state_dim={state_dim}"
+            )
+
+        states: list[list[float]] = []
+        actions: list[list[float]] = []
+        timestamps: list[float] = []
+        frame_indices: list[int] = []
+        t0 = float(events[0].get("t", 0.0))
+        for i, ev in enumerate(events):
+            joints = [float(x) for x in ev["robot_joints"]]
+            gripper = float(ev.get("gripper_width", 0.0))
+            state = joints + [gripper]
+            states.append(state)
+            actions.append(_coerce_action(ev.get("action"), fallback=state, target_dim=state_dim))
+            timestamps.append(float(ev.get("t", i / float(fps))) - t0)
+            frame_indices.append(int(ev.get("frame_idx", i)))
+
+        global_indices = list(range(total_frames, total_frames + n_frames))
+        episode_index_col = [ep_idx] * n_frames
+        task_index_col = [0] * n_frames
+        table = pa.table(
+            {
+                "observation.state": pa.array(states, type=pa.list_(pa.float32())),
+                "action": pa.array(actions, type=pa.list_(pa.float32())),
+                "timestamp": pa.array(timestamps, type=pa.float32()),
+                "frame_index": pa.array(frame_indices, type=pa.int64()),
+                "episode_index": pa.array(episode_index_col, type=pa.int64()),
+                "index": pa.array(global_indices, type=pa.int64()),
+                "task_index": pa.array(task_index_col, type=pa.int64()),
+            }
+        )
+        pq.write_table(table, data_dir / f"episode_{ep_idx:06d}.parquet")
+
+        src_video = src / "video.mp4"
+        if src_video.exists():
+            shutil.copyfile(src_video, video_dir / f"episode_{ep_idx:06d}.mp4")
+            total_videos += 1
+
+        episode_records.append({"episode_index": ep_idx, "tasks": [task_str], "length": n_frames})
+        total_frames += n_frames
+
+    assert state_dim is not None  # at least one episode by precondition
+
+    info = {
+        "codebase_version": "v3.0",
+        "robot_type": robot_type or "unknown",
+        "total_episodes": len(src_dirs),
+        "total_frames": total_frames,
+        "total_tasks": 1,
+        "total_videos": total_videos,
+        "total_chunks": 1,
+        "chunks_size": 1000,
+        "fps": int(fps),
+        "splits": {"train": f"0:{total_frames}"},
+        "data_path": "data/{episode_chunk:s}/episode_{episode_index:06d}.parquet",
+        "video_path": "videos/{episode_chunk:s}/{video_key}/episode_{episode_index:06d}.mp4",
+        "features": {
+            "observation.state": {
+                "dtype": "float32",
+                "shape": [state_dim],
+                "names": [f"joint_{i}" for i in range(state_dim - 1)] + ["gripper"],
+            },
+            "action": {
+                "dtype": "float32",
+                "shape": [state_dim],
+                "names": [f"joint_{i}" for i in range(state_dim - 1)] + ["gripper"],
+            },
+            "observation.images.scene": {
+                "dtype": "video",
+                "shape": [0, 0, 3],
+                "names": ["height", "width", "channels"],
+                "video_info": {"video.fps": float(fps), "video.codec": "h264"},
+            },
+            "timestamp": {"dtype": "float32", "shape": [1], "names": None},
+            "frame_index": {"dtype": "int64", "shape": [1], "names": None},
+            "episode_index": {"dtype": "int64", "shape": [1], "names": None},
+            "index": {"dtype": "int64", "shape": [1], "names": None},
+            "task_index": {"dtype": "int64", "shape": [1], "names": None},
+        },
+    }
+    (meta_dir / "info.json").write_text(json.dumps(info, indent=2))
+    (meta_dir / "tasks.jsonl").write_text(
+        json.dumps({"task_index": 0, "task": task_str}) + "\n"
+    )
+    with (meta_dir / "episodes.jsonl").open("w") as f:
+        for rec in episode_records:
+            f.write(json.dumps(rec) + "\n")
+    return dst_dir
 
 
 def export_episode(
@@ -156,7 +324,7 @@ def export_episode(
                 f"inconsistent state dim at frame {i}: got {len(state)}, expected {state_dim}"
             )
         states.append(state)
-        actions.append(_coerce_action(ev.get("action"), fallback=state))
+        actions.append(_coerce_action(ev.get("action"), fallback=state, target_dim=state_dim))
         timestamps.append(float(ev.get("t", i / float(fps))) - t0)
         frame_indices.append(int(ev.get("frame_idx", i)))
 

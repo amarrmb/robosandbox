@@ -91,9 +91,13 @@ def test_export_produces_valid_parquet(fake_episode: Path, tmp_path: Path) -> No
     assert len(state_first) == 8
     action_first = table.column("action")[0].as_py()
     assert len(action_first) == 8  # fallback to state (i=0 action was None)
-    # Frame 1 had an explicit numeric action of length 7 — exporter coerces.
+    # Frame 1 had an explicit numeric action of length 7. The exporter pads
+    # short actions up to state_dim (8 = 7 joints + gripper) so policies
+    # trained on the dataset see consistent action/state dims — without
+    # this, ACT/Diffusion would learn 7-D actions while observing 8-D
+    # states (silent gripper-open-by-default bias).
     action_second = table.column("action")[1].as_py()
-    assert len(action_second) == 7
+    assert len(action_second) == 8
 
 
 def test_export_writes_meta_files(fake_episode: Path, tmp_path: Path) -> None:

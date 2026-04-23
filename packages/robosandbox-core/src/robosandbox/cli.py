@@ -89,10 +89,24 @@ def main(argv: list[str] | None = None) -> int:
         "export-lerobot",
         help="Convert a recorded episode directory to LeRobot v3 dataset format",
     )
-    exp_p.add_argument("src", help="Source episode dir (e.g. runs/20260101-120000-abcd1234)")
+    exp_p.add_argument(
+        "src",
+        help=(
+            "Source: either a single episode dir (containing events.jsonl) "
+            "or a parent dir containing many episode subdirs — auto-detected. "
+            "Use --src repeatedly to combine an explicit list."
+        ),
+    )
     exp_p.add_argument("dst", help="Destination LeRobot dataset dir")
     exp_p.add_argument("--task", default=None, help="Override task string")
     exp_p.add_argument("--fps", type=int, default=30)
+    exp_p.add_argument(
+        "--src",
+        dest="extra_src",
+        action="append",
+        default=[],
+        help="Additional source episode dirs (repeatable). Combined with the positional src.",
+    )
 
     train_p = sub.add_parser(
         "train",
@@ -223,15 +237,41 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "export-lerobot":
         from pathlib import Path
 
-        from robosandbox.export.lerobot import export_episode
+        from robosandbox.export.lerobot import export_episode, export_episodes
 
-        out = export_episode(
-            Path(args.src),
-            Path(args.dst),
-            task=args.task,
-            fps=args.fps,
-        )
-        print(f"Exported LeRobot dataset to: {out}")
+        # Resolve sources: positional + any --src flags. If a single source
+        # is supplied and it directly contains events.jsonl, use the
+        # single-episode fast path. Otherwise the source is treated as a
+        # parent directory and every immediate subdir with events.jsonl
+        # becomes one episode in the combined dataset.
+        positional = Path(args.src)
+        extras = [Path(p) for p in (getattr(args, "extra_src", None) or [])]
+        if not extras and (positional / "events.jsonl").exists():
+            sources = [positional]
+        elif extras:
+            sources = [positional, *extras]
+        else:
+            # Parent-dir auto-detect: any immediate subdir with events.jsonl.
+            subs = sorted(
+                p for p in positional.iterdir()
+                if p.is_dir() and (p / "events.jsonl").exists()
+            )
+            if not subs:
+                print(
+                    f"[export-lerobot] no episodes found under {positional} "
+                    f"(no events.jsonl in {positional} and no immediate "
+                    f"subdirs containing it)",
+                    file=sys.stderr,
+                )
+                return 2
+            sources = subs
+
+        if len(sources) == 1:
+            out = export_episode(sources[0], Path(args.dst), task=args.task, fps=args.fps)
+            print(f"Exported LeRobot dataset to: {out}  (1 episode)")
+        else:
+            out = export_episodes(sources, Path(args.dst), task=args.task, fps=args.fps)
+            print(f"Exported LeRobot dataset to: {out}  ({len(sources)} episodes)")
         out_abs = Path(out).resolve()
         ckpt_dir = out_abs.parent / f"{out_abs.name}-checkpoint"
         print()
