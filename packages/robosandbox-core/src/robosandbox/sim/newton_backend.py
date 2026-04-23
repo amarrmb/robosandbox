@@ -375,6 +375,22 @@ class NewtonBackend:
         self._ee_offset_xyz = self._robot.ee_offset_xyz
 
         self._model = self._build_model(scene, per_world_scenes=per_world_scenes)
+        # Reconcile dof_per_world with the *finalized* model. The unfinalized
+        # builder's joint_coord_count under-reports for some Newton free-joint
+        # layouts (the cube's quaternion adds an extra coord that isn't
+        # counted by `single.joint_coord_count`); the symptom is an OOB into
+        # joint_target_pos at world_count >= 16. The total q size after
+        # finalize is authoritative.
+        try:
+            ref_state = self._model.state()
+            total_q = int(ref_state.joint_q.shape[0])
+            if total_q % self._world_count == 0:
+                computed = total_q // self._world_count
+                if computed != self._dof_per_world:
+                    self._dof_per_world = computed
+        except Exception:
+            # Don't gate model creation on this defensive check.
+            pass
         self._viewer = self._create_viewer()
         self._viewer.set_model(self._model)
         if hasattr(self._viewer, "set_camera"):
@@ -415,6 +431,18 @@ class NewtonBackend:
             if arr.shape != (n_arm,):
                 raise ValueError(f"target_joints must have shape ({n_arm},), got {arr.shape}")
             target = self._control.joint_target_pos.numpy()
+            target_size = target.shape[0]
+            # Diagnose stride/index mismatches up front rather than letting
+            # numpy raise an opaque OOB N steps later.
+            max_local_q = max(self._w_arm_q) if self._w_arm_q else 0
+            max_idx = (self._world_count - 1) * self._dof_per_world + max_local_q
+            if max_idx >= target_size:
+                raise RuntimeError(
+                    f"Newton joint_target_pos size mismatch: target.shape[0]={target_size}, "
+                    f"world_count={self._world_count}, dof_per_world={self._dof_per_world}, "
+                    f"max(_w_arm_q)={max_local_q}, computed max_idx={max_idx}. "
+                    f"_w_arm_q={self._w_arm_q}  _w_gripper_q={self._w_gripper_q}"
+                )
             for w in range(self._world_count):
                 for local_q, q in zip(self._w_arm_q, arr):
                     target[w * self._dof_per_world + local_q] = float(q)
