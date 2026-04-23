@@ -126,9 +126,16 @@ class NewtonBackend:
         self._viewer_null_cls: Any = None
         self._viewer_viser_cls: Any = None
 
-        # Per-world layout (set during load)
+        # Per-world layout (set during load).
+        # _dof_per_world: stride for the FULL state vector (joint_q),
+        #   includes the cube freejoint's quaternion (7 coords).
+        # _actuators_per_world: stride for the ACTUATOR target vector
+        #   (joint_target_pos), sized by joint_qd which uses 6 coords for
+        #   freejoints. They differ by 1 per freejoint and conflating them
+        #   produces an OOB into joint_target_pos at world_count >= 16.
         self._bodies_per_world: int = 0
         self._dof_per_world: int = 0
+        self._actuators_per_world: int = 0
         # Indices *within one world* (0-indexed from world start)
         self._w_arm_q: list[int] = []       # relative joint_q indices for arm
         self._w_gripper_q: list[int] = []   # relative joint_q indices for fingers
@@ -375,22 +382,27 @@ class NewtonBackend:
         self._ee_offset_xyz = self._robot.ee_offset_xyz
 
         self._model = self._build_model(scene, per_world_scenes=per_world_scenes)
-        # Reconcile dof_per_world with the *finalized* model. The unfinalized
-        # builder's joint_coord_count under-reports for some Newton free-joint
-        # layouts (the cube's quaternion adds an extra coord that isn't
-        # counted by `single.joint_coord_count`); the symptom is an OOB into
-        # joint_target_pos at world_count >= 16. The total q size after
-        # finalize is authoritative.
+        # Newton stores actuator targets (joint_target_pos / joint_target_ke /
+        # …) on a vector sized to ACTUATED joints only; free joints (the
+        # cube) have no actuator slot. So the per-world stride for
+        # control vectors is *smaller* than the per-world stride for the
+        # full state vector (joint_q) by the freejoint's contribution.
+        # Authoritative source: the freshly-built model itself.
         try:
+            ref_control = self._model.control()
             ref_state = self._model.state()
+            total_targets = int(ref_control.joint_target_pos.shape[0])
             total_q = int(ref_state.joint_q.shape[0])
+            if total_targets % self._world_count == 0:
+                self._actuators_per_world = total_targets // self._world_count
+            else:
+                self._actuators_per_world = self._dof_per_world
             if total_q % self._world_count == 0:
-                computed = total_q // self._world_count
-                if computed != self._dof_per_world:
-                    self._dof_per_world = computed
+                self._dof_per_world = total_q // self._world_count
         except Exception:
-            # Don't gate model creation on this defensive check.
-            pass
+            # Don't gate model creation on this defensive recompute — fall
+            # back to the unfinalized builder counts.
+            self._actuators_per_world = self._dof_per_world
         self._viewer = self._create_viewer()
         self._viewer.set_model(self._model)
         if hasattr(self._viewer, "set_camera"):
@@ -431,21 +443,10 @@ class NewtonBackend:
             if arr.shape != (n_arm,):
                 raise ValueError(f"target_joints must have shape ({n_arm},), got {arr.shape}")
             target = self._control.joint_target_pos.numpy()
-            target_size = target.shape[0]
-            # Diagnose stride/index mismatches up front rather than letting
-            # numpy raise an opaque OOB N steps later.
-            max_local_q = max(self._w_arm_q) if self._w_arm_q else 0
-            max_idx = (self._world_count - 1) * self._dof_per_world + max_local_q
-            if max_idx >= target_size:
-                raise RuntimeError(
-                    f"Newton joint_target_pos size mismatch: target.shape[0]={target_size}, "
-                    f"world_count={self._world_count}, dof_per_world={self._dof_per_world}, "
-                    f"max(_w_arm_q)={max_local_q}, computed max_idx={max_idx}. "
-                    f"_w_arm_q={self._w_arm_q}  _w_gripper_q={self._w_gripper_q}"
-                )
+            stride = self._actuators_per_world or self._dof_per_world
             for w in range(self._world_count):
                 for local_q, q in zip(self._w_arm_q, arr):
-                    target[w * self._dof_per_world + local_q] = float(q)
+                    target[w * stride + local_q] = float(q)
             arr_wp = self._wp.array(target, dtype=self._control.joint_target_pos.dtype)
             self._wp.copy(self._control.joint_target_pos, arr_wp)
 
@@ -456,9 +457,10 @@ class NewtonBackend:
                 + self._robot.gripper_closed_qpos * t
             )
             target = self._control.joint_target_pos.numpy()
+            stride = self._actuators_per_world or self._dof_per_world
             for w in range(self._world_count):
                 for local_q in self._w_gripper_q:
-                    target[w * self._dof_per_world + local_q] = finger_q
+                    target[w * stride + local_q] = finger_q
             arr_wp = self._wp.array(target, dtype=self._control.joint_target_pos.dtype)
             self._wp.copy(self._control.joint_target_pos, arr_wp)
 
