@@ -67,8 +67,8 @@ def test_export_produces_valid_parquet(fake_episode: Path, tmp_path: Path) -> No
     out = export_episode(fake_episode, dst, task="pick_cube", fps=30)
     assert out == dst
 
-    # Parquet file exists at LeRobot v3 path.
-    parquet_path = dst / "data" / "chunk-000" / "episode_000000.parquet"
+    # Parquet file exists at LeRobot v3.0 path (file-NNN, not episode-NNN).
+    parquet_path = dst / "data" / "chunk-000" / "file-000.parquet"
     assert parquet_path.exists(), parquet_path
 
     table = pq.read_table(parquet_path)
@@ -109,28 +109,30 @@ def test_export_writes_meta_files(fake_episode: Path, tmp_path: Path) -> None:
     assert info["total_frames"] == 30
     assert info["fps"] == 30
     assert "observation.state" in info["features"]
+    # Path templates must use v3.0 chunk_index/file_index variables so lerobot
+    # resolves data and video files from the episodes.parquet pointers.
+    assert "{chunk_index" in info["data_path"]
+    assert "{file_index" in info["data_path"]
 
-    tasks = [
-        json.loads(line)
-        for line in (dst / "meta" / "tasks.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
+    tasks = pq.read_table(dst / "meta" / "tasks.parquet").to_pylist()
     assert tasks == [{"task_index": 0, "task": "pick_cube"}]
 
-    episodes = [
-        json.loads(line)
-        for line in (dst / "meta" / "episodes.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
+    episodes = pq.read_table(
+        dst / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
+    ).to_pylist()
     assert episodes[0]["episode_index"] == 0
     assert episodes[0]["length"] == 30
+    assert episodes[0]["dataset_from_index"] == 0
+    assert episodes[0]["dataset_to_index"] == 30
+    assert episodes[0]["data/chunk_index"] == 0
+    assert episodes[0]["data/file_index"] == 0
 
 
 def test_export_task_falls_back_to_episode_json(fake_episode: Path, tmp_path: Path) -> None:
     dst = tmp_path / "dataset"
     export_episode(fake_episode, dst)  # no `task=` override
-    tasks_line = (dst / "meta" / "tasks.jsonl").read_text().splitlines()[0]
-    assert json.loads(tasks_line)["task"] == "pick_cube"
+    tasks = pq.read_table(dst / "meta" / "tasks.parquet").to_pylist()
+    assert tasks[0]["task"] == "pick_cube"
 
 
 def test_export_missing_src_raises(tmp_path: Path) -> None:
