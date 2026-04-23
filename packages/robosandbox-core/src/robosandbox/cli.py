@@ -124,6 +124,21 @@ def main(argv: list[str] | None = None) -> int:
     eval_p.add_argument("--max-steps", type=int, default=500, help="Max sim steps per world")
     eval_p.add_argument("--settle-steps", type=int, default=100, help="Physics settle steps before eval")
     eval_p.add_argument("--device", default="cuda:0", help="GPU device for Newton")
+    eval_p.add_argument("--n-trials", type=int, default=1,
+                        help="MuJoCo only: repeat the eval N times. Newton uses --world-count.")
+    eval_p.add_argument("--output", default=None,
+                        help="Write structured eval result as JSON to this path.")
+    eval_p.add_argument("--seed", type=int, default=None,
+                        help="Seed for any randomization (item 3 will use this).")
+
+    cmp_p = sub.add_parser(
+        "compare",
+        help="Statistical comparison of two eval JSON outputs (two-proportion z-test)",
+    )
+    cmp_p.add_argument("a", help="Path to first eval JSON (from `eval --output`)")
+    cmp_p.add_argument("b", help="Path to second eval JSON")
+    cmp_p.add_argument("--alpha", type=float, default=0.05,
+                       help="Significance threshold for the difference (default 0.05)")
 
     viz_p = sub.add_parser(
         "download-franka-visuals",
@@ -232,6 +247,8 @@ def main(argv: list[str] | None = None) -> int:
         return _train_ppo_cli(args)
     elif args.cmd == "eval":
         return _eval_parallel_cli(args)
+    elif args.cmd == "compare":
+        return _compare_cli(args)
     elif args.cmd == "download-franka-visuals":
         from robosandbox.assets.franka_visuals import cli as download_cli
 
@@ -478,6 +495,93 @@ def _policy_image_inputs(policy) -> set[str]:
     return visual
 
 
+def _print_eval_summary(summary: dict) -> None:
+    """Pretty-print a finished EvalSummary dict to stdout."""
+    n = int(summary["n_trials"])
+    s = int(summary["successes"])
+    rate_pct = float(summary["rate"]) * 100.0
+    lo_pct = float(summary["ci_low"]) * 100.0
+    hi_pct = float(summary["ci_high"]) * 100.0
+    ci_pct = int(round(float(summary["ci_level"]) * 100))
+    wall = float(summary["wall_seconds"])
+    thr = float(summary["throughput_env_steps_per_s"])
+    print(f"[eval] successes:     {s} / {n}  ({rate_pct:.1f}%)")
+    print(f"[eval] {ci_pct}% CI (Wilson): [{lo_pct:.1f}%, {hi_pct:.1f}%]")
+    print(f"[eval] steps:         {summary['steps']}")
+    print(f"[eval] wall:          {wall:.1f}s")
+    print(f"[eval] throughput:    {thr:,.0f} env-steps/s")
+
+
+def _maybe_write_json(path: str | None, summary: dict) -> None:
+    """Write the EvalSummary as JSON when ``--output`` was supplied."""
+    if not path:
+        return
+    import json
+    from pathlib import Path
+
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(summary, indent=2))
+    print(f"[eval] wrote JSON:    {out}")
+
+
+def _compare_cli(args: argparse.Namespace) -> int:
+    """Two-proportion z-test comparison of two EvalSummary JSON files."""
+    import json
+    from pathlib import Path
+
+    from robosandbox.eval import proportion_z_test
+
+    try:
+        a = json.loads(Path(args.a).read_text())
+        b = json.loads(Path(args.b).read_text())
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"[compare] failed to read input: {e}", file=sys.stderr)
+        return 2
+
+    for label, doc in [("A", a), ("B", b)]:
+        for required in ("successes", "n_trials", "task", "policy", "sim_backend"):
+            if required not in doc:
+                print(f"[compare] {label} is missing required field {required!r}", file=sys.stderr)
+                return 2
+    if a["task"] != b["task"]:
+        print(
+            f"[compare] WARNING: comparing across tasks ({a['task']} vs {b['task']}). "
+            f"The z-test result is mathematically valid but semantically suspect.",
+            file=sys.stderr,
+        )
+
+    s_a, n_a = int(a["successes"]), int(a["n_trials"])
+    s_b, n_b = int(b["successes"]), int(b["n_trials"])
+    rate_a = (s_a / n_a) if n_a else 0.0
+    rate_b = (s_b / n_b) if n_b else 0.0
+    z, p_value = proportion_z_test(s_a, n_a, s_b, n_b)
+    significant = p_value < float(args.alpha)
+    if rate_a > rate_b:
+        winner = "A"
+    elif rate_b > rate_a:
+        winner = "B"
+    else:
+        winner = "tie"
+
+    print(f"A: {a['policy']}  ({a['sim_backend']})")
+    print(f"   successes: {s_a}/{n_a}  ({rate_a * 100:.1f}%)  CI: [{a.get('ci_low', 0) * 100:.1f}%, {a.get('ci_high', 1) * 100:.1f}%]")
+    print(f"B: {b['policy']}  ({b['sim_backend']})")
+    print(f"   successes: {s_b}/{n_b}  ({rate_b * 100:.1f}%)  CI: [{b.get('ci_low', 0) * 100:.1f}%, {b.get('ci_high', 1) * 100:.1f}%]")
+    print(f"diff:       {(rate_a - rate_b) * 100:+.1f}pp")
+    print(f"z:          {z:+.3f}")
+    print(f"p-value:    {p_value:.4g}")
+    if winner == "tie":
+        print(f"verdict:    tie (rates equal)")
+    elif significant:
+        print(f"verdict:    {winner} > other  (p<{args.alpha:g}, significant)")
+    else:
+        print(f"verdict:    {winner} > other  but NOT significant at α={args.alpha:g}")
+    # Exit 0 either way — `compare` is a report tool, not a gate. Callers
+    # who want a gate should check the printed p-value themselves.
+    return 0
+
+
 def _eval_parallel_cli(args: argparse.Namespace) -> int:
     """Evaluate a policy in sim — MuJoCo (single world) or Newton (N parallel worlds)."""
     from pathlib import Path
@@ -514,27 +618,57 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
 
     # ---- MuJoCo: single world, RGB available ----------------------------
     if backend == "mujoco":
-        try:
-            sim = create_sim_backend(
-                "mujoco", render_size=(240, 320), camera="scene"
-            )
-        except (ImportError, ValueError) as e:
-            print(f"[eval] failed to create MuJoCo backend: {e}", file=sys.stderr)
-            return 2
-        sim.load(task.scene)
-        try:
-            result = run_policy(
-                sim, policy,
-                max_steps=args.max_steps,
-                success=task.success,
-            )
-        finally:
-            sim.close()
-        ok = result["success"]
-        verdict = "success" if ok else ("failure" if ok is False else "unknown")
-        print(f"[eval] verdict:       {verdict}")
-        print(f"[eval] steps:         {result['steps']}")
-        return 0 if ok else 1
+        import time as _time
+
+        from robosandbox.eval import summarise_eval
+
+        n_trials = max(1, int(getattr(args, "n_trials", 1) or 1))
+        print(f"[eval] n_trials:      {n_trials}")
+        success_per_trial: list[bool] = []
+        total_steps = 0
+        t0 = _time.time()
+        for trial in range(n_trials):
+            try:
+                sim = create_sim_backend(
+                    "mujoco", render_size=(240, 320), camera="scene"
+                )
+            except (ImportError, ValueError) as e:
+                print(f"[eval] failed to create MuJoCo backend: {e}", file=sys.stderr)
+                return 2
+            sim.load(task.scene)
+            try:
+                # Reset replay-style policies so each trial starts at step 0.
+                reset = getattr(policy, "reset", None)
+                if callable(reset):
+                    reset()
+                result = run_policy(
+                    sim, policy,
+                    max_steps=args.max_steps,
+                    success=task.success,
+                )
+            finally:
+                sim.close()
+            ok = bool(result["success"]) if result["success"] is not None else False
+            success_per_trial.append(ok)
+            total_steps += int(result["steps"])
+            if n_trials > 1:
+                print(f"[eval]   trial {trial + 1}/{n_trials}: {'success' if ok else 'failure'} ({result['steps']} steps)")
+        wall = _time.time() - t0
+        successes = sum(success_per_trial)
+        summary = summarise_eval(
+            task=task.name,
+            policy=str(args.policy),
+            sim_backend="mujoco",
+            successes=successes,
+            n_trials=n_trials,
+            success_per_trial=success_per_trial,
+            steps=total_steps,
+            wall_seconds=wall,
+            throughput=(total_steps / wall) if wall > 0 else 0.0,
+        )
+        _print_eval_summary(summary)
+        _maybe_write_json(getattr(args, "output", None), summary)
+        return 0 if successes > 0 else 1
 
     # ---- Newton: N parallel worlds, state-only --------------------------
     world_count: int = args.world_count
@@ -576,16 +710,23 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
     finally:
         sim.close()
 
-    n = result["n_worlds"]
-    s = result["successes"]
-    rate_pct = result["rate"] * 100.0
-    wall = result["wall"]
-    throughput = result["throughput"]
+    from robosandbox.eval import summarise_eval
 
-    print(f"[eval] successes:     {s} / {n}  ({rate_pct:.1f}%)")
-    print(f"[eval] steps:         {result['steps']}")
-    print(f"[eval] wall:          {wall:.1f}s")
-    print(f"[eval] throughput:    {throughput:,.0f} env-steps/s")
+    n = int(result["n_worlds"])
+    s = int(result["successes"])
+    summary = summarise_eval(
+        task=task.name,
+        policy=str(args.policy),
+        sim_backend="newton",
+        successes=s,
+        n_trials=n,
+        success_per_trial=list(result.get("success_per_world", [])),
+        steps=int(result["steps"]),
+        wall_seconds=float(result["wall"]),
+        throughput=float(result["throughput"]),
+    )
+    _print_eval_summary(summary)
+    _maybe_write_json(getattr(args, "output", None), summary)
     return 0 if s > 0 else 1
 
 
