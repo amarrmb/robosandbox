@@ -239,7 +239,8 @@ class SimThread(threading.Thread):
                     self._append_snapshot(obs, jpg)
             if self._recording:
                 try:
-                    self._recorder.write_frame(sim.observe())
+                    action = sim.last_action() if hasattr(sim, "last_action") else None
+                    self._recorder.write_frame(sim.observe(), action=action)
                 except Exception:  # pragma: no cover
                     pass
 
@@ -294,7 +295,9 @@ class SimThread(threading.Thread):
         # Write one immediate frame so the recorded video is not empty if the
         # user stops quickly with no agent running.
         try:
-            self._recorder.write_frame(self._sim.observe())
+            sim = self._sim
+            action = sim.last_action() if hasattr(sim, "last_action") else None
+            self._recorder.write_frame(sim.observe(), action=action)
         except Exception:  # pragma: no cover
             pass
         self._emit(
@@ -345,7 +348,8 @@ class SimThread(threading.Thread):
                 self._publish_frame()
             if self._recording:
                 try:
-                    self._recorder.write_frame(sim.observe())
+                    action = sim.last_action() if hasattr(sim, "last_action") else None
+                    self._recorder.write_frame(sim.observe(), action=action)
                 except Exception:  # pragma: no cover
                     pass
             return
@@ -376,7 +380,8 @@ class SimThread(threading.Thread):
             self._publish_frame()
         if self._recording:
             try:
-                self._recorder.write_frame(sim.observe())
+                action = sim.last_action() if hasattr(sim, "last_action") else None
+                self._recorder.write_frame(sim.observe(), action=action)
             except Exception:  # pragma: no cover
                 pass
 

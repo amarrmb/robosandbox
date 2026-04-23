@@ -292,20 +292,25 @@ def run_eval_parallel(
 
 
 _BRING_YOUR_OWN_CHECKPOINT_HINT = (
-    "No policy loader matched {path!r}. RoboSandbox ships a reference "
-    "ReplayTrajectoryPolicy but does not bundle a LeRobot/ACT/Diffusion-Policy "
-    "checkpoint loader. To run a trained checkpoint, either: (1) drop a "
-    "policy.json + events.jsonl under a directory and point --policy at it, "
-    "or (2) extend robosandbox.policy.load_policy to dispatch on your "
-    "checkpoint format (LeRobot, torchscript, onnx, ...)."
+    "No policy loader matched {path!r}. RoboSandbox recognises: "
+    "(1) a LeRobot checkpoint directory (config.json + model.safetensors), "
+    "(2) an episode directory containing events.jsonl (open-loop replay), "
+    "(3) a directory with policy.json (kind: replay_trajectory | ppo_neural). "
+    "To plug in a custom format, extend robosandbox.policy.load_policy."
 )
 
 
 def load_policy(path: str | Path) -> Policy:
     """Load a policy from a checkpoint-or-episode directory.
 
-    Currently handles one case: a directory containing ``policy.json``
-    of the form ``{"kind": "replay_trajectory", "trajectory": "<file>"}``.
+    Recognised layouts:
+
+    - ``config.json`` + ``model.safetensors`` → LeRobot checkpoint, loaded
+      via ``lerobot.policies.factory.get_policy_class`` and wrapped with
+      :class:`LeRobotPolicyAdapter`.
+    - ``policy.json`` with ``kind: replay_trajectory`` → trajectory replay.
+    - ``policy.json`` with ``kind: ppo_neural`` → :class:`NeuralPolicy`.
+    - Bare ``events.jsonl`` → open-loop trajectory replay.
 
     Raises :class:`ImportError` with an explicit bring-your-own-checkpoint
     message otherwise — this is the extension seam for real policies.
@@ -313,6 +318,38 @@ def load_policy(path: str | Path) -> Policy:
     p = Path(path)
 
     if p.is_dir():
+        # LeRobot checkpoint: directory containing a `config.json` (with a
+        # `type` field naming the policy class) and `model.safetensors`.
+        # This is the format produced by `lerobot train` and by
+        # `PreTrainedPolicy.save_pretrained()`.
+        lerobot_cfg = p / "config.json"
+        lerobot_weights = p / "model.safetensors"
+        if lerobot_cfg.exists() and lerobot_weights.exists():
+            try:
+                cfg = json.loads(lerobot_cfg.read_text())
+            except json.JSONDecodeError as e:
+                raise ImportError(
+                    f"Found LeRobot-shaped checkpoint at {p} but config.json is "
+                    f"not valid JSON: {e}"
+                ) from e
+            policy_type = cfg.get("type")
+            if not policy_type:
+                raise ImportError(
+                    f"Found LeRobot-shaped checkpoint at {p} but config.json has "
+                    f"no 'type' field. Expected e.g. 'act', 'diffusion', 'tdmpc'."
+                )
+            try:
+                from lerobot.policies.factory import get_policy_class
+            except ImportError as e:
+                raise ImportError(
+                    f"Detected LeRobot checkpoint at {p} but the `lerobot` "
+                    f"package is not installed. Install it with: "
+                    f"`pip install lerobot` (see https://github.com/huggingface/lerobot)."
+                ) from e
+            policy_cls = get_policy_class(policy_type)
+            inner = policy_cls.from_pretrained(str(p))
+            return LeRobotPolicyAdapter(inner)
+
         cfg_file = p / "policy.json"
         if cfg_file.exists():
             cfg = json.loads(cfg_file.read_text())

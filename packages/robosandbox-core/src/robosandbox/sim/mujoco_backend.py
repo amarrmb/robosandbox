@@ -65,6 +65,11 @@ class MuJoCoBackend:
         self._gripper_qpos_adr: int = -1
         self._arm_ctrl_adr: list[int] = []
         self._gripper_ctrl_adr: int = -1
+        # Last action commanded via step(). Recorded so write_frame() can
+        # populate the JSONL `action` field without each skill having to
+        # thread the target through ctx.on_step.
+        self._last_target_joints: np.ndarray | None = None
+        self._last_gripper: float | None = None
         self._ee_site_id: int = -1
         self._obj_body_ids: dict[str, int] = {}
         self._t: float = 0.0
@@ -147,7 +152,9 @@ class MuJoCoBackend:
                 )
             for adr, q in zip(self._arm_ctrl_adr, arr):
                 self._data.ctrl[adr] = float(q)
+            self._last_target_joints = arr.copy()
         if gripper is not None:
+            self._last_gripper = float(np.clip(gripper, 0.0, 1.0))
             # Semantic input: 0.0 == open, 1.0 == closed.
             # Lerp form (open*(1-t) + closed*t) — collapses to OLD's
             # `open*(1-t)` when closed==0, preserving bit-exact ctrl values.
@@ -161,6 +168,25 @@ class MuJoCoBackend:
             self._data.ctrl[self._gripper_ctrl_adr] = ctrl
         mujoco.mj_step(self._model, self._data)
         self._t += self._model.opt.timestep
+
+    def last_action(self) -> dict | None:
+        """Most recent (target_joints, gripper) commanded via :meth:`step`.
+
+        Returns ``None`` until the first :meth:`step` call sets either field.
+        Used by :class:`~robosandbox.recorder.local.LocalRecorder` to populate
+        the JSONL ``action`` field without each skill having to thread the
+        target through ``ctx.on_step``.
+        """
+        if self._last_target_joints is None and self._last_gripper is None:
+            return None
+        return {
+            "joints": (
+                self._last_target_joints.tolist()
+                if self._last_target_joints is not None
+                else None
+            ),
+            "gripper": self._last_gripper,
+        }
 
     # ---- observation -----------------------------------------------------
     def observe(self) -> Observation:

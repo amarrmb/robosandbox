@@ -39,7 +39,7 @@ def main() -> int:
     recorder = LocalRecorder(root=Path("runs"), video_fps=30)
 
     def _on_step() -> None:
-        recorder.write_frame(sim.observe())
+        recorder.write_frame(sim.observe(), action=sim.last_action())
 
     ctx = AgentContext(
         sim=sim,
@@ -57,7 +57,7 @@ def main() -> int:
 
     for _ in range(100):
         sim.step()
-        recorder.write_frame(sim.observe())
+        recorder.write_frame(sim.observe(), action=sim.last_action())
 
     t0 = time.time()
     result = Pick()(ctx, object="red cube")

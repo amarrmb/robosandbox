@@ -201,6 +201,32 @@ def main(argv: list[str] | None = None) -> int:
             fps=args.fps,
         )
         print(f"Exported LeRobot dataset to: {out}")
+        out_abs = Path(out).resolve()
+        ckpt_dir = out_abs.parent / f"{out_abs.name}-checkpoint"
+        print()
+        print("Next steps:")
+        print()
+        print("  # 1. Train an ACT policy on this dataset:")
+        print(
+            f"  python -m lerobot.scripts.train \\\n"
+            f"      --dataset.repo_id=local \\\n"
+            f"      --dataset.root={out_abs} \\\n"
+            f"      --policy.type=act \\\n"
+            f"      --output_dir={ckpt_dir}"
+        )
+        print()
+        print("  # 2. Evaluate the trained checkpoint:")
+        print(
+            f"  robo-sandbox eval \\\n"
+            f"      --task {args.task or '<task_name>'} \\\n"
+            f"      --policy {ckpt_dir} \\\n"
+            f"      --sim-backend mujoco"
+        )
+        print()
+        print(
+            "  Note: Newton backend is state-only (no camera), so vision "
+            "policies (ACT, Diffusion) need --sim-backend mujoco."
+        )
         return 0
     elif args.cmd == "train":
         return _train_ppo_cli(args)
@@ -414,6 +440,26 @@ def _train_ppo_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def _policy_image_inputs(policy) -> set[str]:
+    """Return the set of `observation.images.*` keys a policy expects, if any.
+
+    LeRobot policies expose this via ``policy.config.input_features``. The
+    :class:`~robosandbox.policy.LeRobotPolicyAdapter` wraps the real policy
+    on its private ``_policy`` attribute, so we unwrap when needed. For any
+    other policy shape we return an empty set (no false-positive warnings).
+    """
+    inner = getattr(policy, "_policy", policy)
+    cfg = getattr(inner, "config", None)
+    feats = getattr(cfg, "input_features", None) if cfg is not None else None
+    if not feats:
+        return set()
+    try:
+        keys = list(feats.keys())
+    except AttributeError:
+        return set()
+    return {k for k in keys if isinstance(k, str) and k.startswith("observation.images")}
+
+
 def _eval_parallel_cli(args: argparse.Namespace) -> int:
     """Evaluate a policy in sim — MuJoCo (single world) or Newton (N parallel worlds)."""
     from pathlib import Path
@@ -477,6 +523,15 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
     print(f"[eval] world_count:   {world_count}")
     print(f"[eval] device:        {args.device}")
     print(f"[eval] max_steps:     {args.max_steps}")
+
+    image_keys = _policy_image_inputs(policy)
+    if image_keys:
+        print(
+            f"[eval] WARNING: policy expects image inputs ({', '.join(sorted(image_keys))}) "
+            f"but Newton is state-only — it will receive zero-image frames and "
+            f"likely produce garbage actions. Use --sim-backend mujoco for vision policies.",
+            file=sys.stderr,
+        )
 
     try:
         sim = create_sim_backend(
