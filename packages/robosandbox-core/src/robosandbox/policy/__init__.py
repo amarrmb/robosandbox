@@ -300,6 +300,36 @@ _BRING_YOUR_OWN_CHECKPOINT_HINT = (
 )
 
 
+def _lerobot_visual_input_keys(policy: Any) -> list[str]:
+    """Visual input keys expected by a LeRobot ``PreTrainedPolicy``.
+
+    Reads ``policy.config.input_features`` and returns every key whose
+    feature spec is marked ``FeatureType.VISUAL``. Falls back to a name
+    prefix match when the typed marker is absent. Returns ``[]`` when
+    the config has no visual features (state-only policies).
+    """
+    cfg = getattr(policy, "config", None)
+    feats = getattr(cfg, "input_features", None) if cfg is not None else None
+    if not feats:
+        return []
+    visual: list[str] = []
+    try:
+        items = list(feats.items())
+    except AttributeError:
+        return []
+    for key, spec in items:
+        if not isinstance(key, str):
+            continue
+        ftype = getattr(spec, "type", None)
+        type_name = getattr(ftype, "name", None) or getattr(ftype, "value", None) or str(ftype)
+        if isinstance(type_name, str) and type_name.upper() == "VISUAL":
+            visual.append(key)
+            continue
+        if key.startswith("observation.image"):
+            visual.append(key)
+    return visual
+
+
 def load_policy(path: str | Path) -> Policy:
     """Load a policy from a checkpoint-or-episode directory.
 
@@ -348,6 +378,14 @@ def load_policy(path: str | Path) -> Policy:
                 ) from e
             policy_cls = get_policy_class(policy_type)
             inner = policy_cls.from_pretrained(str(p))
+            # Auto-detect the visual input keys from the policy's config so the
+            # adapter emits whatever keys this checkpoint actually expects
+            # (e.g. legacy `observation.image` for diffusion_pusht, namespaced
+            # `observation.images.<cam>` for ACT/pi0). Fall back to the
+            # adapter's "scene" default when the config has no visual features.
+            image_keys = _lerobot_visual_input_keys(inner)
+            if image_keys:
+                return LeRobotPolicyAdapter(inner, image_keys=image_keys)
             return LeRobotPolicyAdapter(inner)
 
         cfg_file = p / "policy.json"

@@ -441,12 +441,17 @@ def _train_ppo_cli(args: argparse.Namespace) -> int:
 
 
 def _policy_image_inputs(policy) -> set[str]:
-    """Return the set of `observation.images.*` keys a policy expects, if any.
+    """Return the set of visual input feature keys a policy expects, if any.
 
     LeRobot policies expose this via ``policy.config.input_features``. The
     :class:`~robosandbox.policy.LeRobotPolicyAdapter` wraps the real policy
-    on its private ``_policy`` attribute, so we unwrap when needed. For any
-    other policy shape we return an empty set (no false-positive warnings).
+    on its private ``_policy`` attribute, so we unwrap when needed.
+
+    Detection prefers the feature spec's ``.type == FeatureType.VISUAL``
+    marker (works for both the legacy ``observation.image`` key and the
+    namespaced ``observation.images.<cam>`` family). Falls back to a
+    name-prefix match when the type field is absent. Returns an empty
+    set for any non-LeRobot policy — no false-positive warnings.
     """
     inner = getattr(policy, "_policy", policy)
     cfg = getattr(inner, "config", None)
@@ -454,10 +459,23 @@ def _policy_image_inputs(policy) -> set[str]:
     if not feats:
         return set()
     try:
-        keys = list(feats.keys())
+        items = list(feats.items())
     except AttributeError:
         return set()
-    return {k for k in keys if isinstance(k, str) and k.startswith("observation.images")}
+    visual = set()
+    for key, spec in items:
+        if not isinstance(key, str):
+            continue
+        # Prefer the typed marker when present.
+        ftype = getattr(spec, "type", None)
+        type_name = getattr(ftype, "name", None) or getattr(ftype, "value", None) or str(ftype)
+        if isinstance(type_name, str) and type_name.upper() == "VISUAL":
+            visual.add(key)
+            continue
+        # Fallback for shapes without a typed feature spec.
+        if key.startswith("observation.image"):
+            visual.add(key)
+    return visual
 
 
 def _eval_parallel_cli(args: argparse.Namespace) -> int:

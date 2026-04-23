@@ -66,14 +66,22 @@ class LeRobotPolicyAdapter:
         policy: _LeRobotLike,
         *,
         camera_name: str = "scene",
+        image_keys: list[str] | None = None,
         action_dim: int | None = None,
         image_size: tuple[int, int] | None = None,
     ) -> None:
         """Wrap ``policy`` as an ``act()``-compatible adapter.
 
         :param policy: any object exposing ``select_action(batch) -> tensor``.
-        :param camera_name: key used under ``observation.images.<camera_name>``.
-            Defaults to ``"scene"`` to match the shipped MuJoCo camera.
+        :param camera_name: convenience for the common single-camera case;
+            translates to ``image_keys=["observation.images.<camera_name>"]``
+            when ``image_keys`` is not given. Ignored otherwise.
+        :param image_keys: explicit list of batch keys under which the
+            sim's RGB frame should be exposed. Use this when the wrapped
+            policy expects something other than ``observation.images.scene``
+            — e.g. legacy ``"observation.image"`` (pusht-era checkpoints)
+            or multiple wrist/base cameras (the same frame is duplicated
+            into each key). When ``None``, falls back to ``camera_name``.
         :param action_dim: expected ``(n_dof + 1,)`` action length. Used to
             validate the policy's output without depending on the sim's
             n_dof at construction time. ``None`` = skip validation.
@@ -84,6 +92,11 @@ class LeRobotPolicyAdapter:
         """
         self._policy = policy
         self._camera_name = camera_name
+        self._image_keys = (
+            list(image_keys)
+            if image_keys is not None
+            else [f"observation.images.{camera_name}"]
+        )
         self._action_dim = action_dim
         self._image_size = image_size
         # Lazily-allocated scratch buffer for the (1, n_dof + 1) state vector.
@@ -151,10 +164,10 @@ class LeRobotPolicyAdapter:
             img_val = chw
             state_val = self._state_buf
 
-        return {
-            f"observation.images.{self._camera_name}": img_val,
-            "observation.state": state_val,
-        }
+        batch: dict[str, Any] = {"observation.state": state_val}
+        for key in self._image_keys:
+            batch[key] = img_val
+        return batch
 
 
 def _policy_wants_torch(policy: Any) -> bool:
