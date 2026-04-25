@@ -155,50 +155,66 @@ def run_policy(
     *,
     success: Any = None,  # SuccessCriterion | None — imported lazily to dodge cycles
     on_step: Callable[[Observation, np.ndarray], None] | None = None,
+    action_repeat: int = 1,
 ) -> dict:
     """Drive ``sim`` with ``policy`` for up to ``max_steps`` ticks.
+
+    ``action_repeat`` holds each ``policy.act`` output for N sim steps before
+    re-querying. Use this to match the policy's training cadence when the
+    sim runs faster than the dataset's record rate (e.g. dataset at 30 fps,
+    sim_dt=0.005 s ⇒ 200 Hz ⇒ action_repeat=6). Calling the policy at every
+    sim step when training was at 30 fps causes the model to "fast-forward"
+    its action chunk 6.7× faster than intended — the gripper closes before
+    the arm reaches the cube and the lift phase ends prematurely.
 
     Returns a dict: ``{success, steps, final_obs, initial_obs}``. ``success``
     is the boolean outcome of ``success`` evaluated against
     ``(initial_obs, final_obs)``, or ``None`` when no criterion is supplied.
     """
+    if action_repeat < 1:
+        raise ValueError(f"action_repeat must be >= 1, got {action_repeat}")
     n_dof = getattr(sim, "n_dof", 6)
-    initial_obs = sim.observe()
+    from robosandbox.tasks.runner import _eval_criterion
 
-    last_obs = initial_obs
+    initial_obs = sim.observe()
+    obs = initial_obs
     steps_done = 0
+    held_action: np.ndarray | None = None
+    # Latch success on first match — a policy that keeps emitting actions
+    # past success often perturbs the scene back into a failed final state.
+    success_ever: bool | None = None if success is None else False
+    success_step: int | None = None
     for step_i in range(max_steps):
-        obs = sim.observe()
-        action = np.asarray(policy.act(obs), dtype=np.float64).ravel()
-        if action.shape != (n_dof + 1,):
-            raise ValueError(
-                f"policy.act must return shape ({n_dof + 1},), got {action.shape}"
-            )
-        target_joints = action[:n_dof]
-        gripper = float(action[n_dof])
-        sim.step(target_joints=target_joints, gripper=gripper)
-        last_obs = obs
+        if step_i % action_repeat == 0:
+            action = np.asarray(policy.act(obs), dtype=np.float64).ravel()
+            if action.shape != (n_dof + 1,):
+                raise ValueError(
+                    f"policy.act must return shape ({n_dof + 1},), got {action.shape}"
+                )
+            held_action = action
+        else:
+            action = held_action  # type: ignore[assignment]
+        sim.step(target_joints=action[:n_dof], gripper=float(action[n_dof]))
+        post_obs = sim.observe()
         steps_done = step_i + 1
         if on_step is not None:
             on_step(obs, action)
+        if success is not None and not success_ever:
+            ok_step, _ = _eval_criterion(success, initial_obs, post_obs)
+            if ok_step:
+                success_ever = True
+                success_step = step_i + 1
+        obs = post_obs
 
-    final_obs = sim.observe()
-
-    success_ok: bool | None
-    if success is None:
-        success_ok = None
-    else:
-        # Lazy import to avoid tasks→policy cycles if any.
-        from robosandbox.tasks.runner import _eval_criterion
-
-        success_ok, _detail = _eval_criterion(success, initial_obs, final_obs)
+    final_obs = obs
 
     return {
-        "success": success_ok,
+        "success": success_ever,
+        "success_step": success_step,
         "steps": steps_done,
         "initial_obs": initial_obs,
         "final_obs": final_obs,
-        "last_obs_before_final": last_obs,
+        "last_obs_before_final": final_obs,
     }
 
 
@@ -330,6 +346,40 @@ def _lerobot_visual_input_keys(policy: Any) -> list[str]:
     return visual
 
 
+def _resolve_lerobot_device(cfg_device: str | None) -> str:
+    """Honor the checkpoint's device but downgrade `cuda` to `cpu` when
+    torch isn't compiled with CUDA — same fallback lerobot uses internally."""
+    if not cfg_device or cfg_device != "cuda":
+        return cfg_device or "cpu"
+    try:
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        return "cpu"
+
+
+def _load_lerobot_processors(p: Path, policy_config: Any) -> tuple[Any, Any]:
+    """Load lerobot's saved pre/post-processor pipelines for checkpoint ``p``.
+
+    Returns ``(None, None)`` when the JSON files are absent (older
+    checkpoints) or when ``lerobot.processor`` isn't importable; the
+    adapter then falls back to its own minimal batch construction.
+    """
+    if not ((p / "policy_preprocessor.json").exists()
+            and (p / "policy_postprocessor.json").exists()):
+        return (None, None)
+    try:
+        from lerobot.processor import PolicyProcessorPipeline
+    except ImportError:
+        return (None, None)
+    cfg_device = getattr(policy_config, "device", None) if policy_config else None
+    overrides = {"device_processor": {"device": _resolve_lerobot_device(cfg_device)}}
+    return (
+        PolicyProcessorPipeline.from_pretrained(str(p), "policy_preprocessor.json", overrides=overrides),
+        PolicyProcessorPipeline.from_pretrained(str(p), "policy_postprocessor.json", overrides=overrides),
+    )
+
+
 def load_policy(path: str | Path) -> Policy:
     """Load a policy from a checkpoint-or-episode directory.
 
@@ -378,15 +428,14 @@ def load_policy(path: str | Path) -> Policy:
                 ) from e
             policy_cls = get_policy_class(policy_type)
             inner = policy_cls.from_pretrained(str(p))
-            # Auto-detect the visual input keys from the policy's config so the
-            # adapter emits whatever keys this checkpoint actually expects
-            # (e.g. legacy `observation.image` for diffusion_pusht, namespaced
-            # `observation.images.<cam>` for ACT/pi0). Fall back to the
-            # adapter's "scene" default when the config has no visual features.
+            preproc, postproc = _load_lerobot_processors(p, getattr(inner, "config", None))
+            # Visual input keys vary by policy class: legacy diffusion_pusht
+            # uses `observation.image`, ACT/pi0 use `observation.images.<cam>`.
             image_keys = _lerobot_visual_input_keys(inner)
+            kwargs: dict[str, Any] = {"preprocessor": preproc, "postprocessor": postproc}
             if image_keys:
-                return LeRobotPolicyAdapter(inner, image_keys=image_keys)
-            return LeRobotPolicyAdapter(inner)
+                kwargs["image_keys"] = image_keys
+            return LeRobotPolicyAdapter(inner, **kwargs)
 
         cfg_file = p / "policy.json"
         if cfg_file.exists():

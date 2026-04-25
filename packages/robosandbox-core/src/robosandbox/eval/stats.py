@@ -100,6 +100,8 @@ def summarise_eval(
     successes: int,
     n_trials: int,
     success_per_trial: list[bool] | None = None,
+    per_trial_details: list[dict] | None = None,
+    provenance: dict | None = None,
     steps: int = 0,
     wall_seconds: float = 0.0,
     throughput: float = 0.0,
@@ -107,14 +109,17 @@ def summarise_eval(
 ) -> EvalSummary:
     """Build the canonical EvalSummary dict from a finished eval run.
 
-    Wraps ``wilson_ci`` and locks the JSON schema (``schema_version=1``)
+    Wraps ``wilson_ci`` and locks the JSON schema (``schema_version=2``)
     so downstream tools (``robo-sandbox compare``, plotting scripts)
-    can rely on field names + presence.
+    can rely on field names + presence. v2 adds ``per_trial_details``
+    (per-trial cube pose, peak lift, EE-object min distance) and a
+    derived ``spatial_breakdown`` so spatial failure analysis is
+    available without re-running anything.
     """
     z = _Z_95 if abs(ci_level - 0.95) < 1e-9 else _z_from_two_sided_level(ci_level)
     lo, hi = wilson_ci(successes, n_trials, z=z)
     out: EvalSummary = {
-        "schema_version": 1,
+        "schema_version": 2,
         "task": task,
         "policy": policy,
         "sim_backend": sim_backend,
@@ -130,7 +135,61 @@ def summarise_eval(
     }
     if success_per_trial is not None:
         out["success_per_trial"] = list(success_per_trial)
+    if per_trial_details is not None:
+        out["per_trial_details"] = list(per_trial_details)
+        out["spatial_breakdown"] = _spatial_breakdown(per_trial_details)
+    if provenance is not None:
+        # Provenance is "what produced this result, exactly" — checkpoint
+        # content hash, robosandbox/lerobot/mujoco versions, git rev. Two
+        # eval JSONs with matching provenance are guaranteed-comparable;
+        # mismatching provenance means at least one of code/checkpoint/sim
+        # changed and any apples-to-apples comparison is suspect.
+        out["provenance"] = dict(provenance)
     return out
+
+
+def _spatial_breakdown(details: list[dict], n_bins: int = 5) -> dict:
+    """Group trials into x/y bins of the tracked object's initial position
+    and report success rate per bin. Skips trials without ``object_initial_xyz``
+    (e.g. tasks whose success criterion has no .object). Returns an empty
+    dict when no trials carry pose info.
+
+    The breakdown is the cheapest way to see *where* the policy fails — a
+    per-bin success-rate gradient is the signature of a generalization gap
+    (model trained uniformly but only succeeds in one region).
+    """
+    valid = [d for d in details if d.get("object_initial_xyz") is not None]
+    if not valid:
+        return {}
+    xs = [d["object_initial_xyz"][0] for d in valid]
+    ys = [d["object_initial_xyz"][1] for d in valid]
+    def _bin(values: list[float], n: int) -> list[tuple[float, float]]:
+        lo, hi = min(values), max(values)
+        if hi - lo < 1e-9:
+            return [(lo, hi + 1e-9)]
+        step = (hi - lo) / n
+        return [(lo + i * step, lo + (i + 1) * step + (1e-9 if i == n - 1 else 0.0))
+                for i in range(n)]
+    def _by(axis_index: int) -> list[dict]:
+        bins = _bin([d["object_initial_xyz"][axis_index] for d in valid], n_bins)
+        rows = []
+        for blo, bhi in bins:
+            in_bin = [d for d in valid
+                      if blo <= d["object_initial_xyz"][axis_index] < bhi]
+            n_in = len(in_bin)
+            n_succ = sum(1 for d in in_bin if d.get("success"))
+            rows.append({
+                "lo": blo,
+                "hi": bhi,
+                "n": n_in,
+                "successes": n_succ,
+                "rate": (n_succ / n_in) if n_in else 0.0,
+            })
+        return rows
+    return {
+        "by_object_x": _by(0),
+        "by_object_y": _by(1),
+    }
 
 
 def _normal_cdf(x: float) -> float:

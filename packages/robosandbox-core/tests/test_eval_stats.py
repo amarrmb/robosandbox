@@ -74,6 +74,84 @@ def test_summarise_eval_includes_required_fields() -> None:
         "success_per_trial",
     ):
         assert key in out, f"missing key: {key}"
-    assert out["schema_version"] == 1
+    # Schema bumped to 2 when per_trial_details + spatial_breakdown were
+    # added — both fields are optional, so callers that don't pass details
+    # get the same shape as v1 minus the new keys (older parsers ignore
+    # the version bump and still find every field they relied on).
+    assert out["schema_version"] == 2
     assert math.isclose(out["rate"], 42 / 64)
     assert 0.0 <= out["ci_low"] <= out["rate"] <= out["ci_high"] <= 1.0
+
+
+def test_summarise_eval_emits_spatial_breakdown_when_details_provided() -> None:
+    """When per_trial_details carries object_initial_xyz, the summary should
+    derive a per-bin success-rate breakdown so spatial failure analysis
+    works without re-running anything."""
+    # 4 trials: 2 successes at high x, 2 failures at low x — extreme spatial
+    # gradient that the breakdown should surface clearly.
+    details = [
+        {"trial": 1, "seed": 1, "success": False, "steps": 500,
+         "peak_lift_mm": 5.0, "min_ee_object_dist_mm": 80.0,
+         "object_id": "red_cube", "object_initial_xyz": [0.36, 0.0, 0.05],
+         "object_initial_quat_xyzw": [0, 0, 0, 1]},
+        {"trial": 2, "seed": 2, "success": False, "steps": 500,
+         "peak_lift_mm": 4.0, "min_ee_object_dist_mm": 75.0,
+         "object_id": "red_cube", "object_initial_xyz": [0.37, 0.0, 0.05],
+         "object_initial_quat_xyzw": [0, 0, 0, 1]},
+        {"trial": 3, "seed": 3, "success": True, "steps": 400,
+         "peak_lift_mm": 120.0, "min_ee_object_dist_mm": 12.0,
+         "object_id": "red_cube", "object_initial_xyz": [0.44, 0.0, 0.05],
+         "object_initial_quat_xyzw": [0, 0, 0, 1]},
+        {"trial": 4, "seed": 4, "success": True, "steps": 400,
+         "peak_lift_mm": 130.0, "min_ee_object_dist_mm": 10.0,
+         "object_id": "red_cube", "object_initial_xyz": [0.45, 0.0, 0.05],
+         "object_initial_quat_xyzw": [0, 0, 0, 1]},
+    ]
+    out = summarise_eval(
+        task="pick_cube_franka_random", policy="ckpt", sim_backend="mujoco",
+        successes=2, n_trials=4, success_per_trial=[False, False, True, True],
+        per_trial_details=details, steps=1800, wall_seconds=20.0, throughput=90.0,
+    )
+    assert "per_trial_details" in out and len(out["per_trial_details"]) == 4
+    assert "spatial_breakdown" in out
+    bins_x = out["spatial_breakdown"]["by_object_x"]
+    # Lowest x bin should be 0% successful, highest 100% — the gradient
+    # signature we explicitly want callers to be able to read off.
+    assert bins_x[0]["rate"] == 0.0
+    assert bins_x[-1]["rate"] == 1.0
+
+
+def test_summarise_eval_includes_provenance_when_provided() -> None:
+    """Provenance pins down what produced the result. Field shape is open
+    (callers may add their own keys), but if a caller passes one it must
+    flow through unchanged so downstream comparison tools can rely on it."""
+    prov = {
+        "policy_path": "/tmp/ckpt",
+        "checkpoint_sha256": "deadbeef" * 8,
+        "robosandbox_git_rev": "abc123-dirty",
+        "lerobot_version": "0.4.4",
+    }
+    out = summarise_eval(
+        task="x", policy="/tmp/ckpt", sim_backend="mujoco",
+        successes=1, n_trials=1, provenance=prov,
+        steps=10, wall_seconds=1.0, throughput=10.0,
+    )
+    assert out["provenance"] == prov
+
+
+def test_summarise_eval_omits_spatial_breakdown_when_no_pose_info() -> None:
+    """Tasks whose success criterion has no .object (e.g. pure joint-state
+    targets) shouldn't produce a misleading empty/zero breakdown."""
+    out = summarise_eval(
+        task="reach_pose", policy="ckpt", sim_backend="mujoco",
+        successes=1, n_trials=2, success_per_trial=[True, False],
+        per_trial_details=[
+            {"trial": 1, "seed": 1, "success": True, "steps": 100,
+             "peak_lift_mm": 0.0, "min_ee_object_dist_mm": None},
+            {"trial": 2, "seed": 2, "success": False, "steps": 500,
+             "peak_lift_mm": 0.0, "min_ee_object_dist_mm": None},
+        ],
+        steps=600, wall_seconds=10.0, throughput=60.0,
+    )
+    # spatial_breakdown is present but empty when no trial carries pose info.
+    assert out["spatial_breakdown"] == {}

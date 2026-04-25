@@ -3,7 +3,9 @@
 This is intentionally narrower than the MuJoCo backend today:
 
 - scene loading supports the Franka-style MJCF + primitive box objects
-- observations expose robot/object state but not rendered RGB/depth
+- observations expose robot/object state plus optional batched RGB
+  (opt-in via ``enable_camera=True``; uses ``newton.sensors.SensorTiledCamera``
+  to raytrace one shaded image per world on the GPU)
 - the motion-planner stack remains MuJoCo-specific, so planner-driven
   agent runs should stay on MuJoCo for now
 
@@ -76,6 +78,48 @@ class _RobotConfig:
     ee_offset_xyz: tuple[float, float, float]
 
 
+def _look_at_quat(eye: np.ndarray, target: np.ndarray, up: np.ndarray) -> Any:
+    """OpenGL-style look-at quat (xyzw) used by Newton SensorTiledCamera.
+
+    Camera looks down -Z in its own frame, +Y up. Returns a wp.quatf — caller
+    supplies wp via the lazy import on the backend instance.
+    """
+    import warp as wp  # local: only when camera is enabled
+
+    forward = target - eye
+    forward /= np.linalg.norm(forward) + 1e-9
+    right = np.cross(forward, up)
+    right /= np.linalg.norm(right) + 1e-9
+    cam_up = np.cross(right, forward)
+    R = np.column_stack([right, cam_up, -forward])
+    tr = R[0, 0] + R[1, 1] + R[2, 2]
+    if tr > 0:
+        s = math.sqrt(tr + 1.0) * 2
+        qw = 0.25 * s
+        qx = (R[2, 1] - R[1, 2]) / s
+        qy = (R[0, 2] - R[2, 0]) / s
+        qz = (R[1, 0] - R[0, 1]) / s
+    elif (R[0, 0] > R[1, 1]) and (R[0, 0] > R[2, 2]):
+        s = math.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2
+        qw = (R[2, 1] - R[1, 2]) / s
+        qx = 0.25 * s
+        qy = (R[0, 1] + R[1, 0]) / s
+        qz = (R[0, 2] + R[2, 0]) / s
+    elif R[1, 1] > R[2, 2]:
+        s = math.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2
+        qw = (R[0, 2] - R[2, 0]) / s
+        qx = (R[0, 1] + R[1, 0]) / s
+        qy = 0.25 * s
+        qz = (R[1, 2] + R[2, 1]) / s
+    else:
+        s = math.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2
+        qw = (R[1, 0] - R[0, 1]) / s
+        qx = (R[0, 2] + R[2, 0]) / s
+        qy = (R[1, 2] + R[2, 1]) / s
+        qz = 0.25 * s
+    return wp.quatf(float(qx), float(qy), float(qz), float(qw))
+
+
 def _grid_offsets(n: int, spacing: float = 2.5) -> list[tuple[float, float, float]]:
     """Lay out N worlds in a square-ish grid with ``spacing`` metres between centres."""
     cols = int(math.ceil(math.sqrt(n)))
@@ -102,6 +146,10 @@ class NewtonBackend:
         device: str = "cuda:0",
         dt: float = 1.0 / 240.0,
         world_count: int = 1,
+        enable_camera: bool = False,
+        camera_pos: tuple[float, float, float] = (1.1, -1.4, 0.9),
+        camera_look_at: tuple[float, float, float] = (0.4, 0.0, 0.1),
+        camera_fov_deg: float = 45.0,
     ):
         self._render_h, self._render_w = render_size
         self._camera = camera
@@ -110,6 +158,17 @@ class NewtonBackend:
         self._device = device
         self._dt = float(dt)
         self._world_count = max(1, int(world_count))
+        # When enabled, observe()/observe_all() raytrace one RGB image per
+        # world via newton.sensors.SensorTiledCamera. Off by default to keep
+        # state-only callers (RL, headless eval) free of GPU render cost.
+        self._camera_enabled = bool(enable_camera)
+        self._cam_pos = tuple(float(v) for v in camera_pos)
+        self._cam_look_at = tuple(float(v) for v in camera_look_at)
+        self._cam_fov_deg = float(camera_fov_deg)
+        self._sensor: Any = None
+        self._cam_rays: Any = None
+        self._cam_color_buf: Any = None
+        self._cam_xforms: Any = None
 
         self._scene: Scene | None = None
         self._robot: _RobotConfig | None = None
@@ -409,7 +468,42 @@ class NewtonBackend:
             self._viewer.set_camera(
                 pos=self._wp.vec3(1.1, -1.4, 0.9), pitch=-18.0, yaw=45.0
             )
+        if self._camera_enabled:
+            self._setup_tiled_camera()
         self.reset()
+
+    def _setup_tiled_camera(self) -> None:
+        """Build SensorTiledCamera + per-world camera transforms (one camera per world).
+
+        Newton's pinhole rays follow the OpenGL convention (camera looks down
+        -Z, +Y up). Each world's camera follows the world's grid offset so all
+        worlds see their own scene framed identically.
+        """
+        from newton.sensors import SensorTiledCamera
+
+        wp = self._wp
+        self._sensor = SensorTiledCamera(model=self._model)
+        self._sensor.utils.create_default_light(enable_shadows=True)
+        self._sensor.utils.assign_checkerboard_material_to_all_shapes()
+
+        self._cam_rays = self._sensor.utils.compute_pinhole_camera_rays(
+            self._render_w, self._render_h, math.radians(self._cam_fov_deg)
+        )
+        self._cam_color_buf = self._sensor.utils.create_color_image_output(
+            self._render_w, self._render_h, camera_count=1
+        )
+
+        eye0 = np.asarray(self._cam_pos, dtype=np.float64)
+        target0 = np.asarray(self._cam_look_at, dtype=np.float64)
+        up = np.array([0.0, 0.0, 1.0])
+        per_world = []
+        for ox, oy, oz in _grid_offsets(self._world_count):
+            offset = np.array([ox, oy, oz])
+            eye_w = eye0 + offset
+            q = _look_at_quat(eye_w, target0 + offset, up)
+            per_world.append(wp.transformf(wp.vec3f(*eye_w.astype(np.float32)), q))
+        # Newton expects shape (camera_count, world_count); one camera per world.
+        self._cam_xforms = wp.array([per_world], dtype=wp.transformf)
 
     def reset(self) -> None:
         assert self._model is not None
@@ -471,7 +565,31 @@ class NewtonBackend:
         self._t += self._dt
         self._log_viewer_state()
 
-    def _obs_for_world(self, w: int, q: np.ndarray, body_q: np.ndarray) -> Observation:
+    def _render_all_rgb(self) -> np.ndarray | None:
+        """Return (W, H, W_pix, 3) uint8 RGB across worlds, or None if disabled."""
+        if not self._camera_enabled or self._sensor is None:
+            return None
+        from newton.sensors import SensorTiledCamera
+
+        self._sensor.update(
+            self._state_0,
+            self._cam_xforms,
+            self._cam_rays,
+            color_image=self._cam_color_buf,
+            clear_data=SensorTiledCamera.GRAY_CLEAR_DATA,
+        )
+        # uint32 RGBA per pixel → unpack to uint8 (W, 1, H, W_pix, 4) → drop alpha
+        img32 = self._cam_color_buf.numpy()
+        rgba = img32.view(np.uint8).reshape(*img32.shape, 4)
+        return rgba[:, 0, :, :, :3].copy()  # (W, H, W_pix, 3)
+
+    def _obs_for_world(
+        self,
+        w: int,
+        q: np.ndarray,
+        body_q: np.ndarray,
+        rgb_all: np.ndarray | None = None,
+    ) -> Observation:
         arm_joints = np.array([q[self._dof_per_world * w + i] for i in self._w_arm_q], dtype=np.float64)
         finger_positions = [float(q[self._dof_per_world * w + i]) for i in self._w_gripper_q]
         gripper_width = float(sum(abs(v) for v in finger_positions))
@@ -487,8 +605,13 @@ class NewtonBackend:
             oid: _body_pose_from_row(body_q[self._obj_body_abs(oid, w)])
             for oid in self._w_obj_body
         }
+        rgb = (
+            rgb_all[w]
+            if rgb_all is not None
+            else np.zeros((self._render_h, self._render_w, 3), dtype=np.uint8)
+        )
         return Observation(
-            rgb=np.zeros((self._render_h, self._render_w, 3), dtype=np.uint8),
+            rgb=rgb,
             depth=None,
             robot_joints=arm_joints,
             ee_pose=ee_pose,
@@ -550,14 +673,16 @@ class NewtonBackend:
         assert self._state_0 is not None
         q = self._state_0.joint_q.numpy()
         body_q = self._state_0.body_q.numpy()
-        return self._obs_for_world(0, q, body_q)
+        rgb_all = self._render_all_rgb()
+        return self._obs_for_world(0, q, body_q, rgb_all)
 
     def observe_all(self) -> list[Observation]:
         """One Observation per parallel world."""
         assert self._state_0 is not None
         q = self._state_0.joint_q.numpy()
         body_q = self._state_0.body_q.numpy()
-        return [self._obs_for_world(w, q, body_q) for w in range(self._world_count)]
+        rgb_all = self._render_all_rgb()
+        return [self._obs_for_world(w, q, body_q, rgb_all) for w in range(self._world_count)]
 
     def get_object_pose(self, object_id: str) -> Pose | None:
         if object_id not in self._w_obj_body or self._state_0 is None:

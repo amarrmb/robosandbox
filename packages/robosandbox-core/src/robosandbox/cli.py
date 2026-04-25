@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 
 import numpy as np
@@ -144,6 +145,33 @@ def main(argv: list[str] | None = None) -> int:
                         help="Write structured eval result as JSON to this path.")
     eval_p.add_argument("--seed", type=int, default=None,
                         help="Seed for any randomization (item 3 will use this).")
+    eval_p.add_argument("--reload-policy", action=argparse.BooleanOptionalAction, default=True,
+                        help=(
+                            "Reload the policy fresh per trial (default true) so per-trial "
+                            "outcomes are deterministic and independent of trial order. The "
+                            "alternative (--no-reload-policy) loads once and only calls "
+                            "policy.reset() between trials, which is faster but leaks state "
+                            "(BatchNorm running buffers, register_buffer tensors, RNG, "
+                            "compile/autograd cache) across trials — observed seed-level "
+                            "outcomes change with trial order. Reload cost is ~1-2 s/trial."
+                        ))
+    eval_p.add_argument("--newton-rgb", action=argparse.BooleanOptionalAction, default=None,
+                        help=(
+                            "Newton only: raytrace per-world RGB via SensorTiledCamera. "
+                            "Default = auto (on iff the policy declares image inputs). "
+                            "--no-newton-rgb forces zero frames (faster, useful only for "
+                            "state-only policies)."
+                        ))
+    eval_p.add_argument("--action-repeat", type=int, default=1,
+                        help=(
+                            "Hold each policy action for N sim steps. Set this "
+                            "to sim_dt/dataset_dt (e.g. 6 when training data "
+                            "was recorded at 30 fps and sim_dt=0.005s = 200 Hz) "
+                            "so the policy sees the same temporal cadence at "
+                            "eval as it did during training. Default 1 (call "
+                            "policy every step) is correct only when training "
+                            "and eval cadences match."
+                        ))
 
     sc_p = sub.add_parser(
         "sim-check",
@@ -295,8 +323,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         print()
         print(
-            "  Note: Newton backend is state-only (no camera), so vision "
-            "policies (ACT, Diffusion) need --sim-backend mujoco."
+            "  Note: vision policies (ACT, Diffusion) work on either backend. "
+            "Newton auto-renders per-world RGB via SensorTiledCamera when the "
+            "policy declares image inputs (override with --no-newton-rgb)."
         )
         return 0
     elif args.cmd == "train":
@@ -583,6 +612,112 @@ def _maybe_write_json(path: str | None, summary: dict) -> None:
     print(f"[eval] wrote JSON:    {out}")
 
 
+def _finalize_eval(
+    args: argparse.Namespace,
+    *,
+    task_name: str,
+    sim_backend: str,
+    successes: int,
+    n_trials: int,
+    success_per_trial: list[bool],
+    per_trial_details: list[dict] | None,
+    steps: int,
+    wall_seconds: float,
+    throughput: float,
+) -> int:
+    """Build summary, print it, optionally write JSON, return exit code."""
+    from robosandbox.eval import summarise_eval
+    summary = summarise_eval(
+        task=task_name,
+        policy=str(args.policy),
+        sim_backend=sim_backend,
+        successes=successes,
+        n_trials=n_trials,
+        success_per_trial=success_per_trial,
+        per_trial_details=per_trial_details,
+        provenance=_build_provenance(str(args.policy)),
+        steps=steps,
+        wall_seconds=wall_seconds,
+        throughput=throughput,
+    )
+    _print_eval_summary(summary)
+    _maybe_write_json(getattr(args, "output", None), summary)
+    return 0 if successes > 0 else 1
+
+
+def _build_provenance(policy_path: str) -> dict:
+    """Collect the bits that pin down an eval's reproducibility:
+
+    - SHA-256 of the model weights (``model.safetensors``) — content hash
+      that survives renames and path changes; two evals with matching
+      hashes used the same checkpoint bytes.
+    - robosandbox + lerobot + mujoco version strings (``importlib.metadata``).
+    - Git rev of the working repo, with a ``-dirty`` suffix when there are
+      uncommitted changes — so a "clean" rev guarantees the code is the
+      committed version.
+
+    All fields are best-effort: missing dependencies, non-git checkouts,
+    or a missing model file just produce ``None``/absent keys instead of
+    failing the eval.
+    """
+    import hashlib
+    import subprocess
+    from pathlib import Path
+    p = Path(policy_path)
+    prov: dict = {"policy_path": str(p)}
+
+    # Checkpoint content hash. Use the lerobot canonical filename when
+    # present; fall back to events.jsonl for replay policies.
+    weight_file = None
+    for candidate in ("model.safetensors", "events.jsonl"):
+        f = p / candidate if p.is_dir() else p
+        if f.exists() and f.is_file():
+            weight_file = f
+            break
+    if weight_file is not None:
+        h = hashlib.sha256()
+        with weight_file.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        prov["checkpoint_file"] = weight_file.name
+        prov["checkpoint_sha256"] = h.hexdigest()
+        prov["checkpoint_bytes"] = weight_file.stat().st_size
+
+    # Versions of the libraries that produced the eval result.
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+        for pkg in ("robosandbox-core", "lerobot", "mujoco", "torch", "warp-lang"):
+            try:
+                prov[f"{pkg}_version"] = version(pkg)
+            except PackageNotFoundError:
+                pass
+    except ImportError:
+        pass
+
+    # Git rev of the robosandbox checkout (with -dirty suffix for any
+    # uncommitted changes — anything but a clean tag is a flag for "the
+    # eval was run against modified code").
+    try:
+        repo = Path(__file__).resolve().parent.parent.parent
+        rev = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo,
+            capture_output=True, text=True, timeout=2,
+        )
+        if rev.returncode == 0:
+            sha = rev.stdout.strip()
+            dirty = subprocess.run(
+                ["git", "status", "--porcelain"], cwd=repo,
+                capture_output=True, text=True, timeout=2,
+            )
+            if dirty.returncode == 0 and dirty.stdout.strip():
+                sha += "-dirty"
+            prov["robosandbox_git_rev"] = sha
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    return prov
+
+
 def _sim_check_cli(args: argparse.Namespace) -> int:
     """Run the cross-backend agreement check; print the report."""
     import json
@@ -748,7 +883,10 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
         if randomize_active:
             seed_origin = "user-provided" if base_seed is not None else "auto-derived"
             print(f"[eval] randomize:     {sorted(task.randomize.keys())}  ({seed_origin} seeds)")
+        from robosandbox.tasks.runner import criterion_target_object
+        per_trial_details: list[dict] = []
         success_per_trial: list[bool] = []
+        target_obj_id = criterion_target_object(task.success)
         total_steps = 0
         t0 = _time.time()
         for trial in range(n_trials):
@@ -768,39 +906,82 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
             else:
                 trial_scene = task.scene
             sim.load(trial_scene)
+            # Match the settle the recorder did before its first frame —
+            # without it the policy sees mid-fall, OOD vs training.
+            for _ in range(int(getattr(args, "settle_steps", 100) or 0)):
+                sim.step()
+            if getattr(args, "reload_policy", True):
+                trial_policy = load_policy(Path(args.policy))
+            else:
+                trial_policy = policy
+            initial_cube_pose = sim.get_object_pose(target_obj_id) if target_obj_id else None
+            initial_cube_z = initial_cube_pose.xyz[2] if initial_cube_pose else None
+            peak_lift_mm = 0.0
+            min_ee_dist_mm = float("inf")
+            def _track(obs: object, action: object,
+                       _z0=initial_cube_z, _oid=target_obj_id) -> None:
+                nonlocal peak_lift_mm, min_ee_dist_mm
+                if _oid is None or _z0 is None:
+                    return
+                p = sim.get_object_pose(_oid)
+                if p is None:
+                    return
+                lift_mm = (p.xyz[2] - _z0) * 1000.0
+                if lift_mm > peak_lift_mm:
+                    peak_lift_mm = lift_mm
+                ee_xyz = obs.ee_pose.xyz  # type: ignore[attr-defined]
+                d_mm = math.sqrt(sum((a - b) ** 2 for a, b in zip(ee_xyz, p.xyz))) * 1000.0
+                if d_mm < min_ee_dist_mm:
+                    min_ee_dist_mm = d_mm
             try:
                 # Reset replay-style policies so each trial starts at step 0.
-                reset = getattr(policy, "reset", None)
+                reset = getattr(trial_policy, "reset", None)
                 if callable(reset):
                     reset()
                 result = run_policy(
-                    sim, policy,
+                    sim, trial_policy,
                     max_steps=args.max_steps,
                     success=task.success,
+                    action_repeat=int(getattr(args, "action_repeat", 1) or 1),
+                    on_step=_track,
                 )
             finally:
                 sim.close()
             ok = bool(result["success"]) if result["success"] is not None else False
             success_per_trial.append(ok)
             total_steps += int(result["steps"])
+            trial_seed_recorded = (
+                ((int(base_seed) + trial + 1) if base_seed is not None else (trial + 1))
+                if randomize_active else 0
+            )
+            detail = {
+                "trial": trial + 1,
+                "seed": trial_seed_recorded,
+                "success": ok,
+                "success_step": result.get("success_step"),
+                "steps": int(result["steps"]),
+                "peak_lift_mm": float(peak_lift_mm),
+                "min_ee_object_dist_mm": (
+                    float(min_ee_dist_mm) if min_ee_dist_mm != float("inf") else None
+                ),
+            }
+            if initial_cube_pose is not None:
+                detail["object_id"] = target_obj_id
+                detail["object_initial_xyz"] = list(initial_cube_pose.xyz)
+                detail["object_initial_quat_xyzw"] = list(initial_cube_pose.quat_xyzw)
+            per_trial_details.append(detail)
             if n_trials > 1:
                 print(f"[eval]   trial {trial + 1}/{n_trials}: {'success' if ok else 'failure'} ({result['steps']} steps)")
         wall = _time.time() - t0
         successes = sum(success_per_trial)
-        summary = summarise_eval(
-            task=task.name,
-            policy=str(args.policy),
-            sim_backend="mujoco",
-            successes=successes,
-            n_trials=n_trials,
+        return _finalize_eval(
+            args, task_name=task.name, sim_backend="mujoco",
+            successes=successes, n_trials=n_trials,
             success_per_trial=success_per_trial,
-            steps=total_steps,
-            wall_seconds=wall,
+            per_trial_details=per_trial_details,
+            steps=total_steps, wall_seconds=wall,
             throughput=(total_steps / wall) if wall > 0 else 0.0,
         )
-        _print_eval_summary(summary)
-        _maybe_write_json(getattr(args, "output", None), summary)
-        return 0 if successes > 0 else 1
 
     # ---- Newton: N parallel worlds, state-only --------------------------
     world_count: int = args.world_count
@@ -809,13 +990,22 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
     print(f"[eval] max_steps:     {args.max_steps}")
 
     image_keys = _policy_image_inputs(policy)
-    if image_keys:
+    # Auto-enable RGB if the policy needs it; users can force on/off via
+    # --newton-rgb / --no-newton-rgb. Camera-on costs ~ms per step but is
+    # required for vision policies; off keeps state-only RL fast.
+    if getattr(args, "newton_rgb", None) is None:
+        enable_camera = bool(image_keys)
+    else:
+        enable_camera = bool(args.newton_rgb)
+    if image_keys and not enable_camera:
         print(
             f"[eval] WARNING: policy expects image inputs ({', '.join(sorted(image_keys))}) "
-            f"but Newton is state-only — it will receive zero-image frames and "
-            f"likely produce garbage actions. Use --sim-backend mujoco for vision policies.",
+            f"but --no-newton-rgb was set — frames will be zeros. Drop the flag to "
+            f"raytrace per-world RGB via SensorTiledCamera.",
             file=sys.stderr,
         )
+    elif enable_camera:
+        print(f"[eval] camera:        SensorTiledCamera (1 cam/world @ 240x320)")
 
     # Per-world randomization: build N different scenes when the task's
     # randomize spec is set. Topology is invariant under jitter_scene so
@@ -849,6 +1039,7 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
             viewer="null",
             device=args.device,
             world_count=world_count,
+            enable_camera=enable_camera,
         )
         sim.load(task.scene, per_world_scenes=per_world_scenes)
     except (ImportError, ValueError) as e:
@@ -866,24 +1057,14 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
     finally:
         sim.close()
 
-    from robosandbox.eval import summarise_eval
-
-    n = int(result["n_worlds"])
-    s = int(result["successes"])
-    summary = summarise_eval(
-        task=task.name,
-        policy=str(args.policy),
-        sim_backend="newton",
-        successes=s,
-        n_trials=n,
+    return _finalize_eval(
+        args, task_name=task.name, sim_backend="newton",
+        successes=int(result["successes"]), n_trials=int(result["n_worlds"]),
         success_per_trial=list(result.get("success_per_world", [])),
-        steps=int(result["steps"]),
-        wall_seconds=float(result["wall"]),
+        per_trial_details=None,  # Newton parallel path doesn't track per-trial pose
+        steps=int(result["steps"]), wall_seconds=float(result["wall"]),
         throughput=float(result["throughput"]),
     )
-    _print_eval_summary(summary)
-    _maybe_write_json(getattr(args, "output", None), summary)
-    return 0 if s > 0 else 1
 
 
 if __name__ == "__main__":

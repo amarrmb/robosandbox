@@ -84,17 +84,23 @@ def _coerce_action(
     fallback: list[float],
     target_dim: int | None = None,
 ) -> list[float]:
-    """Turn a recorded `action` field into a flat float vector.
+    """Turn a recorded ``action`` field into a flat float vector.
 
-    Falls back to ``fallback`` (typically the current state) if the action is
-    missing or not a numeric sequence. When the recorded action dict carries
-    a ``gripper`` field alongside ``joints``, the gripper command is appended
-    so the resulting action matches ``state_dim = n_joints + 1``. Without
-    this, ACT/Diffusion policies trained on the dataset would learn 7-D
-    actions while seeing 8-D states — a silent gripper-open-by-default bias.
+    Raises ``ValueError`` when ``action`` is missing or non-numeric — the
+    recorder must not emit frames without a commanded action (otherwise
+    settle/idle frames poison the dataset with state-as-action pairs).
+
+    Padding from ``fallback`` only fixes dim alignment when the recorded
+    action has joints but no gripper field — it is NOT a missing-data
+    fallback.
     """
     if action is None:
-        return list(fallback)
+        raise ValueError(
+            "recorded event has action=None — cannot export. The recorder "
+            "should not write frames during settle / idle phases. If you "
+            "deliberately want a no-op action, record it explicitly as "
+            "{'joints': [...current targets...], 'gripper': <command>}."
+        )
     seq: list | None = None
     gripper: float | None = None
     if isinstance(action, list):
@@ -111,11 +117,15 @@ def _coerce_action(
             except (TypeError, ValueError):
                 gripper = None
     if seq is None:
-        return list(fallback)
+        raise ValueError(
+            f"recorded action has no numeric joint sequence: {action!r}"
+        )
     try:
         out = [float(x) for x in seq]
-    except (TypeError, ValueError):
-        return list(fallback)
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            f"recorded action joint sequence is not all numeric: {seq!r}"
+        ) from e
     if gripper is not None:
         out.append(gripper)
     if target_dim is not None and len(out) < target_dim:
