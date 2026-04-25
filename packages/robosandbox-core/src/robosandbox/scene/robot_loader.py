@@ -310,6 +310,16 @@ def load_robot(
     except (ValueError, RuntimeError) as e:
         raise RobotModelCompileError(urdf_path, e) from e
 
+    # Strip any <keyframe> blocks the robot MJCF ships with. They reference a
+    # qpos vector sized to the robot in isolation; once `inject_scene_objects`
+    # adds free-joint objects (each adds 7 qpos), the keyframe rows become
+    # the wrong length and MuJoCo refuses to compile with
+    # ``keyframe N: invalid qpos size, expected length M``. The robot's home
+    # pose flows through the sidecar (home_qpos) and we set ctrl explicitly,
+    # so the in-MJCF keyframe table carries no information we depend on.
+    for key in list(spec.keys):
+        key.delete()
+
     # Inject ee_site on the specified body if requested.
     if parsed.ee_site_mode == "inject":
         assert parsed.ee_site_attach_body is not None
