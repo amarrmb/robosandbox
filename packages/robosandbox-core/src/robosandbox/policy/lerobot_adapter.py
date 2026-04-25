@@ -66,14 +66,24 @@ class LeRobotPolicyAdapter:
         policy: _LeRobotLike,
         *,
         camera_name: str = "scene",
+        image_keys: list[str] | None = None,
         action_dim: int | None = None,
         image_size: tuple[int, int] | None = None,
+        preprocessor: Any = None,
+        postprocessor: Any = None,
     ) -> None:
         """Wrap ``policy`` as an ``act()``-compatible adapter.
 
         :param policy: any object exposing ``select_action(batch) -> tensor``.
-        :param camera_name: key used under ``observation.images.<camera_name>``.
-            Defaults to ``"scene"`` to match the shipped MuJoCo camera.
+        :param camera_name: convenience for the common single-camera case;
+            translates to ``image_keys=["observation.images.<camera_name>"]``
+            when ``image_keys`` is not given. Ignored otherwise.
+        :param image_keys: explicit list of batch keys under which the
+            sim's RGB frame should be exposed. Use this when the wrapped
+            policy expects something other than ``observation.images.scene``
+            — e.g. legacy ``"observation.image"`` (pusht-era checkpoints)
+            or multiple wrist/base cameras (the same frame is duplicated
+            into each key). When ``None``, falls back to ``camera_name``.
         :param action_dim: expected ``(n_dof + 1,)`` action length. Used to
             validate the policy's output without depending on the sim's
             n_dof at construction time. ``None`` = skip validation.
@@ -84,8 +94,17 @@ class LeRobotPolicyAdapter:
         """
         self._policy = policy
         self._camera_name = camera_name
+        self._image_keys = (
+            list(image_keys)
+            if image_keys is not None
+            else [f"observation.images.{camera_name}"]
+        )
         self._action_dim = action_dim
         self._image_size = image_size
+        # See _load_lerobot_processors in policy/__init__.py for why both
+        # are required (lerobot 0.4 moved normalization out of the model).
+        self._preprocessor = preprocessor
+        self._postprocessor = postprocessor
         # Lazily-allocated scratch buffer for the (1, n_dof + 1) state vector.
         # Re-used across act() calls so the per-frame hot path doesn't
         # allocate three intermediate arrays per step. Sized on first use
@@ -101,9 +120,42 @@ class LeRobotPolicyAdapter:
     def camera_name(self) -> str:
         return self._camera_name
 
+    def reset(self) -> None:
+        """Reset wrapped policy state between eval trials.
+
+        ACT (and most chunked policies) maintain a per-episode action queue
+        that's populated by ``predict_action_chunk`` every ``n_action_steps``
+        calls. Without an explicit reset between trials, trial N starts with
+        whatever residual state trial N-1 left behind — most often a
+        partially-consumed chunk that gets popped on trial N's first
+        ``select_action`` call instead of a fresh chunk conditioned on
+        trial N's actual initial observation. The eval CLI calls
+        ``policy.reset()`` between trials; without this method that call
+        was silently a no-op (``getattr(adapter, 'reset', None)`` returned
+        ``None``), making per-trial outcomes depend on trial order.
+        """
+        inner_reset = getattr(self._policy, "reset", None)
+        if callable(inner_reset):
+            inner_reset()
+
     def act(self, obs: Observation) -> np.ndarray:
         batch = self._to_batch(obs)
+        if self._preprocessor is not None:
+            # The preprocessor pipeline expects observation keys at the
+            # transition's top level (NOT nested under an `observation`
+            # sub-dict): {observation.state: ..., observation.images.X: ...}.
+            # Steps: rename + add-batch-dim (idempotent on already-batched
+            # tensors) + device transfer + per-feature normalization (state
+            # via dataset stats, images via ImageNet stats).
+            transition = self._preprocessor(dict(batch))
+            batch = {k: transition[k] for k in batch if k in transition}
         raw = self._policy.select_action(batch)
+        if self._postprocessor is not None:
+            # Un-normalize the predicted action back into raw joint /
+            # gripper-command units. Postprocessor expects an `action` key
+            # in the transition.
+            out = self._postprocessor({"action": raw})
+            raw = out["action"]
         action = _to_numpy_1d(raw)
         if self._action_dim is not None and action.shape[-1] != self._action_dim:
             raise ValueError(
@@ -151,10 +203,10 @@ class LeRobotPolicyAdapter:
             img_val = chw
             state_val = self._state_buf
 
-        return {
-            f"observation.images.{self._camera_name}": img_val,
-            "observation.state": state_val,
-        }
+        batch: dict[str, Any] = {"observation.state": state_val}
+        for key in self._image_keys:
+            batch[key] = img_val
+        return batch
 
 
 def _policy_wants_torch(policy: Any) -> bool:

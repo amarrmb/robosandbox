@@ -45,8 +45,12 @@ def fake_episode(tmp_path: Path) -> Path:
                 "ee_pose": {"xyz": [0.3, 0.0, 0.2], "quat_xyzw": [0, 0, 0, 1]},
                 "gripper_width": 0.04,
                 "objects": {},
-                # Alternate between None and a numeric action to exercise both paths.
-                "action": None if i % 2 == 0 else {"joints": [0.2 * j for j in range(n_dof)]},
+                # Every frame carries a real commanded action. The exporter
+                # rejects action=None (would otherwise silently fall back to
+                # action=state and poison ~65% of training samples — see
+                # _coerce_action). The settle/idle case is covered by
+                # test_export_rejects_action_none below.
+                "action": {"joints": [0.2 * j for j in range(n_dof)]},
             }
             f.write(json.dumps(ev) + "\n")
 
@@ -67,8 +71,8 @@ def test_export_produces_valid_parquet(fake_episode: Path, tmp_path: Path) -> No
     out = export_episode(fake_episode, dst, task="pick_cube", fps=30)
     assert out == dst
 
-    # Parquet file exists at LeRobot v3 path.
-    parquet_path = dst / "data" / "chunk-000" / "episode_000000.parquet"
+    # Parquet file exists at LeRobot v3.0 path (file-NNN, not episode-NNN).
+    parquet_path = dst / "data" / "chunk-000" / "file-000.parquet"
     assert parquet_path.exists(), parquet_path
 
     table = pq.read_table(parquet_path)
@@ -89,11 +93,17 @@ def test_export_produces_valid_parquet(fake_episode: Path, tmp_path: Path) -> No
     # State dim = 7 joints + 1 gripper.
     state_first = table.column("observation.state")[0].as_py()
     assert len(state_first) == 8
+    # Each recorded action has 7 joints (no gripper key in this fixture). The
+    # exporter pads short actions up to state_dim (8 = 7 joints + gripper)
+    # using state[7] so policies trained on the dataset see consistent
+    # action/state dims — without this, ACT/Diffusion would learn 7-D
+    # actions while observing 8-D states (silent gripper-open-by-default
+    # bias). Pad value MUST come from state, not zero, because the dataset's
+    # state[7] is the actual gripper width at that frame.
     action_first = table.column("action")[0].as_py()
-    assert len(action_first) == 8  # fallback to state (i=0 action was None)
-    # Frame 1 had an explicit numeric action of length 7 — exporter coerces.
+    assert len(action_first) == 8
     action_second = table.column("action")[1].as_py()
-    assert len(action_second) == 7
+    assert len(action_second) == 8
 
 
 def test_export_writes_meta_files(fake_episode: Path, tmp_path: Path) -> None:
@@ -105,28 +115,57 @@ def test_export_writes_meta_files(fake_episode: Path, tmp_path: Path) -> None:
     assert info["total_frames"] == 30
     assert info["fps"] == 30
     assert "observation.state" in info["features"]
+    # Path templates must use v3.0 chunk_index/file_index variables so lerobot
+    # resolves data and video files from the episodes.parquet pointers.
+    assert "{chunk_index" in info["data_path"]
+    assert "{file_index" in info["data_path"]
 
-    tasks = [
-        json.loads(line)
-        for line in (dst / "meta" / "tasks.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
+    tasks = pq.read_table(dst / "meta" / "tasks.parquet").to_pylist()
     assert tasks == [{"task_index": 0, "task": "pick_cube"}]
 
-    episodes = [
-        json.loads(line)
-        for line in (dst / "meta" / "episodes.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
+    episodes = pq.read_table(
+        dst / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
+    ).to_pylist()
     assert episodes[0]["episode_index"] == 0
     assert episodes[0]["length"] == 30
+    assert episodes[0]["dataset_from_index"] == 0
+    assert episodes[0]["dataset_to_index"] == 30
+    assert episodes[0]["data/chunk_index"] == 0
+    assert episodes[0]["data/file_index"] == 0
 
 
 def test_export_task_falls_back_to_episode_json(fake_episode: Path, tmp_path: Path) -> None:
     dst = tmp_path / "dataset"
     export_episode(fake_episode, dst)  # no `task=` override
-    tasks_line = (dst / "meta" / "tasks.jsonl").read_text().splitlines()[0]
-    assert json.loads(tasks_line)["task"] == "pick_cube"
+    tasks = pq.read_table(dst / "meta" / "tasks.parquet").to_pylist()
+    assert tasks[0]["task"] == "pick_cube"
+
+
+def test_export_rejects_action_none(tmp_path: Path) -> None:
+    """Regression: action=None used to be silently filled with state. That
+    poisoned ~65% of training samples (the settle frames) and pulled all
+    skill-action targets toward the home baseline, so the trained policy
+    consistently undershot demo trajectories. The exporter now refuses
+    action=None to force the recorder to drop those frames upstream.
+    """
+    ep_dir = tmp_path / "ep-with-none-action"
+    ep_dir.mkdir()
+    (ep_dir / "episode.json").write_text(json.dumps({"task": "x"}))
+    n_dof = 7
+    with (ep_dir / "events.jsonl").open("w") as f:
+        for i in range(5):
+            ev = {
+                "t": i / 30.0,
+                "frame_idx": i,
+                "robot_joints": [0.0] * n_dof,
+                "ee_pose": {"xyz": [0, 0, 0], "quat_xyzw": [0, 0, 0, 1]},
+                "gripper_width": 0.04,
+                "objects": {},
+                "action": None,  # the bug-triggering case
+            }
+            f.write(json.dumps(ev) + "\n")
+    with pytest.raises(ValueError, match="action=None"):
+        export_episode(ep_dir, tmp_path / "out", task="x")
 
 
 def test_export_missing_src_raises(tmp_path: Path) -> None:

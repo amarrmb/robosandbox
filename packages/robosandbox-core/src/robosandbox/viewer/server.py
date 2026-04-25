@@ -1,17 +1,22 @@
 """FastAPI server exposing the sim as a browser-viewable live stream.
 
 Architecture:
-  - SimThread: owns the MuJoCoBackend in a single dedicated thread
+  - SimThread: owns the sim backend in a single dedicated thread
     (MuJoCo renderer is not thread-safe, so all sim access is serialized
     through this thread's command queue). Publishes JPEG frames + status
     events to thread-safe queues.
   - Async FastAPI app: serves the SPA, broadcasts frames + events to
     connected WebSocket clients, relays client commands to SimThread.
 
+Backend modes:
+  mujoco (default): renders JPEG frames streamed to the browser <img>.
+  newton: Viser owns the 3D render; JPEG queue stays empty. The browser
+    embeds Viser as an <iframe> pointed at _VISER_URL.
+
 Client protocol (WebSocket JSON + binary):
   client -> server : {"action":"load", "task":"pick_cube_franka"}
                      {"action":"run",  "prompt":"pick up the red cube"}
-  server -> client : binary frames (JPEG blobs)
+  server -> client : binary frames (JPEG blobs, MuJoCo only)
                      text {"type":"event", "event":{...}} — status updates
 """
 
@@ -45,7 +50,7 @@ from robosandbox.grasp.analytic import AnalyticTopDown
 from robosandbox.motion.ik import DLSMotionPlanner, UnreachableError, plan_linear_cartesian
 from robosandbox.perception.ground_truth import GroundTruthPerception
 from robosandbox.recorder.local import LocalRecorder
-from robosandbox.sim.mujoco_backend import MuJoCoBackend
+from robosandbox.sim import create_sim_backend
 from robosandbox.skills.drawer import CloseDrawer, OpenDrawer
 from robosandbox.skills.home import Home
 from robosandbox.skills.pick import Pick
@@ -92,12 +97,14 @@ class SimThread(threading.Thread):
     # 200 Hz physics sim); ~30 MB at JPEG quality 80. Drop-oldest on overflow.
     _TRAJ_MAX_FRAMES = 900
 
-    def __init__(self, runs_dir: Path) -> None:
+    def __init__(self, runs_dir: Path, backend: str = "mujoco", backend_kwargs: dict | None = None) -> None:
         super().__init__(daemon=True, name="robosandbox-viewer-sim")
+        self._backend = backend
+        self._backend_kwargs: dict = backend_kwargs or {}
         self._cmds: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.frames: queue.Queue[bytes] = queue.Queue(maxsize=2)
         self.events: queue.Queue[dict] = queue.Queue()
-        self._sim: MuJoCoBackend | None = None
+        self._sim: Any = None
         self._task_name: str | None = None
         self._task_prompt: str | None = None
         self._stop = threading.Event()
@@ -125,11 +132,10 @@ class SimThread(threading.Thread):
             except queue.Empty:
                 cmd = None
             if cmd is None:
-                # Idle: publish current frame so the browser sees the scene
-                # even when nothing's happening. Cheap (no mj_step). Skipped
-                # while the user is inspecting a past frame so the scrub
-                # result isn't overwritten.
-                if self._sim is not None and not self._inspecting:
+                # MuJoCo only: push a live frame at idle rate so the browser
+                # sees the scene even when nothing is happening. Newton's
+                # visual output is Viser — no JPEG to publish.
+                if self._sim is not None and self._backend == "mujoco" and not self._inspecting:
                     self._publish_frame()
                 continue
             kind, args = cmd
@@ -171,14 +177,18 @@ class SimThread(threading.Thread):
         self._trajectory.clear()
         self._inspecting = False
         task = load_builtin_task(task_name)
-        sim = MuJoCoBackend(render_size=_RENDER_SIZE)
+        kwargs = dict(self._backend_kwargs)
+        if self._backend == "mujoco":
+            kwargs.setdefault("render_size", _RENDER_SIZE)
+        sim = create_sim_backend(self._backend, **kwargs)
         sim.load(task.scene)
         for _ in range(60):
             sim.step()
         self._sim = sim
         self._task_name = task_name
         self._task_prompt = task.prompt
-        self._publish_frame()
+        if self._backend == "mujoco":
+            self._publish_frame()
         self._emit(
             {
                 "type": "loaded",
@@ -216,23 +226,22 @@ class SimThread(threading.Thread):
         )
         step_counter = {"n": 0}
 
+        is_mujoco = self._backend == "mujoco"
+
         def on_step() -> None:
             step_counter["n"] += 1
-            render_tick = step_counter["n"] % _AGENT_RENDER_EVERY_N_STEPS == 0
-            if render_tick:
-                # Render once, reuse the JPEG for the live stream and the
-                # in-RAM trajectory snapshot. ``observe()`` renders the RGB.
-                obs = sim.observe()
-                jpg = _encode_jpeg(obs.rgb)
-                self._enqueue_jpeg(jpg)
-                self._append_snapshot(obs, jpg)
-            # If a recording is active, capture every sim tick (the recorder
-            # itself subsamples to the target fps — we want to give it the
-            # full stream so timing is faithful).
+            if is_mujoco:
+                render_tick = step_counter["n"] % _AGENT_RENDER_EVERY_N_STEPS == 0
+                if render_tick:
+                    obs = sim.observe()
+                    jpg = _encode_jpeg(obs.rgb)
+                    self._enqueue_jpeg(jpg)
+                    self._append_snapshot(obs, jpg)
             if self._recording:
                 try:
-                    self._recorder.write_frame(sim.observe())
-                except Exception:  # pragma: no cover — don't crash the agent
+                    action = sim.last_action() if hasattr(sim, "last_action") else None
+                    self._recorder.write_frame(sim.observe(), action=action)
+                except Exception:  # pragma: no cover
                     pass
 
         ctx.on_step = on_step
@@ -244,7 +253,8 @@ class SimThread(threading.Thread):
         planner = StubPlanner(skills=skills)
         agent = Agent(ctx, skills, planner, max_replans=3)
         episode = agent.run(effective_prompt)
-        self._publish_frame()
+        if is_mujoco:
+            self._publish_frame()
         self._emit(
             {
                 "type": "done",
@@ -285,7 +295,9 @@ class SimThread(threading.Thread):
         # Write one immediate frame so the recorded video is not empty if the
         # user stops quickly with no agent running.
         try:
-            self._recorder.write_frame(self._sim.observe())
+            sim = self._sim
+            action = sim.last_action() if hasattr(sim, "last_action") else None
+            self._recorder.write_frame(sim.observe(), action=action)
         except Exception:  # pragma: no cover
             pass
         self._emit(
@@ -332,10 +344,12 @@ class SimThread(threading.Thread):
         if dx == 0.0 and dy == 0.0 and dz == 0.0:
             for _ in range(40):
                 sim.step(target_joints=obs.robot_joints, gripper=self._teleop_gripper)
-            self._publish_frame()
+            if self._backend == "mujoco":
+                self._publish_frame()
             if self._recording:
                 try:
-                    self._recorder.write_frame(sim.observe())
+                    action = sim.last_action() if hasattr(sim, "last_action") else None
+                    self._recorder.write_frame(sim.observe(), action=action)
                 except Exception:  # pragma: no cover
                     pass
             return
@@ -362,10 +376,12 @@ class SimThread(threading.Thread):
         for row in traj.waypoints:
             for _ in range(4):
                 sim.step(target_joints=row, gripper=self._teleop_gripper)
-        self._publish_frame()
+        if self._backend == "mujoco":
+            self._publish_frame()
         if self._recording:
             try:
-                self._recorder.write_frame(sim.observe())
+                action = sim.last_action() if hasattr(sim, "last_action") else None
+                self._recorder.write_frame(sim.observe(), action=action)
             except Exception:  # pragma: no cover
                 pass
 
@@ -427,8 +443,7 @@ class SimThread(threading.Thread):
         """Exit inspection mode; resume live streaming."""
         self._inspecting = False
         self._emit({"type": "inspect_cleared"})
-        # Push one fresh live frame so the viewer snaps back immediately.
-        if self._sim is not None:
+        if self._sim is not None and self._backend == "mujoco":
             self._publish_frame()
 
     # -- helpers -------------------------------------------------------------
@@ -480,16 +495,19 @@ _connected: set[WebSocket] = set()
 _connected_lock = asyncio.Lock()
 
 _INDEX_PATH = Path(__file__).parent / "index.html"
+_SHOWCASE_PATH = Path(__file__).parent / "showcase.html"
 
 
 @app.on_event("startup")
 async def _startup() -> None:
     global _state
-    _state = SimThread(runs_dir=_RUNS_DIR)
+    backend_kwargs: dict = {}
+    if _SIM_BACKEND == "newton":
+        backend_kwargs = {"viewer": "viser", "port": _VISER_PORT, "device": _DEVICE}
+    _state = SimThread(runs_dir=_RUNS_DIR, backend=_SIM_BACKEND, backend_kwargs=backend_kwargs)
     _state.start()
-    # Preload Franka for instant gratification.
-    initial = _INITIAL_TASK or "pick_cube_franka"
-    if initial in list_builtin_tasks():
+    initial = _INITIAL_TASK or ("cloth_fold_franka" if _SIM_BACKEND == "newton" else "pick_cube_franka")
+    if initial in list_builtin_tasks(backend=_SIM_BACKEND):
         _state.submit("load", initial)
     asyncio.create_task(_frame_broadcaster())
     asyncio.create_task(_event_broadcaster())
@@ -506,9 +524,20 @@ async def index() -> HTMLResponse:
     return HTMLResponse(_INDEX_PATH.read_text())
 
 
+@app.get("/showcase")
+async def showcase() -> HTMLResponse:
+    return HTMLResponse(_SHOWCASE_PATH.read_text())
+
+
+@app.get("/config")
+async def config_endpoint() -> JSONResponse:
+    viser_url = f"http://127.0.0.1:{_VISER_PORT}" if _SIM_BACKEND == "newton" else None
+    return JSONResponse({"backend": _SIM_BACKEND, "viser_url": viser_url})
+
+
 @app.get("/tasks")
-async def tasks_endpoint() -> JSONResponse:
-    return JSONResponse({"tasks": list_builtin_tasks()})
+async def tasks_endpoint(backend: str | None = None) -> JSONResponse:
+    return JSONResponse({"tasks": list_builtin_tasks(backend=backend or _SIM_BACKEND)})
 
 
 @app.websocket("/ws")
@@ -599,6 +628,9 @@ async def _event_broadcaster() -> None:
 
 _INITIAL_TASK: str | None = None
 _RUNS_DIR: Path = Path("runs")
+_SIM_BACKEND: str = "mujoco"
+_VISER_PORT: int = 8090
+_DEVICE: str = "cuda:0"
 
 
 def run(
@@ -606,6 +638,9 @@ def run(
     port: int = 8000,
     initial_task: str | None = None,
     runs_dir: Path | str = "runs",
+    sim_backend: str = "mujoco",
+    viser_port: int = 8090,
+    device: str = "cuda:0",
 ) -> None:
     """Start the viewer (blocking)."""
     try:
@@ -614,7 +649,10 @@ def run(
         raise ImportError(
             "Viewer requires uvicorn — install via `pip install 'robosandbox[viewer]'`"
         ) from e
-    global _INITIAL_TASK, _RUNS_DIR
+    global _INITIAL_TASK, _RUNS_DIR, _SIM_BACKEND, _VISER_PORT, _DEVICE
     _INITIAL_TASK = initial_task
     _RUNS_DIR = Path(runs_dir)
+    _SIM_BACKEND = sim_backend
+    _VISER_PORT = viser_port
+    _DEVICE = device
     uvicorn.run(app, host=host, port=port, log_level="info")

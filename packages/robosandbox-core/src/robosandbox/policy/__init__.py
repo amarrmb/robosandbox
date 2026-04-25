@@ -42,6 +42,7 @@ __all__ = [
     "Policy",
     "ReplayTrajectoryPolicy",
     "load_policy",
+    "run_eval_parallel",
     "run_policy",
 ]
 
@@ -153,21 +154,115 @@ def run_policy(
     *,
     success: Any = None,  # SuccessCriterion | None — imported lazily to dodge cycles
     on_step: Callable[[Observation, np.ndarray], None] | None = None,
+    action_repeat: int = 1,
 ) -> dict:
     """Drive ``sim`` with ``policy`` for up to ``max_steps`` ticks.
+
+    ``action_repeat`` holds each ``policy.act`` output for N sim steps before
+    re-querying. Use this to match the policy's training cadence when the
+    sim runs faster than the dataset's record rate (e.g. dataset at 30 fps,
+    sim_dt=0.005 s ⇒ 200 Hz ⇒ action_repeat=6). Calling the policy at every
+    sim step when training was at 30 fps causes the model to "fast-forward"
+    its action chunk 6.7× faster than intended — the gripper closes before
+    the arm reaches the cube and the lift phase ends prematurely.
 
     Returns a dict: ``{success, steps, final_obs, initial_obs}``. ``success``
     is the boolean outcome of ``success`` evaluated against
     ``(initial_obs, final_obs)``, or ``None`` when no criterion is supplied.
     """
+    if action_repeat < 1:
+        raise ValueError(f"action_repeat must be >= 1, got {action_repeat}")
     n_dof = getattr(sim, "n_dof", 6)
-    initial_obs = sim.observe()
+    from robosandbox.tasks.runner import _eval_criterion
 
-    last_obs = initial_obs
+    initial_obs = sim.observe()
+    obs = initial_obs
     steps_done = 0
+    held_action: np.ndarray | None = None
+    # Latch success on first match — a policy that keeps emitting actions
+    # past success often perturbs the scene back into a failed final state.
+    success_ever: bool | None = None if success is None else False
+    success_step: int | None = None
     for step_i in range(max_steps):
-        obs = sim.observe()
-        action = np.asarray(policy.act(obs), dtype=np.float64).ravel()
+        if step_i % action_repeat == 0:
+            action = np.asarray(policy.act(obs), dtype=np.float64).ravel()
+            if action.shape != (n_dof + 1,):
+                raise ValueError(
+                    f"policy.act must return shape ({n_dof + 1},), got {action.shape}"
+                )
+            held_action = action
+        else:
+            action = held_action  # type: ignore[assignment]
+        sim.step(target_joints=action[:n_dof], gripper=float(action[n_dof]))
+        post_obs = sim.observe()
+        steps_done = step_i + 1
+        if on_step is not None:
+            on_step(obs, action)
+        if success is not None and not success_ever:
+            ok_step, _ = _eval_criterion(success, initial_obs, post_obs)
+            if ok_step:
+                success_ever = True
+                success_step = step_i + 1
+        obs = post_obs
+
+    final_obs = obs
+
+    return {
+        "success": success_ever,
+        "success_step": success_step,
+        "steps": steps_done,
+        "initial_obs": initial_obs,
+        "final_obs": final_obs,
+        "last_obs_before_final": final_obs,
+    }
+
+
+# ---- run_eval_parallel -------------------------------------------------
+
+
+def run_eval_parallel(
+    sim: Any,
+    policy: Policy,
+    max_steps: int = 500,
+    *,
+    success: Any = None,
+    settle_steps: int = 100,
+) -> dict:
+    """GPU-parallel policy evaluation across all worlds in ``sim``.
+
+    Calls ``sim.observe_all()`` once per step, runs ``policy.act`` on
+    world-0's observation (broadcast to all worlds), then checks
+    ``success`` per world.  Returns aggregated stats.
+
+    ``sim`` must expose ``observe_all() -> list[Observation]`` and
+    ``n_worlds: int`` — i.e., a :class:`~robosandbox.sim.newton_backend.NewtonBackend`
+    with ``world_count > 1`` (also works with ``world_count=1``).
+    """
+    import time
+
+    n_worlds: int = getattr(sim, "n_worlds", 1)
+    n_dof: int = getattr(sim, "n_dof", 6)
+
+    observe_all = getattr(sim, "observe_all", None)
+    if observe_all is None:
+        raise TypeError("sim must expose observe_all() for parallel eval")
+
+    # Settle physics before recording initial state
+    for _ in range(settle_steps):
+        sim.step()
+
+    initial_obs_all: list[Any] = observe_all()
+
+    done = [False] * n_worlds
+    success_per_world = [False] * n_worlds
+    steps_done = 0
+
+    t0 = time.time()
+    for _ in range(max_steps):
+        obs_all: list[Any] = observe_all()
+        # Drive policy on world-0 observation; broadcast to all worlds
+        obs_0 = obs_all[0]
+        action = np.asarray(policy.act(obs_0), dtype=np.float64).ravel()
         if action.shape != (n_dof + 1,):
             raise ValueError(
                 f"policy.act must return shape ({n_dof + 1},), got {action.shape}"
@@ -175,28 +270,36 @@ def run_policy(
         target_joints = action[:n_dof]
         gripper = float(action[n_dof])
         sim.step(target_joints=target_joints, gripper=gripper)
-        last_obs = obs
-        steps_done = step_i + 1
-        if on_step is not None:
-            on_step(obs, action)
+        steps_done += 1
 
-    final_obs = sim.observe()
+        # Evaluate success criterion per world
+        if success is not None:
+            from robosandbox.tasks.runner import _eval_criterion
 
-    success_ok: bool | None
-    if success is None:
-        success_ok = None
-    else:
-        # Lazy import to avoid tasks→policy cycles if any.
-        from robosandbox.tasks.runner import _eval_criterion
+            for w in range(n_worlds):
+                if done[w]:
+                    continue
+                ok, _ = _eval_criterion(success, initial_obs_all[w], obs_all[w])
+                if ok:
+                    success_per_world[w] = True
+                    done[w] = True
 
-        success_ok, _detail = _eval_criterion(success, initial_obs, final_obs)
+            if all(done):
+                break
+
+    wall = time.time() - t0
+    n_success = sum(success_per_world)
+    total_env_steps = steps_done * n_worlds
+    throughput = total_env_steps / wall if wall > 0 else 0.0
 
     return {
-        "success": success_ok,
+        "n_worlds": n_worlds,
+        "successes": n_success,
+        "rate": n_success / n_worlds if n_worlds > 0 else 0.0,
         "steps": steps_done,
-        "initial_obs": initial_obs,
-        "final_obs": final_obs,
-        "last_obs_before_final": last_obs,
+        "wall": wall,
+        "throughput": throughput,
+        "success_per_world": success_per_world,
     }
 
 
@@ -204,20 +307,88 @@ def run_policy(
 
 
 _BRING_YOUR_OWN_CHECKPOINT_HINT = (
-    "No policy loader matched {path!r}. RoboSandbox ships a reference "
-    "ReplayTrajectoryPolicy but does not bundle a LeRobot/ACT/Diffusion-Policy "
-    "checkpoint loader. To run a trained checkpoint, either: (1) drop a "
-    "policy.json + events.jsonl under a directory and point --policy at it, "
-    "or (2) extend robosandbox.policy.load_policy to dispatch on your "
-    "checkpoint format (LeRobot, torchscript, onnx, ...)."
+    "No policy loader matched {path!r}. RoboSandbox recognises: "
+    "(1) a LeRobot checkpoint directory (config.json + model.safetensors), "
+    "(2) an episode directory containing events.jsonl (open-loop replay), "
+    "(3) a directory with policy.json (kind: replay_trajectory | ppo_neural). "
+    "To plug in a custom format, extend robosandbox.policy.load_policy."
 )
+
+
+def _lerobot_visual_input_keys(policy: Any) -> list[str]:
+    """Visual input keys expected by a LeRobot ``PreTrainedPolicy``.
+
+    Reads ``policy.config.input_features`` and returns every key whose
+    feature spec is marked ``FeatureType.VISUAL``. Falls back to a name
+    prefix match when the typed marker is absent. Returns ``[]`` when
+    the config has no visual features (state-only policies).
+    """
+    cfg = getattr(policy, "config", None)
+    feats = getattr(cfg, "input_features", None) if cfg is not None else None
+    if not feats:
+        return []
+    visual: list[str] = []
+    try:
+        items = list(feats.items())
+    except AttributeError:
+        return []
+    for key, spec in items:
+        if not isinstance(key, str):
+            continue
+        ftype = getattr(spec, "type", None)
+        type_name = getattr(ftype, "name", None) or getattr(ftype, "value", None) or str(ftype)
+        if isinstance(type_name, str) and type_name.upper() == "VISUAL":
+            visual.append(key)
+            continue
+        if key.startswith("observation.image"):
+            visual.append(key)
+    return visual
+
+
+def _resolve_lerobot_device(cfg_device: str | None) -> str:
+    """Honor the checkpoint's device but downgrade `cuda` to `cpu` when
+    torch isn't compiled with CUDA — same fallback lerobot uses internally."""
+    if not cfg_device or cfg_device != "cuda":
+        return cfg_device or "cpu"
+    try:
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        return "cpu"
+
+
+def _load_lerobot_processors(p: Path, policy_config: Any) -> tuple[Any, Any]:
+    """Load lerobot's saved pre/post-processor pipelines for checkpoint ``p``.
+
+    Returns ``(None, None)`` when the JSON files are absent (older
+    checkpoints) or when ``lerobot.processor`` isn't importable; the
+    adapter then falls back to its own minimal batch construction.
+    """
+    if not ((p / "policy_preprocessor.json").exists()
+            and (p / "policy_postprocessor.json").exists()):
+        return (None, None)
+    try:
+        from lerobot.processor import PolicyProcessorPipeline
+    except ImportError:
+        return (None, None)
+    cfg_device = getattr(policy_config, "device", None) if policy_config else None
+    overrides = {"device_processor": {"device": _resolve_lerobot_device(cfg_device)}}
+    return (
+        PolicyProcessorPipeline.from_pretrained(str(p), "policy_preprocessor.json", overrides=overrides),
+        PolicyProcessorPipeline.from_pretrained(str(p), "policy_postprocessor.json", overrides=overrides),
+    )
 
 
 def load_policy(path: str | Path) -> Policy:
     """Load a policy from a checkpoint-or-episode directory.
 
-    Currently handles one case: a directory containing ``policy.json``
-    of the form ``{"kind": "replay_trajectory", "trajectory": "<file>"}``.
+    Recognised layouts:
+
+    - ``config.json`` + ``model.safetensors`` → LeRobot checkpoint, loaded
+      via ``lerobot.policies.factory.get_policy_class`` and wrapped with
+      :class:`LeRobotPolicyAdapter`.
+    - ``policy.json`` with ``kind: replay_trajectory`` → trajectory replay.
+    - Bare ``events.jsonl`` → open-loop trajectory replay.
 
     Raises :class:`ImportError` with an explicit bring-your-own-checkpoint
     message otherwise — this is the extension seam for real policies.
@@ -225,6 +396,45 @@ def load_policy(path: str | Path) -> Policy:
     p = Path(path)
 
     if p.is_dir():
+        # LeRobot checkpoint: directory containing a `config.json` (with a
+        # `type` field naming the policy class) and `model.safetensors`.
+        # This is the format produced by `lerobot train` and by
+        # `PreTrainedPolicy.save_pretrained()`.
+        lerobot_cfg = p / "config.json"
+        lerobot_weights = p / "model.safetensors"
+        if lerobot_cfg.exists() and lerobot_weights.exists():
+            try:
+                cfg = json.loads(lerobot_cfg.read_text())
+            except json.JSONDecodeError as e:
+                raise ImportError(
+                    f"Found LeRobot-shaped checkpoint at {p} but config.json is "
+                    f"not valid JSON: {e}"
+                ) from e
+            policy_type = cfg.get("type")
+            if not policy_type:
+                raise ImportError(
+                    f"Found LeRobot-shaped checkpoint at {p} but config.json has "
+                    f"no 'type' field. Expected e.g. 'act', 'diffusion', 'tdmpc'."
+                )
+            try:
+                from lerobot.policies.factory import get_policy_class
+            except ImportError as e:
+                raise ImportError(
+                    f"Detected LeRobot checkpoint at {p} but the `lerobot` "
+                    f"package is not installed. Install it with: "
+                    f"`pip install lerobot` (see https://github.com/huggingface/lerobot)."
+                ) from e
+            policy_cls = get_policy_class(policy_type)
+            inner = policy_cls.from_pretrained(str(p))
+            preproc, postproc = _load_lerobot_processors(p, getattr(inner, "config", None))
+            # Visual input keys vary by policy class: legacy diffusion_pusht
+            # uses `observation.image`, ACT/pi0 use `observation.images.<cam>`.
+            image_keys = _lerobot_visual_input_keys(inner)
+            kwargs: dict[str, Any] = {"preprocessor": preproc, "postprocessor": postproc}
+            if image_keys:
+                kwargs["image_keys"] = image_keys
+            return LeRobotPolicyAdapter(inner, **kwargs)
+
         cfg_file = p / "policy.json"
         if cfg_file.exists():
             cfg = json.loads(cfg_file.read_text())

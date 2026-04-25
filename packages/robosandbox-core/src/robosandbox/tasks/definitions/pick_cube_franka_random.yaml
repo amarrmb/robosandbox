@@ -1,0 +1,29 @@
+name: pick_cube_franka_random
+prompt: "pick up the red cube"
+seed_note: |
+  Same Franka pick scene as `pick_cube_franka`, with a randomize block
+  so each trial draws a fresh xy and yaw for the cube. Used by the
+  eval harness to report a real success rate (not a single-pose
+  anecdote) and to generate diverse scripted demonstrations for
+  policy training.
+supported_backends:
+  - mujoco
+  - newton
+scene:
+  robot_urdf: "@builtin:robots/franka_panda/panda.xml"
+  robot_config: "@builtin:robots/franka_panda/panda.robosandbox.yaml"
+  objects:
+    - id: red_cube
+      kind: box
+      size: [0.012, 0.012, 0.012]
+      pose:
+        xyz: [0.4, 0.0, 0.06]
+      rgba: [0.85, 0.2, 0.2, 1.0]
+      mass: 0.05
+randomize:
+  xy_jitter: 0.05    # ± 5 cm in xy per trial
+  yaw_jitter: 0.5    # ± 0.5 rad about z per trial
+success:
+  kind: lifted
+  object: red_cube
+  min_mm: 50
