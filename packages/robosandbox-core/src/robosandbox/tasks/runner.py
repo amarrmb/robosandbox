@@ -60,8 +60,35 @@ class TaskResult:
 
 # ---------- success evaluation -----------------------------------------
 
+_OBJECT_BEARING_KINDS = frozenset({"lifted", "moved_above", "displaced"})
+
+
 def _eval_criterion(c: SuccessCriterion, initial: Observation, final: Observation) -> tuple[bool, dict]:
     return _eval_check(c.data, initial, final)
+
+
+def criterion_target_object(c: SuccessCriterion | None) -> str | None:
+    """Return the primary object id that ``c`` evaluates against, or None.
+
+    Used by eval harnesses that want to track per-step distance / lift
+    metrics for the same object the success check operates on.
+    """
+    if c is None:
+        return None
+    data = c.data if hasattr(c, "data") else (c if isinstance(c, dict) else {})
+    return _check_target_object(data)
+
+
+def _check_target_object(check: dict) -> str | None:
+    kind = check.get("kind")
+    if kind in _OBJECT_BEARING_KINDS:
+        return check.get("object")
+    if kind == "all":
+        for sub in check.get("checks", []):
+            target = _check_target_object(sub)
+            if target is not None:
+                return target
+    return None
 
 
 def _eval_check(check: dict, initial: Observation, final: Observation) -> tuple[bool, dict]:
