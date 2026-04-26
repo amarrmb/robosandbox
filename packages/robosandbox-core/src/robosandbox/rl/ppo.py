@@ -188,6 +188,8 @@ def train_ppo(
     save_path: str | Path | None = None,
     log_interval: int = 5,
     checkpoint_interval: int = 20,
+    warm_start: str | Path | None = None,
+    freeze_encoder_stats: bool = False,
 ) -> NeuralPolicy:
     """Train a PPO policy against a Newton multi-world sim.
 
@@ -208,7 +210,34 @@ def train_ppo(
     if str(device_t) != device and "cuda" in device:
         print(f"[train] WARNING: {device} unavailable, falling back to {device_t}")
 
-    ac = ActorCritic(obs_dim, act_dim).to(device_t)
+    if warm_start is not None:
+        # Replace the random-init actor with a behaviorally-cloned one.
+        # Also adopt the matching ObsEncoder so PPO's normalization stats
+        # start from where distillation left off — random-init Welford
+        # stats would otherwise re-shape the input distribution every
+        # rollout and wipe the prior in the first few iterations.
+        ws = Path(warm_start)
+        ac_ckpt = ws / "actor_critic.pt"
+        enc_ckpt = ws / "obs_config.json"
+        if not ac_ckpt.exists() or not enc_ckpt.exists():
+            raise FileNotFoundError(
+                f"warm_start={ws} missing actor_critic.pt or obs_config.json"
+            )
+        ac = ActorCritic.from_checkpoint(ac_ckpt).to(device_t)
+        if ac._obs_dim != obs_dim or ac._act_dim != act_dim:
+            raise ValueError(
+                f"warm_start actor shape (obs_dim={ac._obs_dim}, act_dim={ac._act_dim}) "
+                f"does not match task (obs_dim={obs_dim}, act_dim={act_dim})"
+            )
+        loaded_enc = ObsEncoder.load(enc_ckpt)
+        if loaded_enc.obs_dim != obs_dim:
+            raise ValueError(
+                f"warm_start encoder obs_dim={loaded_enc.obs_dim} != {obs_dim}"
+            )
+        encoder = loaded_enc
+        print(f"[train] warm-start:    {ws} (loaded actor + encoder)")
+    else:
+        ac = ActorCritic(obs_dim, act_dim).to(device_t)
     optimizer = torch.optim.Adam(ac.parameters(), lr=lr, eps=1e-5)
 
     # Rollout buffers — preallocated for the full trajectory
@@ -273,7 +302,8 @@ def train_ppo(
                     task.success, initial_obs_all[w], obs_all[w]
                 )
 
-            encoder.update_stats_batch(raw_vecs)
+            if not freeze_encoder_stats:
+                encoder.update_stats_batch(raw_vecs)
 
         # Bootstrap value
         last_raw = encoder.encode_batch(obs_all)

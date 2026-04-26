@@ -76,6 +76,8 @@ class _RobotConfig:
     gripper_closed_qpos: float
     ee_attach_body: str
     ee_offset_xyz: tuple[float, float, float]
+    base_xyz: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    base_quat_xyzw: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
 
 
 def _look_at_quat(eye: np.ndarray, target: np.ndarray, up: np.ndarray) -> Any:
@@ -204,6 +206,12 @@ class NewtonBackend:
         self._arm_joint_names: list[str] = []
         self._ee_offset_xyz: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._t: float = 0.0
+        # Gravity-compensation feedforward. When set, step() reads the
+        # current arm + gripper joint values, calls fn(arm_joints,
+        # gripper_qpos) → torques, and writes them to control.joint_f
+        # before stepping. Cancels gravity sag so the position-control PD
+        # only handles small tracking residuals (sub-mm vs 10-20 mm without).
+        self._gravity_torque_fn: Any = None
 
     # ------------------------------------------------------------------
     # Runtime bootstrap
@@ -230,6 +238,13 @@ class NewtonBackend:
     def _load_robot_config(self, path: Path) -> _RobotConfig:
         with path.open("r", encoding="utf-8") as fh:
             raw = yaml.safe_load(fh)
+        base_raw = raw.get("base_pose") or {}
+        base_xyz = tuple(float(v) for v in base_raw.get("xyz", (0.0, 0.0, 0.0)))
+        base_quat = tuple(float(v) for v in base_raw.get("quat_xyzw", (0.0, 0.0, 0.0, 1.0)))
+        if len(base_xyz) != 3:
+            raise ValueError(f"{path}: base_pose.xyz must have 3 components, got {base_xyz}")
+        if len(base_quat) != 4:
+            raise ValueError(f"{path}: base_pose.quat_xyzw must have 4 components, got {base_quat}")
         return _RobotConfig(
             arm_joint_names=tuple(str(v) for v in raw["arm"]["joints"]),
             gripper_joint_names=tuple(str(v) for v in raw["gripper"]["joints"]),
@@ -238,6 +253,8 @@ class NewtonBackend:
             gripper_closed_qpos=float(raw["gripper"]["closed_qpos"]),
             ee_attach_body=str(raw["ee_site"]["inject"]["attach_body"]),
             ee_offset_xyz=tuple(float(v) for v in raw["ee_site"]["inject"]["xyz"]),
+            base_xyz=base_xyz,
+            base_quat_xyzw=base_quat,
         )
 
     def _create_viewer(self) -> Any:
@@ -259,8 +276,15 @@ class NewtonBackend:
         wp = self._wp
         newton = self._newton
         builder = newton.ModelBuilder()
+        # Anchor the robot at base_pose so its forward kinematics agree with
+        # MuJoCoBackend (which applies base_pose via scene/robot_loader). Without
+        # this, the robot sits at MJCF origin and any IK target expressed in
+        # world frame ends up off by base_xyz.
+        bx, by, bz = self._robot.base_xyz
+        bqx, bqy, bqz, bqw = self._robot.base_quat_xyzw
         builder.add_mjcf(
             str(scene.robot_urdf),
+            xform=wp.transform(wp.vec3(bx, by, bz), wp.quat(bqx, bqy, bqz, bqw)),
             floating=False,
             enable_self_collisions=False,
             parse_mujoco_options=True,
@@ -301,6 +325,10 @@ class NewtonBackend:
         target_q = [*self._robot.home_qpos, self._robot.gripper_open_qpos, self._robot.gripper_open_qpos]
         builder.joint_q[: len(target_q)] = target_q
         builder.joint_target_pos[: len(target_q)] = target_q
+        # PD gains taken from MuJoCo's panda.xml. PD alone leaves a
+        # gravity-induced steady-state error of ~10-20 mrad on stretched
+        # configurations; production-quality tracking requires gravity
+        # feedforward via control.joint_f (see set_gravity_compensation).
         builder.joint_target_ke[: len(target_q)] = [4500, 4500, 3500, 3500, 2000, 2000, 2000, 100, 100]
         builder.joint_target_kd[: len(target_q)] = [450, 450, 350, 350, 200, 200, 200, 10, 10]
         for i in range(len(target_q)):
@@ -558,12 +586,56 @@ class NewtonBackend:
             arr_wp = self._wp.array(target, dtype=self._control.joint_target_pos.dtype)
             self._wp.copy(self._control.joint_target_pos, arr_wp)
 
+        self._apply_gravity_compensation()
+
         self._state_0.clear_forces()
         self._model.collide(self._state_0, self._contacts)
         self._solver.step(self._state_0, self._state_1, self._control, self._contacts, self._dt)
         self._state_0, self._state_1 = self._state_1, self._state_0
         self._t += self._dt
         self._log_viewer_state()
+
+    def set_gravity_compensation(self, fn: Any) -> None:
+        """Register a per-step gravity-compensation feedforward.
+
+        ``fn`` is a callable ``(arm_joints: np.ndarray, gripper_qpos: float)
+        → np.ndarray of shape (n_arm + n_gripper,)`` returning the torque
+        needed to hold the current configuration against gravity. Called
+        each :meth:`step` before the solver advances; result is broadcast
+        across all worlds and written into ``control.joint_f``.
+
+        Pair this with :meth:`MuJoCoBackend.compute_gravity_torque` when a
+        kinematics-oracle MuJoCo backend is loaded with the same robot:
+        PD then only handles tracking residuals (sub-mm error vs 10-20 mm
+        without compensation on a stretched-out Franka).
+
+        Pass ``None`` to disable.
+        """
+        self._gravity_torque_fn = fn
+
+    def _apply_gravity_compensation(self) -> None:
+        if self._gravity_torque_fn is None or self._state_0 is None:
+            return
+        q = self._state_0.joint_q.numpy()
+        arm_joints = np.array([q[i] for i in self._w_arm_q], dtype=np.float64)
+        gripper_qpos = float(q[self._w_gripper_q[0]]) if self._w_gripper_q else 0.0
+        ff = np.asarray(self._gravity_torque_fn(arm_joints, gripper_qpos), dtype=np.float64).ravel()
+        n_arm = len(self._w_arm_q)
+        n_grip = len(self._w_gripper_q)
+        if ff.shape != (n_arm + n_grip,):
+            raise ValueError(
+                f"gravity_torque_fn returned shape {ff.shape}, "
+                f"expected ({n_arm + n_grip},)"
+            )
+        joint_f = self._control.joint_f.numpy()
+        stride = self._actuators_per_world or self._dof_per_world
+        for w in range(self._world_count):
+            for local_q, t in zip(self._w_arm_q, ff[:n_arm]):
+                joint_f[w * stride + local_q] = float(t)
+            for local_q, t in zip(self._w_gripper_q, ff[n_arm:]):
+                joint_f[w * stride + local_q] = float(t)
+        joint_f_wp = self._wp.array(joint_f, dtype=self._control.joint_f.dtype)
+        self._wp.copy(self._control.joint_f, joint_f_wp)
 
     def _render_all_rgb(self) -> np.ndarray | None:
         """Return (W, H, W_pix, 3) uint8 RGB across worlds, or None if disabled."""
@@ -647,19 +719,25 @@ class NewtonBackend:
             raise ValueError(f"grippers must be ({N},), got {grippers_arr.shape}")
 
         target = self._control.joint_target_pos.numpy()
+        # Use the actuator stride (joint_target_pos is sized by joint_qd,
+        # which contributes 6 per freejoint vs joint_q's 7 — same fix as
+        # commit 3b141b0 applied to the single-world step()).
+        stride = self._actuators_per_world or self._dof_per_world
         for w in range(N):
             for local_q, q in zip(self._w_arm_q, targets[w]):
-                target[w * self._dof_per_world + local_q] = float(q)
+                target[w * stride + local_q] = float(q)
             t = float(np.clip(grippers_arr[w], 0.0, 1.0))
             finger_q = (
                 self._robot.gripper_open_qpos * (1.0 - t)
                 + self._robot.gripper_closed_qpos * t
             )
             for local_q in self._w_gripper_q:
-                target[w * self._dof_per_world + local_q] = finger_q
+                target[w * stride + local_q] = finger_q
 
         arr_wp = self._wp.array(target, dtype=self._control.joint_target_pos.dtype)
         self._wp.copy(self._control.joint_target_pos, arr_wp)
+
+        self._apply_gravity_compensation()
 
         self._state_0.clear_forces()
         self._model.collide(self._state_0, self._contacts)

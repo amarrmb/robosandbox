@@ -111,7 +111,9 @@ def main(argv: list[str] | None = None) -> int:
 
     train_p = sub.add_parser(
         "train",
-        help="Train a PPO policy from scratch via Newton GPU-parallel RL (no demonstrations needed)",
+        help="Train a PPO policy via Newton GPU-parallel RL. Optional --warm-start "
+             "from a distilled ACT (or any ActorCritic checkpoint) makes this "
+             "RL-fine-tuning rather than from-scratch.",
     )
     train_p.add_argument("--task", required=True, help="Built-in task name (e.g. pick_cube_franka)")
     train_p.add_argument("--world-count", type=int, default=512, help="Parallel Newton worlds")
@@ -125,6 +127,24 @@ def main(argv: list[str] | None = None) -> int:
     train_p.add_argument("--device", default="cuda:0", help="GPU device for Newton + PyTorch")
     train_p.add_argument("--output", default="runs/rl/policy", help="Output checkpoint directory")
     train_p.add_argument("--log-interval", type=int, default=5, help="Log every N iterations")
+    train_p.add_argument("--warm-start", type=str, default=None,
+                         help="Path to a distilled-ACT (or prior ActorCritic) checkpoint "
+                              "directory. When set, PPO loads its actor + ObsEncoder from "
+                              "<warm-start>/actor_critic.pt + obs_config.json instead of "
+                              "random init. Use scripts/distill_act_to_mlp.py to produce "
+                              "one from a LeRobot ACT checkpoint.")
+    train_p.add_argument("--freeze-encoder-stats", action="store_true",
+                         help="Don't update the ObsEncoder's running mean/std during "
+                              "rollouts. Useful with --warm-start so the policy keeps "
+                              "seeing inputs in the distribution it was trained on.")
+    train_p.add_argument("--n-epochs", type=int, default=4,
+                         help="PPO update epochs per rollout. Drop to 1-2 when "
+                              "fine-tuning from --warm-start to avoid forgetting.")
+    train_p.add_argument("--clip-eps", type=float, default=0.2,
+                         help="PPO ratio clip. Tighten (e.g. 0.05-0.1) for fine-tuning.")
+    train_p.add_argument("--entropy-coef", type=float, default=0.01,
+                         help="Entropy bonus on policy. Set to 0 for fine-tuning so "
+                              "exploration noise doesn't push away from the warm-start.")
 
     eval_p = sub.add_parser(
         "eval",
@@ -531,12 +551,17 @@ def _train_ppo_cli(args: argparse.Namespace) -> int:
             task,
             total_steps=args.total_steps,
             n_steps=args.n_steps,
+            n_epochs=args.n_epochs,
             lr=args.lr,
+            clip_eps=args.clip_eps,
+            entropy_coef=args.entropy_coef,
             delta_scale=args.delta_scale,
             settle_steps=args.settle_steps,
             device=args.device,
             save_path=Path(args.output),
             log_interval=args.log_interval,
+            warm_start=args.warm_start,
+            freeze_encoder_stats=args.freeze_encoder_stats,
         )
     finally:
         sim.close()

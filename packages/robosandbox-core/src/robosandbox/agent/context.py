@@ -31,5 +31,11 @@ class AgentContext:
     # Optional hook called after every sim.step — useful for logging,
     # rendering frames to a file, or a live UI. Kept free-form on purpose.
     on_step: Callable[[], None] | None = None
+    # Optional second sim used purely for IK kinematics (analytic Jacobian).
+    # Set when ``sim`` is a backend whose kinematics aren't directly
+    # IK-friendly (e.g. NewtonBackend) — typically a MuJoCoBackend with
+    # the same robot URDF + workspace. When None, IK uses ``sim`` itself,
+    # which is the MuJoCo single-backend path.
+    kinematics_sim: SimBackend | None = None
     # Free-form config bag passed through from CLI/YAML.
     config: dict[str, Any] = field(default_factory=dict)

@@ -65,7 +65,7 @@ class Pick:
         # Approach (joint-space is fine for long traversals).
         try:
             traj = ctx.motion.plan(
-                ctx.sim,
+                ctx.kinematics_sim or ctx.sim,
                 start_joints=obs.robot_joints,
                 target_pose=approach_pose,
                 constraints={"orientation": "z_down"},
@@ -79,7 +79,7 @@ class Pick:
         obs_now = ctx.sim.observe()
         try:
             traj = plan_linear_cartesian(
-                ctx.sim,
+                ctx.kinematics_sim or ctx.sim,
                 start_joints=obs_now.robot_joints,
                 target_pose=grasp.pose,
                 n_waypoints=60,
@@ -99,7 +99,7 @@ class Pick:
         obs_now = ctx.sim.observe()
         try:
             traj = plan_linear_cartesian(
-                ctx.sim,
+                ctx.kinematics_sim or ctx.sim,
                 start_joints=obs_now.robot_joints,
                 target_pose=pose_offset_z(grasp.pose, _LIFT_HEIGHT),
                 n_waypoints=80,

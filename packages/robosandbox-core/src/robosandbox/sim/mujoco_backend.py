@@ -188,6 +188,61 @@ class MuJoCoBackend:
             "gripper": self._last_gripper,
         }
 
+    def compute_gravity_torque(self, arm_joints: np.ndarray, gripper_qpos: float | None = None) -> np.ndarray:
+        """Gravity-only torque needed to hold ``arm_joints`` stationary.
+
+        Returns an array of shape ``(n_arm + n_gripper,)`` aligned with
+        ``arm_joint_names + gripper_joint_names``. Used by another sim
+        (e.g. NewtonBackend) as a feedforward torque for gravity
+        compensation — pairs nicely with a position-control PD that then
+        only handles small tracking residuals.
+
+        Uses mj_rne (recursive Newton-Euler) rather than mj_inverse: rne
+        computes only the inertial + gravity + Coriolis term and excludes
+        constraint forces, which avoids polluting the FF with cube-table
+        contacts or the finger equality constraint. With qvel=0 the result
+        collapses to pure gravity holding torque.
+
+        Doesn't mutate observable backend state — qpos/qvel are restored.
+        """
+        import mujoco
+        assert self._model is not None and self._data is not None
+        if arm_joints.shape[0] != len(self._arm_qpos_adr):
+            raise ValueError(
+                f"arm_joints has {arm_joints.shape[0]} entries, "
+                f"expected {len(self._arm_qpos_adr)}"
+            )
+        qpos_backup = self._data.qpos.copy()
+        qvel_backup = self._data.qvel.copy()
+        try:
+            for adr, q in zip(self._arm_qpos_adr, arm_joints):
+                self._data.qpos[adr] = float(q)
+            if gripper_qpos is not None and self._gripper_qpos_adr >= 0:
+                self._data.qpos[self._gripper_qpos_adr] = float(gripper_qpos)
+            self._data.qvel[:] = 0.0
+            mujoco.mj_kinematics(self._model, self._data)
+            mujoco.mj_comPos(self._model, self._data)
+            result = np.zeros(self._model.nv, dtype=np.float64)
+            mujoco.mj_rne(self._model, self._data, 0, result)
+            # mj_rne returns h(q,0) = -g(q); the FF torque actuators must
+            # apply to hold equilibrium is +g(q) = -result.
+            arm_t = np.array(
+                [-result[self._model.jnt_dofadr[self._model.joint(name).id]]
+                 for name in self._robot.arm_joint_names],
+                dtype=np.float64,
+            )
+            gripper_t = (
+                -result[self._model.jnt_dofadr[
+                    self._model.joint(self._robot.gripper_joint_names[0]).id
+                ]]
+                if self._robot.gripper_joint_names else 0.0
+            )
+        finally:
+            self._data.qpos[:] = qpos_backup
+            self._data.qvel[:] = qvel_backup
+        n_gripper = len(self._robot.gripper_joint_names) if self._robot is not None else 1
+        return np.concatenate([arm_t, np.full(n_gripper, float(gripper_t), dtype=np.float64)])
+
     # ---- observation -----------------------------------------------------
     def observe(self) -> Observation:
         assert self._model is not None and self._data is not None and self._renderer is not None
