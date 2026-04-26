@@ -252,7 +252,26 @@ class MuJoCoBackend:
         rgb = self._renderer.render().copy()
         self._depth_renderer.update_scene(self._data, camera=self._camera, scene_option=self._render_opt)
         depth = self._depth_renderer.render().copy()
+        return self._build_observation(rgb=rgb, depth=depth)
 
+    def observe_state(self) -> Observation:
+        """Observation without RGB/depth. Safe to call from worker threads.
+
+        EGL contexts can't be shared across threads, so the rendering path
+        in :meth:`observe` panics under MuJoCoVecBackend's threadpool. State-
+        only RL (the train_ppo path) doesn't need RGB anyway — encoder.encode()
+        only reads robot_joints, ee_pose, gripper_width, scene_objects.
+        """
+        assert self._model is not None and self._data is not None and self._robot is not None
+        return self._build_observation(rgb=None, depth=None)
+
+    def _build_observation(
+        self,
+        *,
+        rgb: np.ndarray | None,
+        depth: np.ndarray | None,
+    ) -> Observation:
+        assert self._data is not None and self._robot is not None
         arm_joints = np.array(
             [self._data.qpos[adr] for adr in self._arm_qpos_adr], dtype=np.float64
         )
@@ -266,8 +285,8 @@ class MuJoCoBackend:
         objects = {
             oid: self._body_pose(bid) for oid, bid in self._obj_body_ids.items()
         }
-        intrinsics = self._camera_intrinsics()
-        extrinsics = self._camera_extrinsics()
+        intrinsics = self._camera_intrinsics() if rgb is not None else None
+        extrinsics = self._camera_extrinsics() if rgb is not None else None
         return Observation(
             rgb=rgb,
             depth=depth,

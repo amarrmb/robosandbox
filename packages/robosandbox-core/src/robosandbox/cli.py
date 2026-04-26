@@ -116,7 +116,13 @@ def main(argv: list[str] | None = None) -> int:
              "RL-fine-tuning rather than from-scratch.",
     )
     train_p.add_argument("--task", required=True, help="Built-in task name (e.g. pick_cube_franka)")
-    train_p.add_argument("--world-count", type=int, default=512, help="Parallel Newton worlds")
+    train_p.add_argument("--sim-backend", default="newton", choices=["newton", "mujoco_vec"],
+                         help="newton = GPU-parallel mujoco_warp; mujoco_vec = threadpool of "
+                              "N classical-MuJoCo instances. Use mujoco_vec when contact "
+                              "convergence matters (e.g. cube-grasp PPO refinement) — "
+                              "newton's solver allows ~3mm penetration per side at the "
+                              "default solref, which kills the grasp signal.")
+    train_p.add_argument("--world-count", type=int, default=512, help="Parallel worlds")
     train_p.add_argument("--total-steps", type=int, default=5_000_000, help="Total env steps to train")
     train_p.add_argument("--n-steps", type=int, default=256, help="Steps per rollout per world")
     train_p.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
@@ -500,9 +506,13 @@ def _train_ppo_cli(args: argparse.Namespace) -> int:
         print(f"[train] {e}", file=sys.stderr)
         return 2
 
-    if "newton" not in task.supported_backends:
+    # mujoco_vec runs N classical-MuJoCo instances, so the task must
+    # support the underlying "mujoco" backend (every task in the repo
+    # does today; the check matches what newton would require).
+    needed_backend = "mujoco" if args.sim_backend == "mujoco_vec" else "newton"
+    if needed_backend not in task.supported_backends:
         print(
-            f"[train] task {args.task!r} does not support newton "
+            f"[train] task {args.task!r} does not support {needed_backend} "
             f"(supported: {', '.join(task.supported_backends)})",
             file=sys.stderr,
         )
@@ -527,21 +537,30 @@ def _train_ppo_cli(args: argparse.Namespace) -> int:
         return 2
 
     print(f"[train] task:          {task.name}")
+    print(f"[train] sim_backend:   {args.sim_backend}")
     print(f"[train] world_count:   {args.world_count}")
     print(f"[train] total_steps:   {args.total_steps:,}")
     print(f"[train] output:        {args.output}")
 
     try:
-        sim = create_sim_backend(
-            "newton",
-            render_size=(240, 320),
-            camera="scene",
-            viewer="null",
-            device=args.device,
-            world_count=args.world_count,
-        )
+        if args.sim_backend == "mujoco_vec":
+            sim = create_sim_backend(
+                "mujoco_vec",
+                render_size=(64, 64),  # state-only PPO; minimal render
+                camera="scene",
+                world_count=args.world_count,
+            )
+        else:
+            sim = create_sim_backend(
+                "newton",
+                render_size=(240, 320),
+                camera="scene",
+                viewer="null",
+                device=args.device,
+                world_count=args.world_count,
+            )
     except (ImportError, ValueError) as e:
-        print(f"[train] failed to create Newton backend: {e}", file=sys.stderr)
+        print(f"[train] failed to create {args.sim_backend} backend: {e}", file=sys.stderr)
         return 2
 
     sim.load(task.scene)

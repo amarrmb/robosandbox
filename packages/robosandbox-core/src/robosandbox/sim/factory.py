@@ -15,6 +15,10 @@ from typing import Any
 _BUILTIN_BACKENDS: dict[str, str] = {
     "mujoco": "robosandbox.sim.mujoco_backend:MuJoCoBackend",
     "newton": "robosandbox.sim.newton_backend:NewtonBackend",
+    # ThreadPool over N MuJoCoBackend instances; same observe_all/step_all
+    # parallel API as Newton, used by `train --sim-backend mujoco_vec` for
+    # PPO refinement on the sim where contact actually converges.
+    "mujoco_vec": "robosandbox.sim.mujoco_vec_backend:MuJoCoVecBackend",
 }
 
 
