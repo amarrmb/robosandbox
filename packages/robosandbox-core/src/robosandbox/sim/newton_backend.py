@@ -307,6 +307,18 @@ class NewtonBackend:
         )
         builder.add_ground_plane()
 
+        # Match the elevated friction MuJoCoBackend gives box objects via
+        # `robot_loader._inject_objects` (friction=[1.5, 0.1, 0.01]) — Newton's
+        # default ShapeConfig is the canonical MuJoCo (1.0, 0.005, 0.0001),
+        # which is too slippery to hold a 50g cube against a 1g/cm finger
+        # PD residual during lift.  Without this match the gripper closes
+        # around the cube in both sims, but Newton's grasp slips at the lift
+        # transient while MuJoCo's holds — the dominant cause of the
+        # distilled-MLP eval gap (34% MuJoCo vs 0% Newton).
+        cube_cfg = copy.copy(builder.default_shape_cfg)
+        cube_cfg.mu = 1.5
+        cube_cfg.mu_torsional = 0.1
+        cube_cfg.mu_rolling = 0.01
         for obj in scene.objects:
             if obj.kind != "box":
                 raise NotImplementedError(
@@ -315,12 +327,31 @@ class NewtonBackend:
             x, y, z = obj.pose.xyz
             qx, qy, qz, qw = obj.pose.quat_xyzw
             sx, sy, sz = obj.size
+            # Without lock_inertia + an explicit inertia tensor, Newton's
+            # finalize() recomputes mass and inertia from shape volume × a
+            # default density (~4630 kg/m^3 for boxes), silently ignoring
+            # the `mass=` we pass to add_body and clamping inertia by the
+            # validate_and_correct_inertia kernel. That puts a 24 mm cube
+            # at 0.064 kg / 1.33e-6 kg·m² in Newton vs MuJoCo's 0.05 kg /
+            # 4.8e-6 kg·m² — a 28% weight gap that breaks lift parity.
+            mass = float(obj.mass)
+            sx_f, sy_f, sz_f = float(sx), float(sy), float(sz)
+            ixx = mass * ((2 * sy_f) ** 2 + (2 * sz_f) ** 2) / 12.0
+            iyy = mass * ((2 * sx_f) ** 2 + (2 * sz_f) ** 2) / 12.0
+            izz = mass * ((2 * sx_f) ** 2 + (2 * sy_f) ** 2) / 12.0
+            inertia_mat = wp.mat33(ixx, 0.0, 0.0, 0.0, iyy, 0.0, 0.0, 0.0, izz)
             builder.add_body(
                 xform=wp.transform(wp.vec3(x, y, z), wp.quat(qx, qy, qz, qw)),
-                mass=float(obj.mass),
+                mass=mass,
+                inertia=inertia_mat,
+                lock_inertia=True,
                 label=obj.id,
             )
-            builder.add_shape_box(body=builder.body_count - 1, hx=sx, hy=sy, hz=sz)
+            builder.add_shape_box(
+                body=builder.body_count - 1,
+                hx=sx_f, hy=sy_f, hz=sz_f,
+                cfg=cube_cfg,
+            )
 
         target_q = [*self._robot.home_qpos, self._robot.gripper_open_qpos, self._robot.gripper_open_qpos]
         builder.joint_q[: len(target_q)] = target_q
