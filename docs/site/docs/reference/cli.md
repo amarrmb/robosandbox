@@ -3,13 +3,13 @@
 Two console scripts ship:
 
 - `robo-sandbox` — subcommand entry point (`demo`, `viewer`, `run`,
-  `export-lerobot`).
+  `export-lerobot`, `results`).
 - `robo-sandbox-bench` — the benchmark runner.
 
 ## `robo-sandbox`
 
 ```
-robo-sandbox {demo | viewer | run | export-lerobot} [options]
+robo-sandbox {demo | viewer | run | export-lerobot | results} [options]
 ```
 
 ### `demo`
@@ -112,6 +112,134 @@ LeRobot v3 dataset.
 Needs `uv pip install -e 'packages/robosandbox-core[lerobot]'`. See
 [recording & export](../concepts/recording-and-export.md) for the
 dataset layout.
+
+### `results`
+
+```bash
+robo-sandbox results {list | slice | lineage | compare | regression | repro | sql | migrate} [args]
+```
+
+Query the eval log under `runs/eval_log/`. The log is populated as a
+side effect of `robo-sandbox eval` and recording episodes — see
+[the eval log concept](../concepts/eval-log.md). All subcommands print
+to stdout; nothing is mutated.
+
+#### `results list`
+
+```bash
+robo-sandbox results list
+```
+
+Lists every policy in the log with its kind, parent, and total eval
+count. Example row:
+
+```
+distilled_v2                 ppo_neural             distilled_v1                       4
+```
+
+#### `results slice`
+
+```bash
+robo-sandbox results slice POLICY_ID --axis AXIS [--axis AXIS ...]
+```
+
+Per-slice success-rate breakdown for one policy along the given axes.
+Pass `--axis` once per dimension (e.g. `--axis target_xy_bucket`).
+Output is a tab-separated table — `axis_value`, `n_trials`, `success_rate`.
+
+```bash
+robo-sandbox results slice distilled_v1 --axis target_xy_bucket
+# target_xy_bucket   n   success_rate
+# back_left          8   0.125
+# front_center       8   0.875
+```
+
+#### `results lineage`
+
+```bash
+robo-sandbox results lineage POLICY_ID
+```
+
+Prints the lineage chain root-to-leaf, indented per generation, with
+the `lineage_op` in brackets when present.
+
+```bash
+robo-sandbox results lineage distilled_v2
+# act_50k (lerobot_act)
+#   distilled_v1 (ppo_neural) [distill]
+#     distilled_v2 (ppo_neural) [fine_tune]
+```
+
+#### `results compare`
+
+```bash
+robo-sandbox results compare POLICY_A POLICY_B [--task TASK_ID]
+```
+
+Two-policy success-rate diff, optionally restricted to one task.
+Output is two rates and a delta in percentage points.
+
+```bash
+robo-sandbox results compare distilled_v1 distilled_v2 --task pick_cube_franka_random
+# distilled_v1: 34.4%
+# distilled_v2: 50.0%
+# delta:        +15.62pp
+```
+
+#### `results regression`
+
+```bash
+robo-sandbox results regression POLICY_ID
+```
+
+Walks one step up the lineage and prints per-task deltas vs the
+parent. Each line ends with `^` for an improvement and `v` for a
+regression — a quick scan tells you whether a fine-tune was a net win.
+
+```bash
+robo-sandbox results regression distilled_v2
+# vs parent distilled_v1
+#   pick_cube_franka_random: parent 34.4% -> child 50.0% (+15.62pp) ^
+```
+
+#### `results repro`
+
+```bash
+robo-sandbox results repro EVAL_ID
+```
+
+Prints the `git_sha` and full `command_line` recorded for one eval, so
+you can reproduce it byte-for-byte.
+
+```bash
+robo-sandbox results repro eval_a1b2c3d4
+# git_sha:  a9e6341
+# command:  robo-sandbox eval --task pick_cube_franka_random --policy outputs/distilled_v1 --n-trials 32
+```
+
+#### `results sql`
+
+```bash
+robo-sandbox results sql "QUERY"
+```
+
+Runs raw DuckDB SQL against the JSONL views. Tables: `policies`,
+`demos`, `evals`, `eval_runs`. Use this for one-off questions the
+canned subcommands don't cover.
+
+```bash
+robo-sandbox results sql "SELECT policy_id, COUNT(*) FROM eval_runs WHERE success GROUP BY 1"
+```
+
+#### `results migrate`
+
+```bash
+robo-sandbox results migrate RUNS_DIR
+```
+
+One-shot import of legacy `runs/<ts>-<id>/result.json` directories
+into the eval log. Idempotent — re-running skips already-imported
+runs. Prints `imported N legacy runs`.
 
 ## `robo-sandbox-bench`
 

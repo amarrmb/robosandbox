@@ -80,13 +80,16 @@ nav:
       - VLM tool-calling: guides/vlm-tool-calling.md
       - Reachability pre-flight: guides/reachability.md
       - Replan loop: guides/replan-loop.md
+      - Iterating on a policy: guides/iterating-on-a-policy.md
   - Concepts:
-      - Why RoboSandbox exists: concepts/why-robosandbox-exists.md
+  - Why RoboSandbox exists: concepts/why-robosandbox-exists.md
+  - The Village of Many Bridges: concepts/the-village-of-many-bridges.md
       - Scenes & objects: concepts/scenes.md
       - Skills & agents: concepts/skills-and-agents.md
       - Perception & grasping: concepts/perception-and-grasping.md
       - Recording & export: concepts/recording-and-export.md
       - Real-robot bridge: concepts/real-robot.md
+      - Eval log: concepts/eval-log.md
   - Tutorials:
       - Custom arm: tutorials/custom-arm.md
       - Custom task: tutorials/custom-task.md
