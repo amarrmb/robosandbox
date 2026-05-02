@@ -336,6 +336,28 @@ def main(argv: list[str] | None = None) -> int:
     sc_p.add_argument("--output", default=None,
                       help="Write the full report as JSON to this path.")
 
+    results_p = sub.add_parser("results", help="Query the eval log")
+    results_sub = results_p.add_subparsers(dest="results_cmd", required=True)
+
+    results_sub.add_parser("list", help="List policies with headline stats")
+    rs_slice = results_sub.add_parser("slice", help="Slice breakdown for a policy")
+    rs_slice.add_argument("policy_id")
+    rs_slice.add_argument("--axis", action="append", required=True)
+    rs_lin = results_sub.add_parser("lineage", help="Walk lineage of a policy")
+    rs_lin.add_argument("policy_id")
+    rs_cmp = results_sub.add_parser("compare", help="Compare two policies")
+    rs_cmp.add_argument("policy_a")
+    rs_cmp.add_argument("policy_b")
+    rs_cmp.add_argument("--task", default=None)
+    rs_reg = results_sub.add_parser("regression", help="Compare against lineage parent")
+    rs_reg.add_argument("policy_id")
+    rs_repro = results_sub.add_parser("repro", help="Print git_sha + command for an eval")
+    rs_repro.add_argument("eval_id")
+    rs_sql = results_sub.add_parser("sql", help="Run raw DuckDB SQL over the log")
+    rs_sql.add_argument("query")
+    rs_mig = results_sub.add_parser("migrate", help="Import legacy runs/* result.json")
+    rs_mig.add_argument("runs_dir")
+
     cmp_p = sub.add_parser(
         "compare",
         help="Statistical comparison of two eval JSON outputs (two-proportion z-test)",
@@ -481,6 +503,8 @@ def main(argv: list[str] | None = None) -> int:
         return _eval_parallel_cli(args)
     elif args.cmd == "compare":
         return _compare_cli(args)
+    elif args.cmd == "results":
+        return _results_cli(args)
     elif args.cmd == "sim-check":
         return _sim_check_cli(args)
     elif args.cmd == "download-franka-visuals":
@@ -1311,6 +1335,89 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
         steps=int(result["steps"]), wall_seconds=float(result["wall"]),
         throughput=float(result["throughput"]),
     )
+
+
+def _results_cli(args: argparse.Namespace) -> int:
+    from robosandbox.eval_log import EvalLogQuery, walk_lineage
+    root = _eval_log_root()
+    if not root.exists():
+        print("no data; run `robo-sandbox eval` first")
+        return 0
+    q = EvalLogQuery(root)
+    if args.results_cmd == "list":
+        rows = q.list_policies()
+        if not rows:
+            print("no data; run `robo-sandbox eval` first")
+            return 0
+        print(f"{'POLICY':<28} {'KIND':<22} {'PARENT':<28} {'N_EVALS':>8}")
+        for r in rows:
+            print(f"{str(r['policy_id'])[:28]:<28} {str(r['kind'])[:22]:<22} "
+                  f"{str(r.get('parent_policy_id') or '-')[:28]:<28} {r.get('n_evals', 0):>8}")
+        return 0
+    if args.results_cmd == "slice":
+        rows = q.slice_breakdown(args.policy_id, axes=args.axis)
+        if not rows:
+            print("no trials for that policy")
+            return 0
+        cols = list(rows[0].keys())
+        print("\t".join(cols))
+        for r in rows:
+            print("\t".join(str(r[c]) for c in cols))
+        return 0
+    if args.results_cmd == "lineage":
+        chain = walk_lineage(root, args.policy_id)
+        if not chain:
+            print(f"unknown policy: {args.policy_id}")
+            return 0
+        for i, p in enumerate(chain):
+            indent = "  " * i
+            op = f" [{p.lineage_op}]" if p.lineage_op else ""
+            print(f"{indent}{p.policy_id} ({p.kind}){op}")
+        return 0
+    if args.results_cmd == "compare":
+        c = q.compare_policies(args.policy_a, args.policy_b, task_id=args.task)
+        a_rate = c.get('a_success_rate') or 0
+        b_rate = c.get('b_success_rate') or 0
+        print(f"{args.policy_a}: {a_rate*100:.1f}%")
+        print(f"{args.policy_b}: {b_rate*100:.1f}%")
+        print(f"delta:        {(c.get('delta_pp') or 0):+.2f}pp")
+        return 0
+    if args.results_cmd == "regression":
+        rep = q.regression_check(args.policy_id)
+        if not rep["parent_policy_id"]:
+            print("no parent in lineage; nothing to compare")
+            return 0
+        print(f"vs parent {rep['parent_policy_id']}")
+        for s in rep["slices"]:
+            arrow = "v" if s["regressed"] else "^"
+            print(f"  {s['task_id']}: parent {s['parent_rate']*100:.1f}% -> "
+                  f"child {s['child_rate']*100:.1f}% ({s['delta_pp']:+.2f}pp) {arrow}")
+        return 0
+    if args.results_cmd == "repro":
+        rec = q.repro(args.eval_id)
+        if rec is None:
+            print(f"unknown eval: {args.eval_id}")
+            return 1
+        print(f"git_sha:  {rec.get('git_sha', '?')}")
+        print(f"command:  {rec.get('command_line', '?')}")
+        return 0
+    if args.results_cmd == "sql":
+        try:
+            for r in q.run_sql(args.query):
+                print(r)
+        except RuntimeError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        return 0
+    if args.results_cmd == "migrate":
+        return _results_migrate_cli(args.runs_dir)
+    return 1
+
+
+def _results_migrate_cli(_runs_dir: str) -> int:
+    """Stub. Task 12 will replace this with the real migrator."""
+    print("migrate not yet implemented")
+    return 0
 
 
 if __name__ == "__main__":
