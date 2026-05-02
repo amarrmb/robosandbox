@@ -3,10 +3,108 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json as _json
 import math
+import subprocess as _subprocess
 import sys
+from datetime import datetime, timezone
+from pathlib import Path as _Path
 
 import numpy as np
+
+
+def _eval_log_root() -> _Path:
+    return _Path("runs/eval_log")
+
+
+def _git_sha() -> str:
+    try:
+        return _subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True, stderr=_subprocess.DEVNULL
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
+def _config_hash(args: argparse.Namespace) -> str:
+    h = hashlib.sha256(
+        _json.dumps(vars(args), sort_keys=True, default=str).encode()
+    ).hexdigest()
+    return h[:12]
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _policy_id_from_path(path: str) -> str:
+    return _Path(path).resolve().name
+
+
+def _ensure_policy_registered(store, policy_path: str) -> str:
+    """Best-effort registration of a policy from its checkpoint dir."""
+    from robosandbox.eval_log import PolicyRow
+    pid = _policy_id_from_path(policy_path)
+    cfg_path = _Path(policy_path) / "policy.json"
+    kind = "replay_trajectory"
+    parent = None
+    lineage_op = None
+    if cfg_path.exists():
+        try:
+            cfg = _json.loads(cfg_path.read_text())
+            kind = str(cfg.get("kind", "replay_trajectory"))
+            parent = cfg.get("parent_policy_id")
+            lineage_op = cfg.get("lineage_op")
+        except Exception:
+            pass
+    store.append_policy(PolicyRow(
+        policy_id=pid, kind=kind,
+        parent_policy_id=parent, lineage_op=lineage_op,
+        training_demo_set_id=None, training_steps=None,
+        training_dist_summary=None,
+        trained_at=_now_iso(), checkpoint_path=str(_Path(policy_path).resolve()),
+        metadata={},
+    ))
+    return pid
+
+
+def _emit_eval_log(
+    args: argparse.Namespace,
+    *,
+    sim_backend: str,
+    started_at: str,
+    per_trial_outcomes: list[dict],
+) -> None:
+    """Best-effort emission of EvalRunRow + N EvalRows. Never raises."""
+    try:
+        from robosandbox.eval_log import EvalLogStore, EvalRow, EvalRunRow
+        store = EvalLogStore(_eval_log_root())
+        ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        eval_id = f"eval_{ts}_{_policy_id_from_path(args.policy)}"
+        pid = _ensure_policy_registered(store, args.policy)
+        store.append_eval_run(EvalRunRow(
+            eval_id=eval_id, policy_id=pid, task_id=args.task,
+            n_trials=len(per_trial_outcomes),
+            started_at=started_at, completed_at=_now_iso(),
+            git_sha=_git_sha(), config_hash=_config_hash(args),
+            compute_resource=getattr(args, "device", "cpu"),
+            command_line=" ".join(sys.argv),
+        ))
+        for i, outcome in enumerate(per_trial_outcomes):
+            store.append_eval(EvalRow(
+                eval_id=eval_id, trial_id=f"{i:05d}", policy_id=pid,
+                task_id=args.task, task_variant_hash="",
+                sim_backend=sim_backend,
+                trial_seed=int(outcome.get("seed", i)),
+                slice_axes=outcome.get("slice_axes", {}),
+                outcome=outcome.get("outcome", {}),
+                wall_seconds=float(outcome.get("wall_seconds", 0.0)),
+                compute_resource=getattr(args, "device", "cpu"),
+                started_at=started_at,
+            ))
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"[eval_log] WARN: failed to emit log rows: {e}", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -148,6 +246,29 @@ def main(argv: list[str] | None = None) -> int:
                               "fine-tuning from --warm-start to avoid forgetting.")
     train_p.add_argument("--clip-eps", type=float, default=0.2,
                          help="PPO ratio clip. Tighten (e.g. 0.05-0.1) for fine-tuning.")
+    train_p.add_argument("--action-space", type=str, default="joint",
+                         choices=["joint", "ee_xyz"],
+                         help="Policy action space. 'joint' = per-joint deltas (default). "
+                              "'ee_xyz' = 3D Cartesian deltas converted to joint deltas via "
+                              "DLS pseudoinverse — better for fine-grained reach tasks.")
+    train_p.add_argument("--ee-delta-scale", type=float, default=0.02,
+                         help="Max EE displacement per policy step (meters). Used with "
+                              "--action-space ee_xyz.")
+    train_p.add_argument("--hidden", type=str, default="256,256",
+                         help="Comma-separated hidden layer sizes for actor + critic. "
+                              "Default 256,256 (~74K params). Try 512,512 (~280K) for "
+                              "tasks needing finer precision.")
+    train_p.add_argument("--init-logstd", type=float, default=0.0,
+                         help="Initial actor_logstd. Default 0.0 (std=1.0) is fine for "
+                              "from-scratch PPO. With --warm-start, set this lower (e.g. -2.3 "
+                              "→ std=0.1) so exploration noise doesn't drown the BC prior. "
+                              "Applied to all action dims.")
+    train_p.add_argument("--action-repeat", type=int, default=1,
+                         help="Hold each policy action for N sim steps before re-querying. "
+                              "Set to match the eval cadence (e.g. 6 when warm-starting from "
+                              "a policy distilled at 30 fps with sim_dt=0.005s). Default 1 means "
+                              "the policy is queried every sim step — only correct when training "
+                              "from scratch with no warm-start.")
     train_p.add_argument("--entropy-coef", type=float, default=0.01,
                          help="Entropy bonus on policy. Set to 0 for fine-tuning so "
                               "exploration noise doesn't push away from the warm-start.")
@@ -563,7 +684,26 @@ def _train_ppo_cli(args: argparse.Namespace) -> int:
         print(f"[train] failed to create {args.sim_backend} backend: {e}", file=sys.stderr)
         return 2
 
-    sim.load(task.scene)
+    # Per-world randomization for training. Without this, all N worlds run
+    # the same scene → PPO converges on the single fixed target, then fails
+    # on novel targets at eval. With it, each world gets a fresh xy-jittered
+    # target every episode-equivalent so the policy learns target-conditioned
+    # reach.
+    per_world_scenes = None
+    if task.randomize and args.world_count > 1:
+        from robosandbox.tasks.randomize import jitter_scene as _jitter
+        per_world_scenes = [
+            _jitter(task.scene, task.randomize, seed=w + 1)
+            for w in range(args.world_count)
+        ]
+        print(f"[train] randomize:     {sorted(task.randomize.keys())}  (per-world seeds)")
+
+    if per_world_scenes is None:
+        sim.load(task.scene)
+    elif args.sim_backend == "mujoco_vec":
+        sim.load_per_world(per_world_scenes)
+    else:
+        sim.load(task.scene, per_world_scenes=per_world_scenes)
     try:
         train_ppo(
             sim,
@@ -581,6 +721,11 @@ def _train_ppo_cli(args: argparse.Namespace) -> int:
             log_interval=args.log_interval,
             warm_start=args.warm_start,
             freeze_encoder_stats=args.freeze_encoder_stats,
+            action_repeat=args.action_repeat,
+            init_logstd=args.init_logstd,
+            hidden=tuple(int(s.strip()) for s in args.hidden.split(",") if s.strip()),
+            action_space=args.action_space,
+            ee_delta_scale=args.ee_delta_scale,
         )
     finally:
         sim.close()
@@ -914,6 +1059,8 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
         from robosandbox.eval import summarise_eval
         from robosandbox.tasks.randomize import jitter_scene
 
+        _eval_started_at = _now_iso()
+        per_trial_outcomes: list[dict] = []
         n_trials = max(1, int(getattr(args, "n_trials", 1) or 1))
         base_seed = getattr(args, "seed", None)
         randomize_active = bool(task.randomize) and n_trials > 1
@@ -934,6 +1081,7 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
         total_steps = 0
         t0 = _time.time()
         for trial in range(n_trials):
+            _trial_t0 = _time.time()
             try:
                 sim = create_sim_backend(
                     "mujoco", render_size=(240, 320), camera="scene"
@@ -1014,10 +1162,31 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
                 detail["object_initial_xyz"] = list(initial_cube_pose.xyz)
                 detail["object_initial_quat_xyzw"] = list(initial_cube_pose.quat_xyzw)
             per_trial_details.append(detail)
+            per_trial_outcomes.append({
+                "seed": int(trial_seed_recorded),
+                "slice_axes": {},
+                "outcome": {
+                    "success": bool(ok),
+                    "min_dist_m": (
+                        float(min_ee_dist_mm) / 1000.0
+                        if min_ee_dist_mm != float("inf") else None
+                    ),
+                    "peak_lift_mm": float(peak_lift_mm),
+                    "steps_used": int(result["steps"]),
+                    "step_budget": int(args.max_steps),
+                    "success_step": result.get("success_step"),
+                },
+                "wall_seconds": float(_time.time() - _trial_t0),
+            })
             if n_trials > 1:
                 print(f"[eval]   trial {trial + 1}/{n_trials}: {'success' if ok else 'failure'} ({result['steps']} steps)")
         wall = _time.time() - t0
         successes = sum(success_per_trial)
+        _emit_eval_log(
+            args, sim_backend="mujoco",
+            started_at=_eval_started_at,
+            per_trial_outcomes=per_trial_outcomes,
+        )
         return _finalize_eval(
             args, task_name=task.name, sim_backend="mujoco",
             successes=successes, n_trials=n_trials,
@@ -1028,6 +1197,7 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
         )
 
     # ---- Newton: N parallel worlds, state-only --------------------------
+    _eval_started_at = _now_iso()
     world_count: int = args.world_count
     print(f"[eval] world_count:   {world_count}")
     print(f"[eval] device:        {args.device}")
@@ -1101,10 +1271,37 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
     finally:
         sim.close()
 
+    success_per_world = list(result.get("success_per_world", []))
+    n_worlds = int(result["n_worlds"])
+    base_seed = getattr(args, "seed", None)
+    per_world_wall = float(result["wall"]) / max(1, n_worlds)
+    per_trial_outcomes_newton: list[dict] = []
+    for w in range(n_worlds):
+        # Mirror the per-world seed convention used when building per_world_scenes.
+        if task.randomize and n_worlds > 1:
+            seed_w = (int(base_seed) + w + 1) if base_seed is not None else (w + 1)
+        else:
+            seed_w = 0
+        ok_w = bool(success_per_world[w]) if w < len(success_per_world) else False
+        per_trial_outcomes_newton.append({
+            "seed": seed_w,
+            "slice_axes": {},
+            "outcome": {
+                "success": ok_w,
+                "steps_used": int(result["steps"]),
+                "step_budget": int(args.max_steps),
+            },
+            "wall_seconds": per_world_wall,
+        })
+    _emit_eval_log(
+        args, sim_backend="newton",
+        started_at=_eval_started_at,
+        per_trial_outcomes=per_trial_outcomes_newton,
+    )
     return _finalize_eval(
         args, task_name=task.name, sim_backend="newton",
-        successes=int(result["successes"]), n_trials=int(result["n_worlds"]),
-        success_per_trial=list(result.get("success_per_world", [])),
+        successes=int(result["successes"]), n_trials=n_worlds,
+        success_per_trial=success_per_world,
         per_trial_details=None,  # Newton parallel path doesn't track per-trial pose
         steps=int(result["steps"]), wall_seconds=float(result["wall"]),
         throughput=float(result["throughput"]),
