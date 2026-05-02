@@ -38,6 +38,8 @@ class LocalRecorder:
         self._frame_counter = 0
         self._last_recorded_t: float = -1e9
         self._sim_dt: float | None = None
+        self._task: str | None = None
+        self._metadata: dict[str, Any] = {}
 
     @property
     def current_episode_dir(self) -> Path | None:
@@ -52,6 +54,8 @@ class LocalRecorder:
         self._frame_counter = 0
         self._last_recorded_t = -1e9
         self._sim_dt = metadata.get("sim_dt")
+        self._task = task
+        self._metadata = dict(metadata)
 
         info = {
             "episode_id": self._episode_id,
@@ -117,6 +121,30 @@ class LocalRecorder:
             **result,
         }
         (self._episode_dir / "result.json").write_text(json.dumps(summary, indent=2, default=str))
+
+        # Best-effort: append a demo row to eval_log/demos.jsonl
+        try:
+            from datetime import timezone
+            from robosandbox.eval_log import DemoRow, EvalLogStore
+            ep_dir = self._episode_dir
+            EvalLogStore(self._root / "eval_log").append_demo(DemoRow(
+                demo_id=ep_dir.name,
+                demo_set_id=str(self._root.resolve()),
+                task_id=str(self._metadata.get("task_id") or self._task or ""),
+                task_variant_hash="",
+                operator=str(self._metadata.get("operator", "scripted_oracle")),
+                recorded_at=datetime.now(timezone.utc).isoformat(),
+                sim_backend=str(self._metadata.get("sim_backend", "unknown")),
+                randomize_seed=self._metadata.get("randomize_seed"),
+                duration_steps=self._frame_counter,
+                outcome_label="success" if success else "failure",
+                demo_path=str(ep_dir.resolve()),
+            ))
+        except Exception:
+            pass
+
         self._rgb_frames = []
         self._episode_id = None
         self._episode_dir = None
+        self._task = None
+        self._metadata = {}
