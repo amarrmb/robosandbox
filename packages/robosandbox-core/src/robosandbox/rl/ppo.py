@@ -98,27 +98,65 @@ class ActorCritic(nn.Module):
 
 
 class NeuralPolicy:
-    """Wraps a trained ActorCritic as a robosandbox Policy (deterministic mean)."""
+    """Wraps a trained ActorCritic as a robosandbox Policy (deterministic mean).
+
+    Supports two action spaces:
+      - "joint":  policy outputs (joint_deltas, gripper). Default.
+      - "ee_xyz": policy outputs (dx, dy, dz, gripper); converted to joint
+                  deltas via DLS pseudoinverse using a CPU MuJoCo Jacobian.
+                  Requires ``scene`` at load time.
+    """
 
     def __init__(
         self,
         actor_critic: ActorCritic,
         encoder: ObsEncoder,
         delta_scale: float = 0.05,
+        action_space: str = "joint",
+        ee_delta_scale: float = 0.02,
+        ee_body: str = "hand",
+        ee_kine: Any = None,
+        policy_id: str | None = None,
+        parent_policy_id: str | None = None,
+        lineage_op: str | None = None,
     ) -> None:
         self._ac = actor_critic.eval()
         self._enc = encoder
         self._delta_scale = delta_scale
         self._n_dof = encoder.n_dof
+        self._action_space = action_space
+        self._ee_delta_scale = ee_delta_scale
+        self._ee_body = ee_body
+        self._ee_kine = ee_kine
+        self._policy_id = policy_id
+        self._parent_policy_id = parent_policy_id
+        self._lineage_op = lineage_op
+        # ee_kine is required to call act() in ee_xyz mode but not to save();
+        # validation deferred to act() so save-only flows (e.g. logging
+        # lineage at training-end) don't need to materialize the IK helper.
 
     def act(self, obs: Observation) -> np.ndarray:
         vec = self._enc.normalize(self._enc.encode(obs))
         x = torch.from_numpy(vec).unsqueeze(0)
         with torch.no_grad():
             mean = self._ac.get_action_mean(x).squeeze(0)
-        deltas = mean[: self._n_dof].numpy() * self._delta_scale
-        target_q = np.asarray(obs.robot_joints, dtype=np.float64) + deltas
-        gripper = float(torch.sigmoid(mean[self._n_dof]).item())
+        if self._action_space == "ee_xyz":
+            if self._ee_kine is None:
+                raise ValueError(
+                    "NeuralPolicy with action_space='ee_xyz' requires ee_kine "
+                    "(an instance of FrankaEEKine) — pass scene to NeuralPolicy.load()."
+                )
+            current_q = np.asarray(obs.robot_joints, dtype=np.float64)
+            delta_ee = mean[:3].numpy().astype(np.float64) * self._ee_delta_scale  # (3,)
+            delta_q = self._ee_kine.delta_q_from_delta_ee(
+                current_q[None, :], delta_ee[None, :]
+            )[0]                                                                   # (n_dof,)
+            target_q = current_q + delta_q
+            gripper = float(torch.sigmoid(mean[3]).item())
+        else:
+            deltas = mean[: self._n_dof].numpy() * self._delta_scale
+            target_q = np.asarray(obs.robot_joints, dtype=np.float64) + deltas
+            gripper = float(torch.sigmoid(mean[self._n_dof]).item())
         return np.concatenate([target_q, [gripper]])
 
     def save(self, path: str | Path) -> None:
@@ -126,6 +164,7 @@ class NeuralPolicy:
         path.mkdir(parents=True, exist_ok=True)
         self._ac.save_checkpoint(path / "actor_critic.pt")
         self._enc.save(path / "obs_config.json")
+        pid = self._policy_id or path.resolve().name
         (path / "policy.json").write_text(
             json.dumps(
                 {
@@ -133,18 +172,71 @@ class NeuralPolicy:
                     "model": "actor_critic.pt",
                     "obs_config": "obs_config.json",
                     "delta_scale": self._delta_scale,
+                    "action_space": self._action_space,
+                    "ee_delta_scale": self._ee_delta_scale,
+                    "ee_body": self._ee_body,
+                    "policy_id": pid,
+                    "parent_policy_id": self._parent_policy_id,
+                    "lineage_op": self._lineage_op,
                 },
                 indent=2,
             )
         )
+        # Best-effort eval_log emission — do not crash training on log failure.
+        # append_policy is idempotent on policy_id so checkpoint_interval saves
+        # don't multiply rows.
+        try:
+            from datetime import datetime, timezone
+
+            from robosandbox.eval_log import EvalLogStore, PolicyRow
+            EvalLogStore("runs/eval_log").append_policy(PolicyRow(
+                policy_id=pid,
+                kind="ppo_neural",
+                parent_policy_id=self._parent_policy_id,
+                lineage_op=self._lineage_op,
+                training_demo_set_id=None,
+                training_steps=None,
+                training_dist_summary=None,
+                trained_at=datetime.now(timezone.utc).isoformat(),
+                checkpoint_path=str(path.resolve()),
+                metadata={},
+            ))
+        except Exception:
+            pass
 
     @classmethod
-    def load(cls, path: str | Path) -> NeuralPolicy:
+    def load(cls, path: str | Path, scene: Any = None, arm_joint_names: list[str] | None = None) -> NeuralPolicy:
         path = Path(path)
         cfg = json.loads((path / "policy.json").read_text())
         encoder = ObsEncoder.load(path / cfg["obs_config"])
         ac = ActorCritic.from_checkpoint(path / cfg["model"])
-        return cls(ac, encoder, float(cfg.get("delta_scale", 0.05)))
+        action_space = str(cfg.get("action_space", "joint"))
+        ee_delta_scale = float(cfg.get("ee_delta_scale", 0.02))
+        ee_body = str(cfg.get("ee_body", "hand"))
+        ee_kine = None
+        if action_space == "ee_xyz":
+            if scene is None:
+                raise ValueError(
+                    "Loading an ee_xyz NeuralPolicy requires the task scene; "
+                    "pass scene= to NeuralPolicy.load()."
+                )
+            from robosandbox.rl.ee_ik import FrankaEEKine
+            # Default arm joint names for Franka; caller can override.
+            arm_names = arm_joint_names or [
+                "joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7",
+            ]
+            ee_kine = FrankaEEKine(scene=scene, ee_body=ee_body, arm_joint_names=arm_names)
+        return cls(
+            ac, encoder,
+            delta_scale=float(cfg.get("delta_scale", 0.05)),
+            action_space=action_space,
+            ee_delta_scale=ee_delta_scale,
+            ee_body=ee_body,
+            ee_kine=ee_kine,
+            policy_id=cfg.get("policy_id"),
+            parent_policy_id=cfg.get("parent_policy_id"),
+            lineage_op=cfg.get("lineage_op"),
+        )
 
 
 # ---- PPO training --------------------------------------------------------
@@ -190,6 +282,16 @@ def train_ppo(
     checkpoint_interval: int = 20,
     warm_start: str | Path | None = None,
     freeze_encoder_stats: bool = False,
+    action_repeat: int = 1,
+    init_logstd: float = 0.0,
+    hidden: tuple[int, ...] = (256, 256),
+    action_space: str = "joint",          # "joint" | "ee_xyz"
+    ee_delta_scale: float = 0.02,          # max EE displacement per policy step (m)
+    ee_body: str = "hand",
+    ee_ik_damping: float = 0.05,
+    policy_id: str | None = None,
+    parent_policy_id: str | None = None,
+    lineage_op: str | None = None,
 ) -> NeuralPolicy:
     """Train a PPO policy against a Newton multi-world sim.
 
@@ -198,13 +300,48 @@ def train_ppo(
     """
     from robosandbox.tasks.runner import _eval_criterion
 
+    if action_repeat < 1:
+        raise ValueError(f"action_repeat must be >= 1, got {action_repeat}")
+
     N: int = sim.n_worlds
     n_dof: int = sim.n_dof
 
     object_ids = [obj.id for obj in task.scene.objects]
     encoder = ObsEncoder(object_ids, n_dof=n_dof)
+
+    # Cache the success-target object id for the batched reward fast-path.
+    from robosandbox.tasks.runner import criterion_target_object
+    from robosandbox.rl.reward import compute_shaped_reward_batch
+    success_target_oid = criterion_target_object(task.success)
+    use_batched_reward = (
+        task.success is not None
+        and task.success.data.get("kind") == "ee_near"
+        and success_target_oid is not None
+    )
+
+    # EE-space action setup: actor outputs (dx, dy, dz, gripper) instead of
+    # (joint_deltas, gripper). DLS pseudoinverse converts to joint deltas at
+    # each inner step. Action space matches the goal space → policy doesn't
+    # have to learn 7-DOF coordination implicitly.
+    use_ee_action = action_space == "ee_xyz"
+    ee_kine: Any = None
+    if use_ee_action:
+        from robosandbox.rl.ee_ik import FrankaEEKine
+        arm_names = list(getattr(sim, "_arm_joint_names", []) or [])
+        if not arm_names:
+            arm_names = list(getattr(sim, "joint_names", []))
+        if not arm_names:
+            raise ValueError("ee_xyz action space needs sim.joint_names or sim._arm_joint_names")
+        ee_kine = FrankaEEKine(
+            scene=task.scene, ee_body=ee_body,
+            arm_joint_names=arm_names, damping=ee_ik_damping,
+        )
+        print(f"[train] action_space: ee_xyz  (ee_body={ee_body!r}, "
+              f"delta_scale={ee_delta_scale}m, damping={ee_ik_damping})")
+    else:
+        print(f"[train] action_space: joint  (delta_scale={delta_scale}rad)")
     obs_dim = encoder.obs_dim
-    act_dim = n_dof + 1  # joint deltas + gripper logit
+    act_dim = (3 + 1) if use_ee_action else (n_dof + 1)  # ee_xyz delta or joint deltas, + gripper
 
     device_t = torch.device(device if torch.cuda.is_available() else "cpu")
     if str(device_t) != device and "cuda" in device:
@@ -237,7 +374,10 @@ def train_ppo(
         encoder = loaded_enc
         print(f"[train] warm-start:    {ws} (loaded actor + encoder)")
     else:
-        ac = ActorCritic(obs_dim, act_dim).to(device_t)
+        ac = ActorCritic(obs_dim, act_dim, hidden=hidden).to(device_t)
+    if init_logstd != 0.0:
+        with torch.no_grad():
+            ac.actor_logstd.fill_(init_logstd)
     optimizer = torch.optim.Adam(ac.parameters(), lr=lr, eps=1e-5)
 
     # Rollout buffers — preallocated for the full trajectory
@@ -255,22 +395,52 @@ def train_ppo(
     print(f"[train] total_steps:   {total_steps:,}")
     print(f"[train] parameters:    {n_params:,}")
     print(f"[train] device:        {device_t}")
+    print(f"[train] action_repeat: {action_repeat}")
+    print(f"[train] init_logstd:   {float(ac.actor_logstd[0,0].item()):.3f} "
+          f"(std={float(ac.actor_logstd[0,0].exp().item()):.3f})")
 
     total_env_steps = 0
     iteration = 0
     t0 = time.time()
 
+    # Per-iter diagnostics: track which worlds ever hit threshold during the
+    # rollout (success "in flight") vs which are still inside at the last step.
+    # Big delta between the two means "policy reaches but can't stay" — calls
+    # for smoothness penalty / smaller logstd / hold-still reward.
+    ever_within = np.zeros(N, dtype=bool)
+    iter_dist_sum = 0.0
+    iter_dist_n = 0
+
+    # Fast-path detection: backends that expose observe_all_arrays() return
+    # raw numpy batches and skip the per-world Observation/Pose dataclass
+    # construction — ~3-5x throughput at large world counts.
+    use_array_api = hasattr(sim, "observe_all_arrays")
+    if use_array_api:
+        print(f"[train] obs api:       observe_all_arrays (vectorized fast path)")
+
     while total_env_steps < total_steps:
+        # Reset rollout diagnostics
+        ever_within = np.zeros(N, dtype=bool)
+        iter_dist_sum = 0.0
+        iter_dist_n = 0
+
         # ---- Rollout collection ------------------------------------------
         sim.reset()
         for _ in range(settle_steps):
             sim.step()
 
-        initial_obs_all = sim.observe_all()
-        obs_all = initial_obs_all
+        if use_array_api:
+            obs_arrays = sim.observe_all_arrays()
+            initial_obs_all = None  # not used in array path
+        else:
+            obs_all = sim.observe_all()
+            initial_obs_all = obs_all
 
         for t in range(n_steps):
-            raw_vecs = encoder.encode_batch(obs_all)           # (N, obs_dim)
+            if use_array_api:
+                raw_vecs = encoder.encode_arrays(obs_arrays)
+            else:
+                raw_vecs = encoder.encode_batch(obs_all)
             norm_vecs = encoder.normalize_batch(raw_vecs)      # (N, obs_dim) normalized
 
             obs_buf[t] = norm_vecs
@@ -284,29 +454,73 @@ def train_ppo(
             logp_buf[t] = logps.cpu().numpy()
             val_buf[t] = values.squeeze(-1).cpu().numpy()
 
-            # Convert to sim targets: delta for joints, sigmoid for gripper
-            current_qs = np.stack(
-                [np.asarray(o.robot_joints, dtype=np.float64) for o in obs_all]
-            )                                                  # (N, n_dof)
-            deltas = act_np[:, :n_dof].astype(np.float64) * delta_scale
-            targets = current_qs + deltas                      # (N, n_dof)
-            gripper_logits = act_np[:, n_dof]
+            # Convert to sim targets.
+            if use_array_api:
+                current_qs = obs_arrays["joints"]              # (N, n_dof) already
+            else:
+                current_qs = np.array(
+                    [o.robot_joints for o in obs_all], dtype=np.float64
+                )                                              # (N, n_dof)
+            if use_ee_action:
+                # action[:3] = ee delta in (dx, dy, dz). Convert via DLS pseudoinverse.
+                delta_ee = act_np[:, :3].astype(np.float64) * ee_delta_scale  # (N, 3)
+                deltas_q = ee_kine.delta_q_from_delta_ee(
+                    current_qs, delta_ee
+                )                                              # (N, n_arm)
+                targets = current_qs + deltas_q
+                gripper_logits = act_np[:, 3]
+            else:
+                deltas = act_np[:, :n_dof].astype(np.float64) * delta_scale
+                targets = current_qs + deltas                  # (N, n_dof)
+                gripper_logits = act_np[:, n_dof]
             grippers = 1.0 / (1.0 + np.exp(-np.clip(gripper_logits, -20, 20)))
 
-            sim.step_all(targets, grippers)
-            obs_all = sim.observe_all()
+            for _ in range(action_repeat):
+                sim.step_all(targets, grippers)
 
-            # Shaped reward per world
-            for w in range(N):
-                rew_buf[t, w] = compute_shaped_reward(
-                    task.success, initial_obs_all[w], obs_all[w]
+            if use_array_api:
+                obs_arrays = sim.observe_all_arrays()
+            else:
+                obs_all = sim.observe_all()
+
+            # Shaped reward — vectorized fast path for ee_near.
+            if use_batched_reward and use_array_api:
+                ee_xyz_batch = obs_arrays["ee_xyz"]
+                tgt_xyz_batch = obs_arrays["obj_xyz"][success_target_oid]
+                rew_buf[t] = compute_shaped_reward_batch(
+                    task.success, ee_xyz_batch, tgt_xyz_batch
                 )
+                # Diagnostics: track distance and threshold-crossings
+                _dist = np.linalg.norm(ee_xyz_batch - tgt_xyz_batch, axis=1)
+                iter_dist_sum += float(_dist.mean())
+                iter_dist_n += 1
+                _thresh = float(task.success.data.get("threshold_m", 0.05))
+                ever_within |= (_dist <= _thresh)
+            elif use_batched_reward:
+                ee_xyz_batch = np.array(
+                    [o.ee_pose.xyz for o in obs_all], dtype=np.float64
+                )
+                tgt_xyz_batch = np.array(
+                    [o.scene_objects[success_target_oid].xyz for o in obs_all],
+                    dtype=np.float64,
+                )
+                rew_buf[t] = compute_shaped_reward_batch(
+                    task.success, ee_xyz_batch, tgt_xyz_batch
+                )
+            else:
+                for w in range(N):
+                    rew_buf[t, w] = compute_shaped_reward(
+                        task.success, initial_obs_all[w], obs_all[w]
+                    )
 
             if not freeze_encoder_stats:
                 encoder.update_stats_batch(raw_vecs)
 
         # Bootstrap value
-        last_raw = encoder.encode_batch(obs_all)
+        if use_array_api:
+            last_raw = encoder.encode_arrays(obs_arrays)
+        else:
+            last_raw = encoder.encode_batch(obs_all)
         last_norm = encoder.normalize_batch(last_raw)
         with torch.no_grad():
             last_vals = (
@@ -345,28 +559,57 @@ def train_ppo(
                 nn.utils.clip_grad_norm_(ac.parameters(), max_grad_norm)
                 optimizer.step()
 
-        total_env_steps += n_steps * N
+        total_env_steps += n_steps * N * action_repeat
         iteration += 1
 
         if iteration % log_interval == 0:
             mean_rew = float(rew_buf.mean())
-            n_success = sum(
-                1
-                for w in range(N)
-                if _eval_criterion(task.success, initial_obs_all[w], obs_all[w])[0]
-            )
+            if use_array_api and use_batched_reward:
+                # ee_near: vectorized success check
+                threshold_m = float(task.success.data.get("threshold_m", 0.05))
+                ee_xyz_b = obs_arrays["ee_xyz"]
+                tgt_xyz_b = obs_arrays["obj_xyz"][success_target_oid]
+                dist_b = np.linalg.norm(ee_xyz_b - tgt_xyz_b, axis=1)
+                n_success = int(np.sum(dist_b <= threshold_m))
+            else:
+                n_success = sum(
+                    1
+                    for w in range(N)
+                    if _eval_criterion(task.success, initial_obs_all[w], obs_all[w])[0]
+                )
             rate = n_success / N * 100.0
             fps = total_env_steps / (time.time() - t0)
+            mean_dist_m = (iter_dist_sum / iter_dist_n) if iter_dist_n else float("nan")
+            ever_pct = 100.0 * float(ever_within.mean()) if ever_within.size else 0.0
             print(
                 f"iter {iteration:>5} | steps {total_env_steps:>10,} | "
-                f"rew {mean_rew:.3f} | success {rate:.1f}% | fps {fps:,.0f}"
+                f"rew {mean_rew:.3f} | dist {mean_dist_m*100:5.1f}cm | "
+                f"ever<thr {ever_pct:5.1f}% | end<thr {rate:5.1f}% | fps {fps:,.0f}"
             )
 
         if save_path is not None and iteration % checkpoint_interval == 0:
-            p = NeuralPolicy(ac, encoder, delta_scale)
+            p = NeuralPolicy(
+                ac, encoder, delta_scale,
+                action_space=action_space,
+                ee_delta_scale=ee_delta_scale,
+                ee_body=ee_body,
+                ee_kine=ee_kine,
+                policy_id=policy_id,
+                parent_policy_id=parent_policy_id,
+                lineage_op=lineage_op,
+            )
             p.save(save_path)
 
-    policy = NeuralPolicy(ac, encoder, delta_scale)
+    policy = NeuralPolicy(
+        ac, encoder, delta_scale,
+        action_space=action_space,
+        ee_delta_scale=ee_delta_scale,
+        ee_body=ee_body,
+        ee_kine=ee_kine,
+        policy_id=policy_id,
+        parent_policy_id=parent_policy_id,
+        lineage_op=lineage_op,
+    )
     if save_path is not None:
         policy.save(save_path)
         print(f"[train] checkpoint → {save_path}/")

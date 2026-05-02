@@ -726,6 +726,11 @@ def _train_ppo_cli(args: argparse.Namespace) -> int:
             hidden=tuple(int(s.strip()) for s in args.hidden.split(",") if s.strip()),
             action_space=args.action_space,
             ee_delta_scale=args.ee_delta_scale,
+            policy_id=_policy_id_from_path(args.output),
+            parent_policy_id=(
+                _policy_id_from_path(args.warm_start) if args.warm_start else None
+            ),
+            lineage_op="warm_start_ppo" if args.warm_start else None,
         )
     finally:
         sim.close()
