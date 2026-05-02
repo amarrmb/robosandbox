@@ -1414,9 +1414,10 @@ def _results_cli(args: argparse.Namespace) -> int:
     return 1
 
 
-def _results_migrate_cli(_runs_dir: str) -> int:
-    """Stub. Task 12 will replace this with the real migrator."""
-    print("migrate not yet implemented")
+def _results_migrate_cli(runs_dir: str) -> int:
+    from robosandbox.eval_log.migrate import migrate_legacy_runs
+    n = migrate_legacy_runs(runs_dir, _eval_log_root())
+    print(f"imported {n} legacy runs")
     return 0
 
 
