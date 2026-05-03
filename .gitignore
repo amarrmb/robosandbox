@@ -19,3 +19,20 @@ CLAUDE.md
 docs/site/site/
 benchmark_results.json
 docs/superpowers/
+learning.md
+tweet_thread.md
+# Local scratch — must not be committed; has held secrets in the past
+script.sh
+
+# Agent / tool state
+.claude/
+.claude-memory
+.codex
+.superpowers/
+
+# Local scratch & drafts (recoverable, intentionally ignored)
+.tmp/
+
+# Large regeneratable artifacts (training checkpoints, eval JSONs, videos, datasets)
+outputs/
+datasets/
