@@ -231,9 +231,16 @@ def run_eval_parallel(
 ) -> dict:
     """GPU-parallel policy evaluation across all worlds in ``sim``.
 
-    Calls ``sim.observe_all()`` once per step, runs ``policy.act`` on
-    world-0's observation (broadcast to all worlds), then checks
-    ``success`` per world.  Returns aggregated stats.
+    Calls ``sim.observe_all()`` once per step, runs ``policy.act`` *per world*
+    on each world's own observation, then steps with ``sim.step_all`` so each
+    world advances under its own action. Falls back to broadcast-via-step
+    only if the backend lacks ``step_all`` (single-world MuJoCo).
+
+    Per-world action is required for any policy whose target depends on the
+    current state (e.g. EE-space PPO with action = current_q + Δq); the older
+    "act on world-0, broadcast" path silently zeros out per-world divergence
+    and reports near-0% on tasks the policy can solve. Now matches what
+    training and ``record_reach_rollout.py`` actually do.
 
     ``sim`` must expose ``observe_all() -> list[Observation]`` and
     ``n_worlds: int`` — i.e., a :class:`~robosandbox.sim.newton_backend.NewtonBackend`
@@ -248,42 +255,76 @@ def run_eval_parallel(
     if observe_all is None:
         raise TypeError("sim must expose observe_all() for parallel eval")
 
+    has_step_all = hasattr(sim, "step_all")
+
     # Settle physics before recording initial state
     for _ in range(settle_steps):
         sim.step()
 
     initial_obs_all: list[Any] = observe_all()
 
+    # Sustained-success: if the criterion declares `sustained_steps: K`,
+    # success means the predicate held for K consecutive sim ticks somewhere
+    # in the rollout. Otherwise the legacy peak-style check (any step) is
+    # used. The peak check is what the criterion always evaluated; what
+    # changes is the *aggregator* across the rollout.
+    sustained_steps = 1
+    if success is not None:
+        sustained_steps = int(getattr(success, "data", {}).get("sustained_steps", 1) or 1)
+
     done = [False] * n_worlds
     success_per_world = [False] * n_worlds
+    streak = [0] * n_worlds
     steps_done = 0
 
     t0 = time.time()
     for _ in range(max_steps):
         obs_all: list[Any] = observe_all()
-        # Drive policy on world-0 observation; broadcast to all worlds
-        obs_0 = obs_all[0]
-        action = np.asarray(policy.act(obs_0), dtype=np.float64).ravel()
-        if action.shape != (n_dof + 1,):
-            raise ValueError(
-                f"policy.act must return shape ({n_dof + 1},), got {action.shape}"
-            )
-        target_joints = action[:n_dof]
-        gripper = float(action[n_dof])
-        sim.step(target_joints=target_joints, gripper=gripper)
+        if has_step_all and n_worlds > 1:
+            # Per-world action: each world drives its own observation through
+            # the policy. Required for EE-space and any state-conditioned policy.
+            targets = np.zeros((n_worlds, n_dof), dtype=np.float64)
+            grippers = np.zeros(n_worlds, dtype=np.float64)
+            for w in range(n_worlds):
+                action_w = np.asarray(
+                    policy.act(obs_all[w]), dtype=np.float64
+                ).ravel()
+                if action_w.shape != (n_dof + 1,):
+                    raise ValueError(
+                        f"policy.act must return shape ({n_dof + 1},), got {action_w.shape}"
+                    )
+                targets[w] = action_w[:n_dof]
+                grippers[w] = float(action_w[n_dof])
+            sim.step_all(targets, grippers)
+        else:
+            # Single-world fallback (or backend without step_all)
+            action = np.asarray(policy.act(obs_all[0]), dtype=np.float64).ravel()
+            if action.shape != (n_dof + 1,):
+                raise ValueError(
+                    f"policy.act must return shape ({n_dof + 1},), got {action.shape}"
+                )
+            target_joints = action[:n_dof]
+            gripper = float(action[n_dof])
+            sim.step(target_joints=target_joints, gripper=gripper)
         steps_done += 1
 
-        # Evaluate success criterion per world
+        # Evaluate success criterion per world. Track per-world streak so
+        # we can require sustained insertion (not just peak hit).
         if success is not None:
             from robosandbox.tasks.runner import _eval_criterion
 
+            post_obs_all = observe_all()
             for w in range(n_worlds):
                 if done[w]:
                     continue
-                ok, _ = _eval_criterion(success, initial_obs_all[w], obs_all[w])
+                ok, _ = _eval_criterion(success, initial_obs_all[w], post_obs_all[w])
                 if ok:
-                    success_per_world[w] = True
-                    done[w] = True
+                    streak[w] += 1
+                    if streak[w] >= sustained_steps:
+                        success_per_world[w] = True
+                        done[w] = True
+                else:
+                    streak[w] = 0
 
             if all(done):
                 break
@@ -380,7 +421,7 @@ def _load_lerobot_processors(p: Path, policy_config: Any) -> tuple[Any, Any]:
     )
 
 
-def load_policy(path: str | Path) -> Policy:
+def load_policy(path: str | Path, scene: Any = None) -> Policy:
     """Load a policy from a checkpoint-or-episode directory.
 
     Recognised layouts:
@@ -391,6 +432,10 @@ def load_policy(path: str | Path) -> Policy:
     - ``policy.json`` with ``kind: replay_trajectory`` → trajectory replay.
     - ``policy.json`` with ``kind: ppo_neural`` → :class:`NeuralPolicy`.
     - Bare ``events.jsonl`` → open-loop trajectory replay.
+
+    ``scene``: optional task scene, required for EE-space PPO policies
+    (action_space ee_xyz / ee_xyz_rpy) so they can build their per-world
+    Jacobian helper at load time.
 
     Raises :class:`ImportError` with an explicit bring-your-own-checkpoint
     message otherwise — this is the extension seam for real policies.
@@ -455,7 +500,7 @@ def load_policy(path: str | Path) -> Policy:
                 )
             if kind == "ppo_neural":
                 from robosandbox.rl.ppo import NeuralPolicy
-                return NeuralPolicy.load(p)
+                return NeuralPolicy.load(p, scene=scene)
             raise ImportError(
                 _BRING_YOUR_OWN_CHECKPOINT_HINT.format(path=str(p))
                 + f" (policy.json kind={kind!r} not recognised)"

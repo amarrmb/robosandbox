@@ -60,6 +60,31 @@ def _rotate_vec(q: tuple[float, float, float, float], v: tuple[float, float, flo
     return np.array(out[:3], dtype=np.float64)
 
 
+def _rotate_vec_batch(q_xyzw: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Rotate vector(s) by unit quaternion(s) in batch.
+
+    q_xyzw: (N, 4) quaternions in (x, y, z, w) order.
+    v:      (3,) single vector or (N, 3) per-quaternion vectors.
+    returns (N, 3).
+
+    Uses the identity: v' = v + 2 * q_xyz × (qw * v + q_xyz × v).
+    """
+    qx, qy, qz, qw = q_xyzw[:, 0], q_xyzw[:, 1], q_xyzw[:, 2], q_xyzw[:, 3]
+    if v.ndim == 1:
+        v = np.broadcast_to(v[None, :], (q_xyzw.shape[0], 3))
+    vx, vy, vz = v[:, 0], v[:, 1], v[:, 2]
+    c1x = qy * vz - qz * vy
+    c1y = qz * vx - qx * vz
+    c1z = qx * vy - qy * vx
+    tx = c1x + qw * vx
+    ty = c1y + qw * vy
+    tz = c1z + qw * vz
+    c2x = qy * tz - qz * ty
+    c2y = qz * tx - qx * tz
+    c2z = qx * ty - qy * tx
+    return np.stack([vx + 2.0 * c2x, vy + 2.0 * c2y, vz + 2.0 * c2z], axis=1)
+
+
 def _body_pose_from_row(row: np.ndarray) -> Pose:
     return Pose(
         xyz=(float(row[0]), float(row[1]), float(row[2])),
@@ -152,6 +177,7 @@ class NewtonBackend:
         camera_pos: tuple[float, float, float] = (1.1, -1.4, 0.9),
         camera_look_at: tuple[float, float, float] = (0.4, 0.0, 0.1),
         camera_fov_deg: float = 45.0,
+        max_triangle_pairs: int | None = None,
     ):
         self._render_h, self._render_w = render_size
         self._camera = camera
@@ -160,6 +186,21 @@ class NewtonBackend:
         self._device = device
         self._dt = float(dt)
         self._world_count = max(1, int(world_count))
+        # Newton's CollisionPipeline default is 1M triangle pairs, allocated
+        # once at model build. At ≥256 worlds with compound-mesh ports the
+        # pipeline silently drops contacts above the cap (logged as
+        # "Triangle pair buffer overflowed" warnings) — this is what made the
+        # 1024-world insertion training metric (64%) diverge from 64-world
+        # deployment (98%). Auto-scale with world_count: 8K pairs/world is a
+        # safe upper bound for realistic scenes. Caller may override.
+        if max_triangle_pairs is None:
+            # 16K pairs/world covers compound-mesh ports (4 walls + 4 chamfer
+            # plates + base + plug + table + floor) at random positions where
+            # broadphase generates more candidate pairs than at fixed pose.
+            # Empirically at 256 worlds with random_xy we saw ~2.4M pairs
+            # requested; 16K × 256 = 4.1M is comfortably above with headroom.
+            max_triangle_pairs = max(2_000_000, self._world_count * 16000)
+        self._max_triangle_pairs = int(max_triangle_pairs)
         # When enabled, observe()/observe_all() raytrace one RGB image per
         # world via newton.sensors.SensorTiledCamera. Off by default to keep
         # state-only callers (RL, headless eval) free of GPU render cost.
@@ -202,6 +243,10 @@ class NewtonBackend:
         self._w_gripper_q: list[int] = []   # relative joint_q indices for fingers
         self._w_ee_body: int = -1           # relative body index for EE
         self._w_obj_body: dict[str, int] = {}  # obj_id -> relative body index
+        # Static-marker poses per world, in global frame (YAML pose + grid offset).
+        # Static objects have no model body; their pose is constant and merged into
+        # the observation's scene_objects dict alongside dynamic body poses.
+        self._world_static_obj_poses: list[dict[str, Pose]] = []
 
         self._arm_joint_names: list[str] = []
         self._ee_offset_xyz: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -327,6 +372,18 @@ class NewtonBackend:
             x, y, z = obj.pose.xyz
             qx, qy, qz, qw = obj.pose.quat_xyzw
             sx, sy, sz = obj.size
+            sx_f, sy_f, sz_f = float(sx), float(sy), float(sz)
+            # Static objects are anchored to the world body (body=-1) — no
+            # freejoint, no gravity. Used for visual targets/markers in
+            # reach-style tasks where the marker must stay at YAML pose.
+            if getattr(obj, "static", False):
+                builder.add_shape_box(
+                    body=-1,
+                    hx=sx_f, hy=sy_f, hz=sz_f,
+                    xform=wp.transform(wp.vec3(x, y, z), wp.quat(qx, qy, qz, qw)),
+                    cfg=cube_cfg,
+                )
+                continue
             # Without lock_inertia + an explicit inertia tensor, Newton's
             # finalize() recomputes mass and inertia from shape volume × a
             # default density (~4630 kg/m^3 for boxes), silently ignoring
@@ -335,7 +392,6 @@ class NewtonBackend:
             # at 0.064 kg / 1.33e-6 kg·m² in Newton vs MuJoCo's 0.05 kg /
             # 4.8e-6 kg·m² — a 28% weight gap that breaks lift parity.
             mass = float(obj.mass)
-            sx_f, sy_f, sz_f = float(sx), float(sy), float(sz)
             ixx = mass * ((2 * sy_f) ** 2 + (2 * sz_f) ** 2) / 12.0
             iyy = mass * ((2 * sx_f) ** 2 + (2 * sz_f) ** 2) / 12.0
             izz = mass * ((2 * sx_f) ** 2 + (2 * sy_f) ** 2) / 12.0
@@ -381,12 +437,40 @@ class NewtonBackend:
         self._bodies_per_world = single.body_count
         self._dof_per_world = single.joint_coord_count
 
-        # Discover joint/body indices from a finalized single-world model
+        # Discover joint/body indices from a finalized single-world model.
+        # Static objects don't have bodies (anchored to world via add_shape_box(body=-1));
+        # they're tracked separately in _world_static_obj_poses for observation injection.
         ref_model = copy.deepcopy(single).finalize()
         self._w_arm_q = [self._find_joint_q_index_in(ref_model, n) for n in self._robot.arm_joint_names]
         self._w_gripper_q = [self._find_joint_q_index_in(ref_model, n) for n in self._robot.gripper_joint_names]
         self._w_ee_body = self._find_body_index_in(ref_model, self._robot.ee_attach_body)
-        self._w_obj_body = {obj.id: self._find_body_index_in(ref_model, obj.id) for obj in scene.objects}
+        self._w_obj_body = {
+            obj.id: self._find_body_index_in(ref_model, obj.id)
+            for obj in scene.objects
+            if not getattr(obj, "static", False)
+        }
+
+        # Per-world static-object poses, in GLOBAL frame (YAML pose + grid offset)
+        # so they're directly comparable to dynamic body_q poses in observation.
+        wp = self._wp
+        offsets = _grid_offsets(self._world_count)
+        self._world_static_obj_poses: list[dict[str, Pose]] = []
+        for w in range(self._world_count):
+            ox, oy, oz = offsets[w] if self._world_count > 1 else (0.0, 0.0, 0.0)
+            world_scene = (
+                per_world_scenes[w]
+                if per_world_scenes is not None and w < len(per_world_scenes)
+                else scene
+            )
+            poses_w: dict[str, Pose] = {}
+            for obj in world_scene.objects:
+                if getattr(obj, "static", False):
+                    x, y, z = obj.pose.xyz
+                    poses_w[obj.id] = Pose(
+                        xyz=(float(x + ox), float(y + oy), float(z + oz)),
+                        quat_xyzw=tuple(float(v) for v in obj.pose.quat_xyzw),
+                    )
+            self._world_static_obj_poses.append(poses_w)
 
         if self._world_count == 1:
             # World 0 honours the per-world scene if one was passed.
@@ -397,10 +481,9 @@ class NewtonBackend:
         # Tile N worlds in a grid. Each world gets its own builder when
         # per_world_scenes is set so randomization actually lands in the
         # finalized model (object xform is baked at add_body time).
-        wp = self._wp
         newton = self._newton
         multi = newton.ModelBuilder()
-        for w, (ox, oy, oz) in enumerate(_grid_offsets(self._world_count)):
+        for w, (ox, oy, oz) in enumerate(offsets):
             world_scene = per_world_scenes[w] if per_world_scenes is not None else scene
             world_builder = (
                 self._build_single_builder(world_scene)
@@ -500,6 +583,33 @@ class NewtonBackend:
         self._ee_offset_xyz = self._robot.ee_offset_xyz
 
         self._model = self._build_model(scene, per_world_scenes=per_world_scenes)
+        # Replace Newton's default 1M-triangle CollisionPipeline with one sized
+        # to actually fit our compound-mesh scenes at scale. Without this,
+        # mujoco_warp drops plug↔chamfer contacts at world_count ≥ 256, which
+        # silently degrades insertion success even though the policy is fine.
+        # Try the public import path first (newton.sim.collide); fall back to
+        # the private one (newton._src.sim.collide) since Newton 1.1 keeps
+        # CollisionPipeline behind the underscore namespace.
+        _CP = None
+        try:
+            from newton.sim.collide import CollisionPipeline as _CP  # type: ignore
+        except Exception:
+            try:
+                from newton._src.sim.collide import CollisionPipeline as _CP  # type: ignore
+            except Exception as exc:
+                print(f"[newton] WARNING: could not import CollisionPipeline: {exc!r}")
+        if _CP is not None:
+            try:
+                self._model._collision_pipeline = _CP(
+                    self._model,
+                    broad_phase="explicit",
+                    max_triangle_pairs=self._max_triangle_pairs,
+                )
+                print(f"[newton] installed CollisionPipeline with "
+                      f"max_triangle_pairs={self._max_triangle_pairs:,}")
+            except Exception as exc:
+                print(f"[newton] WARNING: CollisionPipeline construction failed "
+                      f"(max_triangle_pairs={self._max_triangle_pairs}): {exc!r}")
         # Newton stores actuator targets (joint_target_pos / joint_target_ke /
         # …) on a vector sized to ACTUATED joints only; free joints (the
         # cube) have no actuator slot. So the per-world stride for
@@ -521,6 +631,45 @@ class NewtonBackend:
             # Don't gate model creation on this defensive recompute — fall
             # back to the unfinalized builder counts.
             self._actuators_per_world = self._dof_per_world
+        # Pre-compute flat indices for vectorized observation extraction.
+        # Used by observe_all_arrays() to avoid Python per-world loops.
+        N = self._world_count
+        bpw = self._bodies_per_world
+        dpw = self._dof_per_world
+        world_strides_q = (np.arange(N) * dpw)[:, None]      # (N, 1)
+        world_strides_b = (np.arange(N) * bpw)               # (N,)
+        self._arm_q_indices_all = (
+            world_strides_q + np.asarray(self._w_arm_q, dtype=np.int64)[None, :]
+        )                                                    # (N, n_arm)
+        if self._w_gripper_q:
+            self._gripper_q_indices_all = (
+                world_strides_q + np.asarray(self._w_gripper_q, dtype=np.int64)[None, :]
+            )                                                # (N, n_grip)
+        else:
+            self._gripper_q_indices_all = np.zeros((N, 0), dtype=np.int64)
+        self._ee_body_indices_all = world_strides_b + int(self._w_ee_body)  # (N,)
+        self._obj_body_indices_all = {
+            oid: world_strides_b + int(self._w_obj_body[oid])
+            for oid in self._w_obj_body
+        }
+        # Precompute static (N, 3) and (N, 4) tables.
+        self._static_obj_xyz_all: dict[str, np.ndarray] = {}
+        self._static_obj_quat_all: dict[str, np.ndarray] = {}
+        if self._world_static_obj_poses:
+            # Discover the union of static obj ids (assume all worlds have same set)
+            static_ids = list(self._world_static_obj_poses[0].keys())
+            for oid in static_ids:
+                xyz_arr = np.zeros((N, 3), dtype=np.float64)
+                quat_arr = np.zeros((N, 4), dtype=np.float64)
+                quat_arr[:, 3] = 1.0
+                for w in range(N):
+                    pose = self._world_static_obj_poses[w].get(oid)
+                    if pose is not None:
+                        xyz_arr[w] = pose.xyz
+                        quat_arr[w] = pose.quat_xyzw
+                self._static_obj_xyz_all[oid] = xyz_arr
+                self._static_obj_quat_all[oid] = quat_arr
+
         self._viewer = self._create_viewer()
         self._viewer.set_model(self._model)
         if hasattr(self._viewer, "set_camera"):
@@ -708,6 +857,9 @@ class NewtonBackend:
             oid: _body_pose_from_row(body_q[self._obj_body_abs(oid, w)])
             for oid in self._w_obj_body
         }
+        # Inject static-marker poses (no body in model — tracked from YAML).
+        if self._world_static_obj_poses and w < len(self._world_static_obj_poses):
+            objects.update(self._world_static_obj_poses[w])
         rgb = (
             rgb_all[w]
             if rgb_all is not None
@@ -785,6 +937,61 @@ class NewtonBackend:
         rgb_all = self._render_all_rgb()
         return self._obs_for_world(0, q, body_q, rgb_all)
 
+    def observe_all_arrays(self) -> dict[str, Any]:
+        """Vectorized observation: returns batched numpy arrays directly.
+
+        Skips per-world Observation/Pose dataclass construction → ~10-50×
+        faster than observe_all() for large N. Used by training rollout loops
+        that only need raw arrays for reward + policy input.
+
+        Returns dict:
+          - 'joints':         (N, n_arm) arm joint positions
+          - 'gripper_width':  (N,)       sum of |finger_q|
+          - 'ee_xyz':         (N, 3)     EE position in global frame
+          - 'ee_quat':        (N, 4)     EE quaternion (xyzw)
+          - 'obj_xyz':        dict[oid, (N, 3)]   object positions (dynamic + static)
+          - 'obj_quat':       dict[oid, (N, 4)]   object quaternions
+        """
+        assert self._state_0 is not None
+        q = self._state_0.joint_q.numpy()
+        body_q = self._state_0.body_q.numpy()
+
+        joints = q[self._arm_q_indices_all]                          # (N, n_arm)
+        if self._gripper_q_indices_all.shape[1] > 0:
+            finger_q = q[self._gripper_q_indices_all]                # (N, n_grip)
+            gripper_width = np.sum(np.abs(finger_q), axis=1)         # (N,)
+        else:
+            gripper_width = np.zeros(self._world_count, dtype=np.float64)
+
+        ee_rows = body_q[self._ee_body_indices_all]                  # (N, 7)
+        ee_body_xyz = ee_rows[:, :3]
+        ee_quat = ee_rows[:, 3:]                                     # (N, 4) xyzw
+        ee_offset_v = np.asarray(self._ee_offset_xyz, dtype=np.float64)
+        if np.any(ee_offset_v != 0.0):
+            ee_xyz = ee_body_xyz + _rotate_vec_batch(ee_quat, ee_offset_v)
+        else:
+            ee_xyz = ee_body_xyz
+
+        obj_xyz: dict[str, np.ndarray] = {}
+        obj_quat: dict[str, np.ndarray] = {}
+        for oid, indices in self._obj_body_indices_all.items():
+            rows = body_q[indices]
+            obj_xyz[oid] = rows[:, :3]
+            obj_quat[oid] = rows[:, 3:]
+        # Static markers — use precomputed (N, 3) tables.
+        for oid, xyz_arr in self._static_obj_xyz_all.items():
+            obj_xyz[oid] = xyz_arr
+            obj_quat[oid] = self._static_obj_quat_all[oid]
+
+        return {
+            "joints": joints,
+            "gripper_width": gripper_width,
+            "ee_xyz": ee_xyz,
+            "ee_quat": ee_quat,
+            "obj_xyz": obj_xyz,
+            "obj_quat": obj_quat,
+        }
+
     def observe_all(self) -> list[Observation]:
         """One Observation per parallel world."""
         assert self._state_0 is not None
@@ -794,6 +1001,9 @@ class NewtonBackend:
         return [self._obs_for_world(w, q, body_q, rgb_all) for w in range(self._world_count)]
 
     def get_object_pose(self, object_id: str) -> Pose | None:
+        # Static markers have a fixed pose tracked outside the simulation state.
+        if self._world_static_obj_poses and object_id in self._world_static_obj_poses[0]:
+            return self._world_static_obj_poses[0][object_id]
         if object_id not in self._w_obj_body or self._state_0 is None:
             return None
         body_q = self._state_0.body_q.numpy()

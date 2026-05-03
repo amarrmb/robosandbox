@@ -60,7 +60,7 @@ class TaskResult:
 
 # ---------- success evaluation -----------------------------------------
 
-_OBJECT_BEARING_KINDS = frozenset({"lifted", "moved_above", "displaced"})
+_OBJECT_BEARING_KINDS = frozenset({"lifted", "moved_above", "displaced", "ee_near", "inserted"})
 
 
 def _eval_criterion(c: SuccessCriterion, initial: Observation, final: Observation) -> tuple[bool, dict]:
@@ -82,7 +82,8 @@ def criterion_target_object(c: SuccessCriterion | None) -> str | None:
 def _check_target_object(check: dict) -> str | None:
     kind = check.get("kind")
     if kind in _OBJECT_BEARING_KINDS:
-        return check.get("object")
+        # `inserted` uses `port` instead of `object`.
+        return check.get("object") or check.get("port")
     if kind == "all":
         for sub in check.get("checks", []):
             target = _check_target_object(sub)
@@ -114,6 +115,121 @@ def _eval_check(check: dict, initial: Observation, final: Observation) -> tuple[
         xy = float(np.linalg.norm(np.array(o.xyz[:2]) - np.array(t.xyz[:2])))
         dz = o.xyz[2] - t.xyz[2]
         return (xy <= xy_tol and dz >= min_dz), {"xy": xy, "dz": dz, "xy_tol": xy_tol, "min_dz": min_dz}
+    if kind == "ee_near":
+        # End-effector within Euclidean tolerance of an object's position.
+        # Use for "reach"-style tasks where there's nothing to grasp — the
+        # marker is just a visual + position reference.
+        oid = check["object"]
+        threshold_m = float(check.get("threshold_m", 0.05))
+        t = final.scene_objects.get(oid)
+        if t is None:
+            return False, {"reason": "object missing"}
+        ee_xyz = np.asarray(final.ee_pose.xyz, dtype=np.float64)
+        tgt_xyz = np.asarray(t.xyz, dtype=np.float64)
+        dist_m = float(np.linalg.norm(ee_xyz - tgt_xyz))
+        return dist_m <= threshold_m, {"dist_m": dist_m, "threshold_m": threshold_m}
+    if kind == "inserted":
+        # Connector-insertion check: plug tip past the port plane by min_depth_m
+        # AND plug axis aligned with port axis within axis_tol_deg, AND (when
+        # `yaw_tol_deg` is set) the plug long-axis matches the port long-axis
+        # in yaw within yaw_tol_deg, modulo 180° (rectangular plug has 2-fold
+        # rotational symmetry around its long axis).
+        # Plug tip is computed analytically from ee_pose: tip_world = ee_xyz +
+        # R_ee @ plug_tip_offset_ee. Plug axis is the EE z-axis rotated by R_ee
+        # (since the plug is welded along EE z). Port axis is given in world frame.
+        port_id = check.get("port") or check["object"]
+        port_axis = np.asarray(check.get("port_axis", [0.0, 0.0, 1.0]), dtype=np.float64)
+        port_axis = port_axis / max(float(np.linalg.norm(port_axis)), 1e-9)
+        plane_z = float(check.get("port_plane_z", 0.0))
+        offset_ee = np.asarray(
+            check.get("plug_tip_offset_ee", [0.0, 0.0, 0.05]), dtype=np.float64
+        )
+        min_depth = float(check.get("min_depth_m", 0.005))
+        axis_tol_deg = float(check.get("axis_tol_deg", 5.0))
+        port = final.scene_objects.get(port_id)
+        if port is None:
+            return False, {"reason": f"port object {port_id!r} missing"}
+        # Compute plug tip in world coords from ee_pose + offset
+        ee_xyz = np.asarray(final.ee_pose.xyz, dtype=np.float64)
+        qx, qy, qz, qw = final.ee_pose.quat_xyzw
+        # Quaternion → rotation matrix (xyzw convention)
+        x2, y2, z2 = qx + qx, qy + qy, qz + qz
+        wx, wy, wz = qw * x2, qw * y2, qw * z2
+        xx, xy, xz = qx * x2, qx * y2, qx * z2
+        yy, yz, zz = qy * y2, qy * z2, qz * z2
+        R = np.array([
+            [1.0 - (yy + zz), xy - wz,         xz + wy],
+            [xy + wz,         1.0 - (xx + zz), yz - wx],
+            [xz - wy,         yz + wx,         1.0 - (xx + yy)],
+        ])
+        tip_world = ee_xyz + R @ offset_ee
+        plug_axis_world = R @ np.array([0.0, 0.0, 1.0])  # EE z-axis in world
+        # Depth past plane (positive when inserted into port)
+        depth_m = float(np.dot(port_axis, plug_axis_world)) * 0.0  # placeholder
+        # Insertion depth = projection of (port_plane - tip) onto -port_axis,
+        # i.e. how far past the plane the tip has gone in the port-axis direction.
+        # If port axis is +z, depth = plane_z - tip_z (positive means inserted).
+        depth_m = plane_z - float(np.dot(port_axis, tip_world)) + float(
+            np.dot(port_axis, np.array([port.xyz[0], port.xyz[1], 0.0]))
+        )
+        # Simpler & equivalent for axis-aligned ports: depth = plane_z - tip_axis_proj
+        # When port_axis = [0,0,1], tip_axis_proj = tip_world[2], depth = plane_z - tip_z.
+        depth_m = float(plane_z - np.dot(port_axis, tip_world))
+        # Axis alignment: dot(plug_axis_world, -port_axis) — plug points INTO port.
+        cos_align = float(np.dot(plug_axis_world, -port_axis))
+        cos_align = max(-1.0, min(1.0, cos_align))
+        align_deg = float(np.degrees(np.arccos(cos_align)))
+
+        # Optional yaw-match check: plug long axis (EE x-axis in body frame,
+        # rotated to world via R_ee) must align with port's long-axis direction
+        # in the plane perpendicular to port_axis, modulo 180°.
+        yaw_tol_deg = float(check.get("yaw_tol_deg", 0.0))
+        yaw_err_deg = 0.0
+        if yaw_tol_deg > 0.0:
+            # Plug long axis = R_ee @ [1, 0, 0] (the plug is sized
+            # 0.005×0.0025×0.020 with long dim along z; but for the purpose
+            # of "which way is the rectangular cross-section oriented", the
+            # short xy axis distinguishes one wall pair from the other.
+            # Convention: use plug body x-axis as the "narrow side" direction.)
+            plug_x_world = R @ np.array([1.0, 0.0, 0.0])
+            # Port's quaternion gives port-frame orientation; the port's x-axis
+            # in world represents one of the wall normals. The rectangular hole
+            # is symmetric mod 180° so we wrap yaw error to [-90°, 90°].
+            pqx, pqy, pqz, pqw = port.quat_xyzw
+            x2p, y2p, z2p = pqx + pqx, pqy + pqy, pqz + pqz
+            wxp, wyp, wzp = pqw * x2p, pqw * y2p, pqw * z2p
+            xxp, xyp, xzp = pqx * x2p, pqx * y2p, pqx * z2p
+            yyp, yzp, zzp = pqy * y2p, pqy * z2p, pqz * z2p
+            R_port = np.array([
+                [1.0 - (yyp + zzp), xyp - wzp,         xzp + wyp],
+                [xyp + wzp,         1.0 - (xxp + zzp), yzp - wxp],
+                [xzp - wyp,         yzp + wxp,         1.0 - (xxp + yyp)],
+            ])
+            port_x_world = R_port @ np.array([1.0, 0.0, 0.0])
+            # Project both onto plane perpendicular to port_axis
+            plug_x_proj = plug_x_world - np.dot(plug_x_world, port_axis) * port_axis
+            port_x_proj = port_x_world - np.dot(port_x_world, port_axis) * port_axis
+            n1 = np.linalg.norm(plug_x_proj)
+            n2 = np.linalg.norm(port_x_proj)
+            if n1 > 1e-6 and n2 > 1e-6:
+                cos_yaw = float(np.dot(plug_x_proj, port_x_proj) / (n1 * n2))
+                cos_yaw = max(-1.0, min(1.0, abs(cos_yaw)))  # abs → mod-180° symmetry
+                yaw_err_deg = float(np.degrees(np.arccos(cos_yaw)))
+
+        ok = (
+            depth_m >= min_depth
+            and align_deg <= axis_tol_deg
+            and (yaw_tol_deg <= 0.0 or yaw_err_deg <= yaw_tol_deg)
+        )
+        return ok, {
+            "depth_m": depth_m,
+            "min_depth_m": min_depth,
+            "align_deg": align_deg,
+            "axis_tol_deg": axis_tol_deg,
+            "yaw_err_deg": yaw_err_deg,
+            "yaw_tol_deg": yaw_tol_deg,
+            "tip_world": tip_world.tolist(),
+        }
     if kind == "displaced":
         oid = check["object"]
         direction = str(check["direction"]).lower()

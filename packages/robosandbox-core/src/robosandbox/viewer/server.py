@@ -496,6 +496,7 @@ _connected_lock = asyncio.Lock()
 
 _INDEX_PATH = Path(__file__).parent / "index.html"
 _SHOWCASE_PATH = Path(__file__).parent / "showcase.html"
+_REWARD_PATH = Path(__file__).parent / "reward.html"
 
 
 @app.on_event("startup")
@@ -529,6 +530,11 @@ async def showcase() -> HTMLResponse:
     return HTMLResponse(_SHOWCASE_PATH.read_text())
 
 
+@app.get("/reward")
+async def reward_page() -> HTMLResponse:
+    return HTMLResponse(_REWARD_PATH.read_text())
+
+
 @app.get("/config")
 async def config_endpoint() -> JSONResponse:
     viser_url = f"http://127.0.0.1:{_VISER_PORT}" if _SIM_BACKEND == "newton" else None
@@ -538,6 +544,86 @@ async def config_endpoint() -> JSONResponse:
 @app.get("/tasks")
 async def tasks_endpoint(backend: str | None = None) -> JSONResponse:
     return JSONResponse({"tasks": list_builtin_tasks(backend=backend or _SIM_BACKEND)})
+
+
+@app.get("/reward/curve")
+async def reward_curve_endpoint(
+    kind: str = "linear",
+    decay: float = 0.05,
+    k: float = 10.0,
+    max_dist: float = 0.6,
+    bonus: float = 1.0,
+    threshold: float = 0.04,
+    n_points: int = 200,
+    plot_max_m: float = 0.6,
+) -> JSONResponse:
+    """Sample reward(dist) for the given shape over [0, plot_max_m].
+
+    Returns ``{"x": [...], "y": [...]}`` where ``x`` is distance in meters
+    and ``y`` is the total reward (progress + threshold-bonus).
+    """
+    from robosandbox.rl.reward import shape_progress
+
+    shape = {"kind": kind, "decay": decay, "k": k, "max_dist": max_dist, "bonus": bonus}
+    xs = np.linspace(0.0, float(plot_max_m), int(n_points)).tolist()
+    ys = []
+    for d in xs:
+        progress = shape_progress(float(d), shape)
+        success = float(bonus) if d <= float(threshold) else 0.0
+        ys.append(progress + success)
+    return JSONResponse({
+        "x": xs,
+        "y": ys,
+        "threshold": float(threshold),
+        "shape": shape,
+    })
+
+
+@app.get("/reward/heatmap")
+async def reward_heatmap_endpoint(
+    kind: str = "linear",
+    decay: float = 0.05,
+    k: float = 10.0,
+    max_dist: float = 0.6,
+    bonus: float = 1.0,
+    threshold: float = 0.04,
+    target_x: float = 0.45,
+    target_y: float = 0.0,
+    target_z: float = 0.16,
+    grid_x_min: float = 0.10,
+    grid_x_max: float = 0.80,
+    grid_y_min: float = -0.35,
+    grid_y_max: float = 0.35,
+    grid_n: int = 64,
+) -> JSONResponse:
+    """2D reward heatmap over an xy slice at ``target_z``, target at (target_x, target_y, target_z).
+
+    Returns a flat ``values: [N*N]`` array (row-major, x fast) plus axis bounds.
+    """
+    from robosandbox.rl.reward import shape_progress
+
+    shape = {"kind": kind, "decay": decay, "k": k, "max_dist": max_dist, "bonus": bonus}
+    n = int(grid_n)
+    xs = np.linspace(grid_x_min, grid_x_max, n)
+    ys = np.linspace(grid_y_min, grid_y_max, n)
+    out = np.zeros((n, n), dtype=np.float32)
+    tx, ty, tz = float(target_x), float(target_y), float(target_z)
+    for j, y in enumerate(ys):
+        for i, x in enumerate(xs):
+            d = float(np.sqrt((x - tx) ** 2 + (y - ty) ** 2 + (tz - tz) ** 2))
+            progress = shape_progress(d, shape)
+            success = float(bonus) if d <= float(threshold) else 0.0
+            out[j, i] = progress + success
+    return JSONResponse({
+        "values": out.flatten().tolist(),
+        "n": n,
+        "x_min": float(grid_x_min), "x_max": float(grid_x_max),
+        "y_min": float(grid_y_min), "y_max": float(grid_y_max),
+        "target_xy": [tx, ty],
+        "vmin": float(out.min()), "vmax": float(out.max()),
+        "shape": shape,
+        "threshold": float(threshold),
+    })
 
 
 @app.websocket("/ws")

@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>RoboSandbox · Reward Inspector</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #131a32;
+    --panel-2: #1a2447;
+    --border: #2a3565;
+    --text: #e6ecff;
+    --muted: #9aa6c4;
+    --accent: #5b8cff;
+    --accent-2: #34d399;
+    --warn: #ff7a59;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header {
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  main {
+    padding: 24px 28px;
+    max-width: 1280px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 28px;
+  }
+  .controls {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .ctrl-group { margin-bottom: 18px; }
+  .ctrl-group h3 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+  .shape-radio {
+    display: flex;
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 3px;
+    margin-bottom: 12px;
+  }
+  .shape-radio label {
+    flex: 1;
+    text-align: center;
+    padding: 7px 0;
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 4px;
+    color: var(--muted);
+  }
+  .shape-radio input { display: none; }
+  .shape-radio input:checked + label {
+    background: var(--accent);
+    color: white;
+  }
+  .formula {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: 'Fira Code', 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent-2);
+    margin-bottom: 12px;
+    word-break: break-all;
+  }
+  .slider-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .slider-row label {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .slider-row .val {
+    font-family: 'Fira Code', monospace;
+    font-size: 12px;
+    color: var(--text);
+    text-align: right;
+    min-width: 56px;
+  }
+  .slider-row input[type=range] {
+    grid-column: 1 / 3;
+    width: 100%;
+    accent-color: var(--accent);
+  }
+  .compare-btn {
+    width: 100%;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .compare-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .compare-btn:hover { border-color: var(--accent); }
+  .panels {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .plot-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .plot-card h2 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .plot-card .desc { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  .curve-wrap { position: relative; width: 100%; height: 320px; }
+  #curve-canvas { width: 100% !important; height: 100% !important; }
+  #heatmap-canvas {
+    width: 100%;
+    max-width: 640px;
+    aspect-ratio: 1 / 1;
+    image-rendering: pixelated;
+    background: var(--panel-2);
+    border-radius: 6px;
+    display: block;
+  }
+  .heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .legend-bar {
+    flex: 1;
+    height: 10px;
+    background: linear-gradient(to right, #1e1b4b, #3730a3, #1e40af, #0891b2, #059669, #65a30d, #ca8a04, #dc2626);
+    border-radius: 3px;
+  }
+  .insight-box {
+    background: var(--panel-2);
+    border-left: 3px solid var(--accent-2);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 14px;
+  }
+  .insight-box b { color: var(--text); }
+  footer {
+    padding: 14px 28px;
+    color: var(--muted);
+    font-size: 12px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Reward Inspector</h1>
+  <span class="sub">visualize how your reward shape will guide the policy</span>
+</header>
+
+<main>
+  <aside class="controls">
+    <div class="ctrl-group">
+      <h3>Shape family</h3>
+      <div class="shape-radio">
+        <input type="radio" id="shape-linear" name="shape" value="linear" checked>
+        <label for="shape-linear">linear</label>
+        <input type="radio" id="shape-exp" name="shape" value="exp">
+        <label for="shape-exp">exp</label>
+        <input type="radio" id="shape-inverse" name="shape" value="inverse">
+        <label for="shape-inverse">inverse</label>
+      </div>
+      <div class="formula" id="formula-display"></div>
+      <button class="compare-btn" id="compare-btn">Show all 3 shapes side-by-side</button>
+    </div>
+
+    <div class="ctrl-group" id="shape-params"></div>
+
+    <div class="ctrl-group">
+      <h3>Success</h3>
+      <div class="slider-row">
+        <label>Threshold (m)</label>
+        <span class="val" id="threshold-val">0.040</span>
+        <input type="range" id="threshold" min="0.01" max="0.20" step="0.005" value="0.04">
+      </div>
+      <div class="slider-row">
+        <label>Bonus on success</label>
+        <span class="val" id="bonus-val">1.0</span>
+        <input type="range" id="bonus" min="0" max="5" step="0.1" value="1.0">
+      </div>
+    </div>
+
+    <div class="ctrl-group">
+      <h3>Workspace (heatmap)</h3>
+      <div class="slider-row">
+        <label>Target x</label>
+        <span class="val" id="target-x-val">0.45</span>
+        <input type="range" id="target-x" min="0.10" max="0.80" step="0.01" value="0.45">
+      </div>
+      <div class="slider-row">
+        <label>Target y</label>
+        <span class="val" id="target-y-val">0.00</span>
+        <input type="range" id="target-y" min="-0.35" max="0.35" step="0.01" value="0.0">
+      </div>
+    </div>
+  </aside>
+
+  <div class="panels">
+    <div class="plot-card">
+      <h2>Reward vs distance</h2>
+      <p class="desc">
+        How much reward the policy receives at each distance from the target.
+        Steep gradients mean stronger pull toward the goal.
+      </p>
+      <div class="curve-wrap"><canvas id="curve-canvas"></canvas></div>
+      <div class="insight-box" id="insight-box"></div>
+    </div>
+
+    <div class="plot-card">
+      <h2>Reward field over workspace (xy slice)</h2>
+      <p class="desc">
+        Top-down view of the reward field. White cross = target.
+        Bright = high reward, dark = low. The gradient is what the policy climbs.
+      </p>
+      <canvas id="heatmap-canvas" width="64" height="64"></canvas>
+      <div class="heatmap-legend">
+        <span id="hm-min">0.00</span>
+        <div class="legend-bar"></div>
+        <span id="hm-max">1.00</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Adjust sliders → see what the policy will optimize. To use this shape in training, copy the formula into a task YAML's <code>success.shape:</code> block.
+  · <a href="/">back to viewer</a>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const SHAPE_PARAMS = {
+  linear: [
+    { id: "max_dist", label: "Max distance (m)", min: 0.1, max: 1.5, step: 0.01, default: 0.6 },
+  ],
+  exp: [
+    { id: "decay", label: "Decay (m)", min: 0.01, max: 0.30, step: 0.005, default: 0.05 },
+  ],
+  inverse: [
+    { id: "k", label: "k (steepness)", min: 1, max: 100, step: 1, default: 10 },
+  ],
+};
+
+const FORMULAS = {
+  linear: "reward = clip(1 − dist / max_dist, 0, 1) + bonus·𝟙[dist ≤ threshold]",
+  exp: "reward = exp(−dist / decay) + bonus·𝟙[dist ≤ threshold]",
+  inverse: "reward = 1 / (1 + k · dist) + bonus·𝟙[dist ≤ threshold]",
+};
+
+const state = {
+  shape: "linear",
+  params: {
+    linear: { max_dist: 0.6 },
+    exp: { decay: 0.05 },
+    inverse: { k: 10 },
+  },
+  threshold: 0.04,
+  bonus: 1.0,
+  target_x: 0.45,
+  target_y: 0.0,
+  compare: false,
+};
+
+const $ = (id) => document.getElementById(id);
+
+function renderShapeParams() {
+  const root = $("shape-params");
+  root.innerHTML = `<h3>Shape parameters</h3>`;
+  for (const p of SHAPE_PARAMS[state.shape]) {
+    const cur = state.params[state.shape][p.id] ?? p.default;
+    const row = document.createElement("div");
+    row.className = "slider-row";
+    row.innerHTML = `
+      <label>${p.label}</label>
+      <span class="val" id="param-${p.id}-val">${Number(cur).toFixed(p.step < 0.1 ? 3 : 2)}</span>
+      <input type="range" id="param-${p.id}" min="${p.min}" max="${p.max}" step="${p.step}" value="${cur}">`;
+    root.appendChild(row);
+    const input = $(`param-${p.id}`);
+    input.addEventListener("input", () => {
+      state.params[state.shape][p.id] = parseFloat(input.value);
+      $(`param-${p.id}-val`).textContent = Number(input.value).toFixed(p.step < 0.1 ? 3 : 2);
+      refresh();
+    });
+  }
+  $("formula-display").textContent = FORMULAS[state.shape];
+}
+
+function buildQuery(shape, params) {
+  const q = new URLSearchParams();
+  q.set("kind", shape);
+  for (const [k, v] of Object.entries(params)) q.set(k, v);
+  q.set("threshold", state.threshold);
+  q.set("bonus", state.bonus);
+  return q;
+}
+
+let curveChart = null;
+function makeCurveDataset(label, color, x, y) {
+  return {
+    label,
+    data: x.map((xv, i) => ({ x: xv, y: y[i] })),
+    borderColor: color,
+    backgroundColor: color + "33",
+    borderWidth: 2,
+    pointRadius: 0,
+    tension: 0.1,
+    fill: false,
+    showLine: true,
+  };
+}
+
+async function fetchCurve(shape, params) {
+  const q = buildQuery(shape, params);
+  const res = await fetch(`/reward/curve?${q}`);
+  return await res.json();
+}
+
+async function refreshCurve() {
+  const datasets = [];
+  if (state.compare) {
+    for (const sh of ["linear", "exp", "inverse"]) {
+      const r = await fetchCurve(sh, state.params[sh]);
+      const color = { linear: "#5b8cff", exp: "#34d399", inverse: "#ff7a59" }[sh];
+      datasets.push(makeCurveDataset(sh, color, r.x, r.y));
+    }
+  } else {
+    const r = await fetchCurve(state.shape, state.params[state.shape]);
+    datasets.push(makeCurveDataset(state.shape, "#5b8cff", r.x, r.y));
+  }
+  // Threshold marker
+  const thr = state.threshold;
+  datasets.push({
+    label: `threshold = ${thr.toFixed(3)} m`,
+    data: [{ x: thr, y: 0 }, { x: thr, y: 2 + Number(state.bonus) }],
+    borderColor: "#ff7a59",
+    borderDash: [4, 4],
+    borderWidth: 1,
+    pointRadius: 0,
+    fill: false,
+    showLine: true,
+  });
+
+  if (!curveChart) {
+    const ctx = $("curve-canvas").getContext("2d");
+    curveChart = new Chart(ctx, {
+      type: "scatter",
+      data: { datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: {
+          x: { type: "linear", title: { display: true, text: "distance to target (m)", color: "#9aa6c4" },
+               ticks: { color: "#9aa6c4" }, grid: { color: "#2a3565" } },
+          y: { title: { display: true, text: "reward", color: "#9aa6c4" },
+               ticks: { color: "#9aa6c4" }, grid: { color: "#2a3565" } },
+        },
+        plugins: {
+          legend: { labels: { color: "#e6ecff" } },
+          tooltip: { mode: "nearest", intersect: false },
+        },
+      },
+    });
+  } else {
+    curveChart.data.datasets = datasets;
+    curveChart.update("none");
+  }
+
+  // Insight: gradient near threshold and far away
+  const r = await fetchCurve(state.shape, state.params[state.shape]);
+  // sample reward at dist = threshold and dist = 0.20
+  const idxNear = r.x.findIndex((x) => x >= thr);
+  const idxMid = r.x.findIndex((x) => x >= 0.20);
+  const idxFar = r.x.findIndex((x) => x >= 0.50);
+  const near = r.y[idxNear] ?? 0, mid = r.y[idxMid] ?? 0, far = r.y[idxFar] ?? 0;
+  $("insight-box").innerHTML =
+    `<b>${state.shape}</b> · reward at <b>4cm</b> = ${near.toFixed(3)} · ` +
+    `at <b>20cm</b> = ${mid.toFixed(3)} · ` +
+    `at <b>50cm</b> = ${far.toFixed(3)}.`;
+}
+
+function valueToColor(v, vmin, vmax) {
+  // 8-stop viridis-ish ramp matching the legend bar.
+  const t = vmax === vmin ? 0 : (v - vmin) / (vmax - vmin);
+  const stops = [
+    [0.00, [30, 27, 75]],
+    [0.14, [55, 48, 163]],
+    [0.28, [30, 64, 175]],
+    [0.42, [8, 145, 178]],
+    [0.57, [5, 150, 105]],
+    [0.71, [101, 163, 13]],
+    [0.85, [202, 138, 4]],
+    [1.00, [220, 38, 38]],
+  ];
+  let i = 0;
+  while (i < stops.length - 1 && t > stops[i + 1][0]) i++;
+  const [t0, c0] = stops[i];
+  const [t1, c1] = stops[i + 1];
+  const f = (t - t0) / (t1 - t0 || 1);
+  const r = Math.round(c0[0] + (c1[0] - c0[0]) * f);
+  const g = Math.round(c0[1] + (c1[1] - c0[1]) * f);
+  const b = Math.round(c0[2] + (c1[2] - c0[2]) * f);
+  return [r, g, b];
+}
+
+async function refreshHeatmap() {
+  const q = buildQuery(state.shape, state.params[state.shape]);
+  q.set("target_x", state.target_x);
+  q.set("target_y", state.target_y);
+  q.set("grid_n", 64);
+  const res = await fetch(`/reward/heatmap?${q}`);
+  const r = await res.json();
+  const canvas = $("heatmap-canvas");
+  canvas.width = r.n;
+  canvas.height = r.n;
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(r.n, r.n);
+  for (let j = 0; j < r.n; j++) {
+    for (let i = 0; i < r.n; i++) {
+      const v = r.values[j * r.n + i];
+      const [R, G, B] = valueToColor(v, r.vmin, r.vmax);
+      const idx = ((r.n - 1 - j) * r.n + i) * 4;  // flip y for screen-up
+      img.data[idx] = R;
+      img.data[idx + 1] = G;
+      img.data[idx + 2] = B;
+      img.data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // Overlay target cross (white)
+  const tx = (state.target_x - r.x_min) / (r.x_max - r.x_min) * r.n;
+  const ty = r.n - (state.target_y - r.y_min) / (r.y_max - r.y_min) * r.n;
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(tx - 4, ty); ctx.lineTo(tx + 4, ty);
+  ctx.moveTo(tx, ty - 4); ctx.lineTo(tx, ty + 4);
+  ctx.stroke();
+  $("hm-min").textContent = r.vmin.toFixed(2);
+  $("hm-max").textContent = r.vmax.toFixed(2);
+}
+
+function refresh() {
+  refreshCurve();
+  refreshHeatmap();
+}
+
+// Wiring
+document.querySelectorAll('input[name="shape"]').forEach((r) => {
+  r.addEventListener("change", (e) => {
+    state.shape = e.target.value;
+    state.compare = false;
+    $("compare-btn").classList.remove("active");
+    renderShapeParams();
+    refresh();
+  });
+});
+$("threshold").addEventListener("input", (e) => {
+  state.threshold = parseFloat(e.target.value);
+  $("threshold-val").textContent = state.threshold.toFixed(3);
+  refresh();
+});
+$("bonus").addEventListener("input", (e) => {
+  state.bonus = parseFloat(e.target.value);
+  $("bonus-val").textContent = state.bonus.toFixed(1);
+  refresh();
+});
+$("target-x").addEventListener("input", (e) => {
+  state.target_x = parseFloat(e.target.value);
+  $("target-x-val").textContent = state.target_x.toFixed(2);
+  refreshHeatmap();
+});
+$("target-y").addEventListener("input", (e) => {
+  state.target_y = parseFloat(e.target.value);
+  $("target-y-val").textContent = state.target_y.toFixed(2);
+  refreshHeatmap();
+});
+$("compare-btn").addEventListener("click", () => {
+  state.compare = !state.compare;
+  $("compare-btn").classList.toggle("active", state.compare);
+  refreshCurve();
+});
+
+renderShapeParams();
+refresh();
+</script>
+
+</body>
+</html>

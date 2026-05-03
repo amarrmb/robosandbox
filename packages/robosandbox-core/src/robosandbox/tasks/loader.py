@@ -104,6 +104,7 @@ def _object_from_dict(d: dict[str, Any], base_dir: Path) -> SceneObject:
         pose=pose,
         mass=float(d.get("mass", 0.05)),
         rgba=tuple(float(v) for v in d.get("rgba", [0.7, 0.7, 0.7, 1.0])),
+        static=bool(d.get("static", False)),
     )
 
 

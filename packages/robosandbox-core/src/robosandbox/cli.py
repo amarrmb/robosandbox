@@ -247,13 +247,21 @@ def main(argv: list[str] | None = None) -> int:
     train_p.add_argument("--clip-eps", type=float, default=0.2,
                          help="PPO ratio clip. Tighten (e.g. 0.05-0.1) for fine-tuning.")
     train_p.add_argument("--action-space", type=str, default="joint",
-                         choices=["joint", "ee_xyz"],
+                         choices=["joint", "ee_xyz", "ee_xyz_rpy"],
                          help="Policy action space. 'joint' = per-joint deltas (default). "
                               "'ee_xyz' = 3D Cartesian deltas converted to joint deltas via "
-                              "DLS pseudoinverse — better for fine-grained reach tasks.")
+                              "DLS pseudoinverse — better for fine-grained reach tasks. "
+                              "'ee_xyz_rpy' = 6-DoF Cartesian + angular deltas (translation + "
+                              "rotation), required for orientation-sensitive tasks like "
+                              "connector insertion.")
     train_p.add_argument("--ee-delta-scale", type=float, default=0.02,
                          help="Max EE displacement per policy step (meters). Used with "
                               "--action-space ee_xyz.")
+    train_p.add_argument("--clearance-m", type=float, default=None,
+                         help="Override port clearance for connector-insertion task "
+                              "(meters). Rebuilds walls + chamfer to match. Used for "
+                              "tightness curriculum (4mm → 2mm → 1.5mm USB-A). "
+                              "If unset, uses the YAML's default clearance.")
     train_p.add_argument("--hidden", type=str, default="256,256",
                          help="Comma-separated hidden layer sizes for actor + critic. "
                               "Default 256,256 (~74K params). Try 512,512 (~280K) for "
@@ -290,6 +298,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="MuJoCo only: repeat the eval N times. Newton uses --world-count.")
     eval_p.add_argument("--output", default=None,
                         help="Write structured eval result as JSON to this path.")
+    eval_p.add_argument("--clearance-m", type=float, default=None,
+                        help="Override port clearance for connector-insertion task "
+                             "(meters). Use to evaluate a policy on a different "
+                             "clearance than it was trained on.")
     eval_p.add_argument("--seed", type=int, default=None,
                         help="Seed for any randomization (item 3 will use this).")
     eval_p.add_argument("--reload-policy", action=argparse.BooleanOptionalAction, default=True,
@@ -543,7 +555,7 @@ def _run_policy_cli(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        policy = load_policy(Path(args.policy))
+        policy = load_policy(Path(args.policy), scene=task.scene)
     except (ImportError, FileNotFoundError, ValueError) as e:
         print(f"[run --policy] failed to load policy: {e}", file=sys.stderr)
         return 2
@@ -650,6 +662,20 @@ def _train_ppo_cli(args: argparse.Namespace) -> int:
     except FileNotFoundError as e:
         print(f"[train] {e}", file=sys.stderr)
         return 2
+
+    # --clearance-m: rebuild the connector-insertion port walls + chamfer
+    # plates for the requested clearance. Used for the tightness curriculum
+    # (4 mm → 2 mm → 1.5 mm USB-A spec). No-op for tasks without a
+    # port_target object. Updates task.scene in place via dataclass replace.
+    clearance_m = getattr(args, "clearance_m", None)
+    if clearance_m is not None and clearance_m > 0:
+        from dataclasses import replace as _dc_replace
+        from robosandbox.tasks.insertion_geometry import rescale_port_clearance
+        new_scene = rescale_port_clearance(task.scene, float(clearance_m))
+        if new_scene is not task.scene:
+            task = _dc_replace(task, scene=new_scene)
+            print(f"[train] port clearance: {clearance_m*1000:.2f} mm "
+                  f"(walls + chamfer rebuilt)")
 
     # mujoco_vec runs N classical-MuJoCo instances, so the task must
     # support the underlying "mujoco" backend (every task in the repo
@@ -1063,6 +1089,17 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
         print(f"[eval] {e}", file=sys.stderr)
         return 2
 
+    # Optional clearance override (mirrors the train CLI flag)
+    clearance_m = getattr(args, "clearance_m", None)
+    if clearance_m is not None and clearance_m > 0:
+        from dataclasses import replace as _dc_replace
+        from robosandbox.tasks.insertion_geometry import rescale_port_clearance
+        new_scene = rescale_port_clearance(task.scene, float(clearance_m))
+        if new_scene is not task.scene:
+            task = _dc_replace(task, scene=new_scene)
+            print(f"[eval] port clearance: {clearance_m*1000:.2f} mm "
+                  f"(walls + chamfer rebuilt)")
+
     if backend not in task.supported_backends:
         print(
             f"[eval] task {args.task!r} does not list '{backend}' as a supported backend "
@@ -1072,7 +1109,7 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        policy = load_policy(Path(args.policy))
+        policy = load_policy(Path(args.policy), scene=task.scene)
     except (ImportError, FileNotFoundError, ValueError) as e:
         print(f"[eval] failed to load policy: {e}", file=sys.stderr)
         return 2
@@ -1132,7 +1169,7 @@ def _eval_parallel_cli(args: argparse.Namespace) -> int:
             for _ in range(int(getattr(args, "settle_steps", 100) or 0)):
                 sim.step()
             if getattr(args, "reload_policy", True):
-                trial_policy = load_policy(Path(args.policy))
+                trial_policy = load_policy(Path(args.policy), scene=task.scene)
             else:
                 trial_policy = policy
             initial_cube_pose = sim.get_object_pose(target_obj_id) if target_obj_id else None

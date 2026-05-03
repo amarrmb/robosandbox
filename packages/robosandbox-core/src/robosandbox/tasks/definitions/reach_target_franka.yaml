@@ -1,0 +1,37 @@
+name: reach_target_franka
+prompt: "reach the green target"
+seed_note: |
+  State-only reach task designed to play to Newton's strengths:
+  no contact-rich grasping, just end-effector goal-conditioning.
+  Each trial draws a fresh xy for the target marker, so the policy
+  must learn to reach arbitrary in-workspace positions.
+
+  Used as the Beat 2 showcase: 1024 GPU-parallel worlds, PPO trains
+  fast because reward signal is dense and convergence isn't gated on
+  contact-solver behavior.
+supported_backends:
+  - mujoco
+  - newton
+scene:
+  robot_urdf: "@builtin:robots/franka_panda/panda.xml"
+  robot_config: "@builtin:robots/franka_panda/panda.robosandbox.yaml"
+  objects:
+    - id: target_marker
+      kind: box
+      size: [0.040, 0.040, 0.040]
+      pose:
+        xyz: [0.45, 0.0, 0.30]
+      rgba: [1.0, 0.15, 0.85, 1.0]
+      mass: 0.001
+      static: true   # anchor to world; doesn't fall under gravity
+randomize:
+  xy_jitter: 0.20    # ± 20 cm — visibly diverse target positions (40cm × 40cm spread)
+  yaw_jitter: 0.0    # marker is rotationally symmetric
+success:
+  kind: ee_near
+  object: target_marker
+  threshold_m: 0.06   # 6 cm — above the ~5 cm Franka EE-attach-body to gripper-tip kinematic floor
+  shape:
+    kind: exp
+    decay: 0.30
+    bonus: 1.0

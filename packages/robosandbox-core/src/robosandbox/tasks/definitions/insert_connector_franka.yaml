@@ -1,0 +1,184 @@
+name: insert_connector_franka
+prompt: "insert the plug into the port"
+seed_note: |
+  Connector-insertion task at 1024 GPU-parallel Newton worlds. The Franka
+  starts holding a rigid plug (welded to the hand via panda_with_plug.xml).
+  Goal: drive the plug tip past the port plane while keeping the plug axis
+  aligned with the port's vertical axis.
+
+  Port is built out of 9 static box geoms (4 walls + 4 chamfer plates +
+  1 base) so it works on the Newton backend (which only supports box
+  primitives). The chamfer guides the plug into the hole when alignment
+  is approximately correct — Phase 0 probe confirmed `mujoco_warp` handles
+  the chamfer-sliding contact at all clearances down to 1.5 mm USB-A spec.
+
+  Phase-1 config: fixed port pose, 4 mm clearance (USB-C class).
+  Tighter clearance and pose randomization land in later phases.
+
+supported_backends:
+  - mujoco
+  - newton
+scene:
+  robot_urdf: "@builtin:robots/franka_panda/panda_with_plug.xml"
+  robot_config: "@builtin:robots/franka_panda/panda_with_plug.robosandbox.yaml"
+  objects:
+    # ---- Port: assembled from 9 static box geoms.
+    # Centered at world (0.45, 0.0, 0.06). Hole inner half-extents:
+    #   plug_hx=0.005m, plug_hy=0.0025m, clearance=4mm → hole_hx=0.007, hole_hy=0.0045.
+    # Wall thickness 5 mm; wall height 25 mm; chamfer plates 6 mm at 45°.
+    # Port "plane" (top of vertical walls) at world z = 0.06 + 0.05 = 0.11.
+    # The plug tip must end up below this plane to count as inserted.
+
+    # Base
+    - id: port_base
+      kind: box
+      size: [0.012, 0.0095, 0.0025]
+      pose: {xyz: [0.45, 0.0, 0.0625]}
+      rgba: [0.45, 0.45, 0.45, 1.0]
+      static: true
+      mass: 0.001
+
+    # Walls (4 sides) — outer half-width = hole + wall_thickness
+    - id: port_wall_xp
+      kind: box
+      size: [0.0025, 0.0095, 0.025]
+      pose: {xyz: [0.4595, 0.0, 0.085]}   # x = 0.45 + hole_hx + wall/2 = 0.45 + 0.007 + 0.0025 = 0.4595
+      rgba: [0.55, 0.55, 0.55, 1.0]
+      static: true
+      mass: 0.001
+    - id: port_wall_xn
+      kind: box
+      size: [0.0025, 0.0095, 0.025]
+      pose: {xyz: [0.4405, 0.0, 0.085]}   # x = 0.45 - 0.0095
+      rgba: [0.55, 0.55, 0.55, 1.0]
+      static: true
+      mass: 0.001
+    - id: port_wall_yp
+      kind: box
+      size: [0.007, 0.0025, 0.025]
+      pose: {xyz: [0.45, 0.007, 0.085]}
+      rgba: [0.55, 0.55, 0.55, 1.0]
+      static: true
+      mass: 0.001
+    - id: port_wall_yn
+      kind: box
+      size: [0.007, 0.0025, 0.025]
+      pose: {xyz: [0.45, -0.007, 0.085]}
+      rgba: [0.55, 0.55, 0.55, 1.0]
+      static: true
+      mass: 0.001
+
+    # Chamfer plates: 45° lead-in above each wall top.
+    # Wall top is at z=0.11. Chamfer plate centers offset (CHAMFER_LEN/2)*cos(45°)
+    # outward and the same upward. CHAMFER_LEN=0.006 → offset=0.00212.
+    # Plates use 1.5mm thickness and tilt by 45° around the y-axis (x-side)
+    # or x-axis (y-side). Quaternion w x y z — for ±45° rotation:
+    #   ±y rotation: w=cos(22.5°)=0.92388,  y=±sin(22.5°)=±0.38268
+    #   ±x rotation: w=cos(22.5°),          x=±sin(22.5°)
+    - id: chamfer_xp
+      kind: box
+      size: [0.003, 0.0095, 0.00075]
+      pose:
+        xyz: [0.45712, 0.0, 0.11212]
+        quat_xyzw: [0.0, -0.38268, 0.0, 0.92388]   # rotate -45° around y → outer-up tilt
+      rgba: [0.62, 0.62, 0.62, 1.0]
+      static: true
+      mass: 0.001
+    - id: chamfer_xn
+      kind: box
+      size: [0.003, 0.0095, 0.00075]
+      pose:
+        xyz: [0.44288, 0.0, 0.11212]
+        quat_xyzw: [0.0, 0.38268, 0.0, 0.92388]    # rotate +45° around y
+      rgba: [0.62, 0.62, 0.62, 1.0]
+      static: true
+      mass: 0.001
+    - id: chamfer_yp
+      kind: box
+      size: [0.007, 0.003, 0.00075]
+      pose:
+        xyz: [0.45, 0.00712, 0.11212]
+        quat_xyzw: [0.38268, 0.0, 0.0, 0.92388]    # rotate +45° around x
+      rgba: [0.62, 0.62, 0.62, 1.0]
+      static: true
+      mass: 0.001
+    - id: chamfer_yn
+      kind: box
+      size: [0.007, 0.003, 0.00075]
+      pose:
+        xyz: [0.45, -0.00712, 0.11212]
+        quat_xyzw: [-0.38268, 0.0, 0.0, 0.92388]   # rotate -45° around x
+      rgba: [0.62, 0.62, 0.62, 1.0]
+      static: true
+      mass: 0.001
+
+    # Visual aim marker at the port hole center (cosmetic; useful for the policy
+    # observation as an explicit "target" object id).
+    - id: port_target
+      kind: box
+      size: [0.001, 0.001, 0.001]
+      pose: {xyz: [0.45, 0.0, 0.11]}
+      rgba: [0.85, 0.2, 0.2, 0.0]   # alpha=0; invisible, position carrier only
+      static: true
+      mass: 0.0001
+
+# Phase-4 randomize: rigid-group port-pose jitter. All port_* and chamfer_*
+# objects move together: same (dx, dy) translation and same yaw rotation
+# around port_target. Walls and chamfer plates stay correctly assembled
+# relative to the hole. xy_jitter / yaw_jitter (per-object) stay at 0 so
+# we don't shake the assembly apart.
+randomize:
+  xy_jitter: 0.0
+  yaw_jitter: 0.0
+  group_prefixes: ["port_", "chamfer_"]
+  group_center: port_target
+  group_xy_jitter: 0.10    # ± 10 cm (20cm × 20cm spread).
+  group_yaw_jitter: 0.0    # No yaw randomization. Yaw policies (v6a/b/c)
+                           # are saved separately and require their own task
+                           # variant. Canonical task is xy-only for the
+                           # tightness curriculum chain.
+
+success:
+  # Plug-tip past port plane by ≥5 mm AND plug axis aligned with port axis
+  # within 5°. The runner expects the plug-tip frame as ee_pose + a known
+  # local offset; we encode that offset here so the runner doesn't need to
+  # re-derive it from the MJCF.
+  #
+  # `sustained_steps`: success requires inserted state to hold for this
+  # many consecutive sim ticks somewhere in the rollout — measures real
+  # capability, not peak-detection. Without this, "inserted at final step"
+  # is gameable by a policy that briefly slams the plug in then drifts.
+  kind: inserted
+  port: port_target
+  port_axis: [0.0, 0.0, 1.0]    # port opens along +z
+  port_plane_z: 0.11             # world z of port top
+  plug_tip_offset_ee: [0.0, 0.0, 0.05]   # plug tip relative to ee_site, in EE frame
+  min_depth_m: 0.005
+  axis_tol_deg: 5.0
+  yaw_tol_deg: 0.0    # disabled (no yaw randomization in canonical task)
+  sustained_steps: 50
+  shape:
+    # Per-stage shaped reward — composed in code from these params.
+    kind: insertion
+    approach_decay: 0.30      # exp(-decay * dist_to_port_xy_then_above)
+    align_weight: 0.5         # cos(axis_angle) when tip near port
+    align_gate_m: 0.04        # only reward alignment when tip < 4cm horizontal of port
+    insertion_weight: 1.0     # depth-past-plane (clamped to [0, min_depth_m])
+    success_bonus: 1.0
+    # Hold-still: when a world is inserted (full criterion fires), reward
+    # grows linearly with consecutive-inserted-step streak, capped at
+    # hold_still_target_steps. Pays the policy to STAY in the inserted
+    # state instead of drift out (which addresses the v4 final-step gap).
+    hold_still_bonus: 1.0
+    hold_still_target_steps: 50
+    # Action penalty is OFF — first attempt punished the policy for the
+    # micro-corrections it needs to hold against gravity, made things worse.
+    # Keeping the param wired so we can re-enable it later if we add a
+    # smarter action-magnitude target (e.g., penalize only large actions).
+    action_penalty_when_inserted: 0.0
+    # Yaw curriculum: yaw_weight 5x stronger than depth so policy prioritizes
+    # rotation. yaw_gate_depth=true zeroes the depth/insertion reward when
+    # yaw_err > yaw_gate_deg — forces yaw learning before depth credit.
+    yaw_weight: 5.0
+    yaw_gate_depth: true
+    yaw_gate_deg: 20.0

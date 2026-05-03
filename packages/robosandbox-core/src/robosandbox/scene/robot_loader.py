@@ -387,7 +387,10 @@ def inject_scene_objects(spec: mujoco.MjSpec, scene: Scene) -> None:
             pos=list(obj.pose.xyz),
             quat=_xyzw_to_wxyz(obj.pose.quat_xyzw),
         )
-        body.add_freejoint()
+        # Static bodies are welded to world (no freejoint → no gravity, no contact dynamics).
+        # Used for visual targets/markers in reach-style tasks.
+        if not getattr(obj, "static", False):
+            body.add_freejoint()
         rgba = list(obj.rgba)
         if obj.kind == "box":
             sx, sy, sz = obj.size

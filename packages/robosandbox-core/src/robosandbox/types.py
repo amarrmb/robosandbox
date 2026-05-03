@@ -68,6 +68,7 @@ class SceneObject:
     mesh_sidecar: Path | None = None
     collision: str = "coacd"
     drawer_max_open: float = 0.12
+    static: bool = False  # if True, anchor to world (no freejoint, no gravity)
 
 
 @dataclass(frozen=True)

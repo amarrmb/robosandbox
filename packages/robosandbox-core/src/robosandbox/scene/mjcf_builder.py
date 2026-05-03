@@ -150,9 +150,11 @@ def _object_xml(obj: SceneObject) -> str:
         raise ValueError(f"unknown SceneObject.kind: {obj.kind}")
 
     body_name = escape(obj.id)
+    # Static objects: no <freejoint/> → welded to world, ignores gravity.
+    joint_xml = "" if getattr(obj, "static", False) else "      <freejoint/>\n"
     return (
         f'    <body name="{body_name}" pos="{x} {y} {z}" quat="{quat}">\n'
-        f'      <freejoint/>\n'
+        f'{joint_xml}'
         f'      {geom}\n'
         f'    </body>'
     )

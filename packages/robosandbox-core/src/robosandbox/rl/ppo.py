@@ -153,6 +153,23 @@ class NeuralPolicy:
             )[0]                                                                   # (n_dof,)
             target_q = current_q + delta_q
             gripper = float(torch.sigmoid(mean[3]).item())
+        elif self._action_space == "ee_xyz_rpy":
+            if self._ee_kine is None:
+                raise ValueError(
+                    "NeuralPolicy with action_space='ee_xyz_rpy' requires ee_kine — "
+                    "pass scene to NeuralPolicy.load()."
+                )
+            current_q = np.asarray(obs.robot_joints, dtype=np.float64)
+            # mean[:3] = trans delta, mean[3:6] = angular delta. We scale both
+            # by ee_delta_scale; rotation in radians, translation in meters.
+            delta_ee = np.zeros(6, dtype=np.float64)
+            delta_ee[:3] = mean[:3].numpy().astype(np.float64) * self._ee_delta_scale
+            delta_ee[3:] = mean[3:6].numpy().astype(np.float64) * self._ee_delta_scale
+            delta_q = self._ee_kine.delta_q_from_delta_ee_6d(
+                current_q[None, :], delta_ee[None, :]
+            )[0]
+            target_q = current_q + delta_q
+            gripper = float(torch.sigmoid(mean[6]).item())
         else:
             deltas = mean[: self._n_dof].numpy() * self._delta_scale
             target_q = np.asarray(obs.robot_joints, dtype=np.float64) + deltas
@@ -214,10 +231,10 @@ class NeuralPolicy:
         ee_delta_scale = float(cfg.get("ee_delta_scale", 0.02))
         ee_body = str(cfg.get("ee_body", "hand"))
         ee_kine = None
-        if action_space == "ee_xyz":
+        if action_space in ("ee_xyz", "ee_xyz_rpy"):
             if scene is None:
                 raise ValueError(
-                    "Loading an ee_xyz NeuralPolicy requires the task scene; "
+                    f"Loading a {action_space} NeuralPolicy requires the task scene; "
                     "pass scene= to NeuralPolicy.load()."
                 )
             from robosandbox.rl.ee_ik import FrankaEEKine
@@ -311,19 +328,25 @@ def train_ppo(
 
     # Cache the success-target object id for the batched reward fast-path.
     from robosandbox.tasks.runner import criterion_target_object
-    from robosandbox.rl.reward import compute_shaped_reward_batch
+    from robosandbox.rl.reward import (
+        compute_shaped_reward_batch,
+        compute_inserted_reward_batch,
+    )
     success_target_oid = criterion_target_object(task.success)
+    success_kind = task.success.data.get("kind") if task.success is not None else None
     use_batched_reward = (
         task.success is not None
-        and task.success.data.get("kind") == "ee_near"
+        and success_kind in ("ee_near", "inserted")
         and success_target_oid is not None
     )
+    use_insertion_reward = success_kind == "inserted"
 
     # EE-space action setup: actor outputs (dx, dy, dz, gripper) instead of
     # (joint_deltas, gripper). DLS pseudoinverse converts to joint deltas at
     # each inner step. Action space matches the goal space → policy doesn't
     # have to learn 7-DOF coordination implicitly.
-    use_ee_action = action_space == "ee_xyz"
+    use_ee_action = action_space in ("ee_xyz", "ee_xyz_rpy")
+    use_6dof_action = action_space == "ee_xyz_rpy"
     ee_kine: Any = None
     if use_ee_action:
         from robosandbox.rl.ee_ik import FrankaEEKine
@@ -331,17 +354,22 @@ def train_ppo(
         if not arm_names:
             arm_names = list(getattr(sim, "joint_names", []))
         if not arm_names:
-            raise ValueError("ee_xyz action space needs sim.joint_names or sim._arm_joint_names")
+            raise ValueError(f"{action_space} action space needs sim.joint_names or sim._arm_joint_names")
         ee_kine = FrankaEEKine(
             scene=task.scene, ee_body=ee_body,
             arm_joint_names=arm_names, damping=ee_ik_damping,
         )
-        print(f"[train] action_space: ee_xyz  (ee_body={ee_body!r}, "
+        print(f"[train] action_space: {action_space}  (ee_body={ee_body!r}, "
               f"delta_scale={ee_delta_scale}m, damping={ee_ik_damping})")
     else:
         print(f"[train] action_space: joint  (delta_scale={delta_scale}rad)")
     obs_dim = encoder.obs_dim
-    act_dim = (3 + 1) if use_ee_action else (n_dof + 1)  # ee_xyz delta or joint deltas, + gripper
+    if use_6dof_action:
+        act_dim = 6 + 1  # (dx,dy,dz,droll,dpitch,dyaw) + gripper
+    elif use_ee_action:
+        act_dim = 3 + 1  # (dx,dy,dz) + gripper
+    else:
+        act_dim = n_dof + 1  # joint deltas + gripper
 
     device_t = torch.device(device if torch.cuda.is_available() else "cpu")
     if str(device_t) != device and "cuda" in device:
@@ -410,6 +438,17 @@ def train_ppo(
     ever_within = np.zeros(N, dtype=bool)
     iter_dist_sum = 0.0
     iter_dist_n = 0
+    # Insertion-specific: track which worlds aligned within axis_tol_deg AND
+    # achieved min_depth past the port plane during rollout.
+    ever_aligned = np.zeros(N, dtype=bool)
+    ever_inserted = np.zeros(N, dtype=bool)
+    iter_align_deg_sum = 0.0
+    iter_depth_mm_sum = 0.0
+    iter_align_n = 0
+    # Per-world consecutive-inserted-step streak, persists across PPO iters.
+    # Resets to 0 when a world drops out of inserted state. Used by the
+    # hold-still bonus in the inserted reward.
+    inserted_streak = np.zeros(N, dtype=np.int64)
 
     # Fast-path detection: backends that expose observe_all_arrays() return
     # raw numpy batches and skip the per-world Observation/Pose dataclass
@@ -423,6 +462,14 @@ def train_ppo(
         ever_within = np.zeros(N, dtype=bool)
         iter_dist_sum = 0.0
         iter_dist_n = 0
+        ever_aligned = np.zeros(N, dtype=bool)
+        ever_inserted = np.zeros(N, dtype=bool)
+        iter_align_deg_sum = 0.0
+        iter_depth_mm_sum = 0.0
+        iter_align_n = 0
+        # Reset hold-still streak at iter boundaries — sim.reset() returns
+        # the world to home pose, which is not inserted.
+        inserted_streak = np.zeros(N, dtype=np.int64)
 
         # ---- Rollout collection ------------------------------------------
         sim.reset()
@@ -461,7 +508,17 @@ def train_ppo(
                 current_qs = np.array(
                     [o.robot_joints for o in obs_all], dtype=np.float64
                 )                                              # (N, n_dof)
-            if use_ee_action:
+            if use_6dof_action:
+                # action[:3] = trans delta, action[3:6] = angular delta.
+                delta_ee = np.zeros((act_np.shape[0], 6), dtype=np.float64)
+                delta_ee[:, :3] = act_np[:, :3].astype(np.float64) * ee_delta_scale
+                delta_ee[:, 3:] = act_np[:, 3:6].astype(np.float64) * ee_delta_scale
+                deltas_q = ee_kine.delta_q_from_delta_ee_6d(
+                    current_qs, delta_ee
+                )
+                targets = current_qs + deltas_q
+                gripper_logits = act_np[:, 6]
+            elif use_ee_action:
                 # action[:3] = ee delta in (dx, dy, dz). Convert via DLS pseudoinverse.
                 delta_ee = act_np[:, :3].astype(np.float64) * ee_delta_scale  # (N, 3)
                 deltas_q = ee_kine.delta_q_from_delta_ee(
@@ -483,19 +540,79 @@ def train_ppo(
             else:
                 obs_all = sim.observe_all()
 
-            # Shaped reward — vectorized fast path for ee_near.
+            # Shaped reward — vectorized fast path for ee_near + inserted.
             if use_batched_reward and use_array_api:
                 ee_xyz_batch = obs_arrays["ee_xyz"]
                 tgt_xyz_batch = obs_arrays["obj_xyz"][success_target_oid]
-                rew_buf[t] = compute_shaped_reward_batch(
-                    task.success, ee_xyz_batch, tgt_xyz_batch
-                )
-                # Diagnostics: track distance and threshold-crossings
-                _dist = np.linalg.norm(ee_xyz_batch - tgt_xyz_batch, axis=1)
-                iter_dist_sum += float(_dist.mean())
-                iter_dist_n += 1
-                _thresh = float(task.success.data.get("threshold_m", 0.05))
-                ever_within |= (_dist <= _thresh)
+                if use_insertion_reward:
+                    ee_quat_batch = obs_arrays["ee_quat"]
+                    port_quat_batch = obs_arrays.get("obj_quat", {}).get(success_target_oid)
+                    rew_buf[t] = compute_inserted_reward_batch(
+                        task.success, ee_xyz_batch, ee_quat_batch, tgt_xyz_batch,
+                        port_quat_batch=port_quat_batch,
+                        inserted_streak=inserted_streak,
+                        last_action=act_np,
+                    )
+                    # Update streak for next step's hold-still bonus. Compute
+                    # success per-world from the same predicate the reward used
+                    # (depth + axis + yaw_ok). Cheap inline reproduction —
+                    # only needs depth here since align/yaw were already
+                    # computed by the reward call's diagnostics block below.
+                    # Insertion diagnostics: tip-to-port distance, alignment, depth.
+                    check = task.success.data
+                    port_axis_v = np.asarray(
+                        check.get("port_axis", [0.0, 0.0, 1.0]), dtype=np.float64
+                    )
+                    port_axis_v /= max(float(np.linalg.norm(port_axis_v)), 1e-9)
+                    plane_z_v = float(check.get("port_plane_z", 0.0))
+                    offset_v = np.asarray(
+                        check.get("plug_tip_offset_ee", [0.0, 0.0, 0.05]),
+                        dtype=np.float64,
+                    )
+                    min_depth_v = float(check.get("min_depth_m", 0.005))
+                    axis_tol_deg_v = float(check.get("axis_tol_deg", 5.0))
+                    qx = ee_quat_batch[:, 0]; qy = ee_quat_batch[:, 1]
+                    qz = ee_quat_batch[:, 2]; qw = ee_quat_batch[:, 3]
+                    x2_, y2_, z2_ = qx + qx, qy + qy, qz + qz
+                    wx_, wy_, wz_ = qw * x2_, qw * y2_, qw * z2_
+                    xx_, xy_, xz_ = qx * x2_, qx * y2_, qx * z2_
+                    yy_, yz_, zz_ = qy * y2_, qy * z2_, qz * z2_
+                    R_ = np.empty((ee_quat_batch.shape[0], 3, 3), dtype=np.float64)
+                    R_[:, 0, 0] = 1.0 - (yy_ + zz_); R_[:, 0, 1] = xy_ - wz_;        R_[:, 0, 2] = xz_ + wy_
+                    R_[:, 1, 0] = xy_ + wz_;        R_[:, 1, 1] = 1.0 - (xx_ + zz_); R_[:, 1, 2] = yz_ - wx_
+                    R_[:, 2, 0] = xz_ - wy_;        R_[:, 2, 1] = yz_ + wx_;         R_[:, 2, 2] = 1.0 - (xx_ + yy_)
+                    tip_b = ee_xyz_batch + np.einsum("nij,j->ni", R_, offset_v)
+                    plug_axis_b = np.einsum("nij,j->ni", R_, np.array([0.0, 0.0, 1.0]))
+                    _dist = np.linalg.norm(tip_b - tgt_xyz_batch, axis=1)
+                    iter_dist_sum += float(_dist.mean())
+                    iter_dist_n += 1
+                    cos_a = np.clip(
+                        np.einsum("ni,i->n", plug_axis_b, -port_axis_v), -1.0, 1.0
+                    )
+                    align_deg_b = np.degrees(np.arccos(cos_a))
+                    depth_b = plane_z_v - np.einsum("ni,i->n", tip_b, port_axis_v)
+                    iter_align_deg_sum += float(align_deg_b.mean())
+                    iter_depth_mm_sum += float(depth_b.mean()) * 1000.0
+                    iter_align_n += 1
+                    ever_aligned |= align_deg_b <= axis_tol_deg_v
+                    ever_inserted |= depth_b >= min_depth_v
+                    # Update streak: increment for worlds in inserted state,
+                    # reset to 0 for worlds out of it. Used by next step's
+                    # hold-still bonus.
+                    full_inserted = (
+                        (depth_b >= min_depth_v) & (align_deg_b <= axis_tol_deg_v)
+                    )
+                    inserted_streak = np.where(full_inserted, inserted_streak + 1, 0)
+                else:
+                    rew_buf[t] = compute_shaped_reward_batch(
+                        task.success, ee_xyz_batch, tgt_xyz_batch
+                    )
+                    # Diagnostics: track distance and threshold-crossings
+                    _dist = np.linalg.norm(ee_xyz_batch - tgt_xyz_batch, axis=1)
+                    iter_dist_sum += float(_dist.mean())
+                    iter_dist_n += 1
+                    _thresh = float(task.success.data.get("threshold_m", 0.05))
+                    ever_within |= (_dist <= _thresh)
             elif use_batched_reward:
                 ee_xyz_batch = np.array(
                     [o.ee_pose.xyz for o in obs_all], dtype=np.float64
@@ -504,9 +621,22 @@ def train_ppo(
                     [o.scene_objects[success_target_oid].xyz for o in obs_all],
                     dtype=np.float64,
                 )
-                rew_buf[t] = compute_shaped_reward_batch(
-                    task.success, ee_xyz_batch, tgt_xyz_batch
-                )
+                if use_insertion_reward:
+                    ee_quat_batch = np.array(
+                        [o.ee_pose.quat_xyzw for o in obs_all], dtype=np.float64
+                    )
+                    port_quat_batch = np.array(
+                        [o.scene_objects[success_target_oid].quat_xyzw for o in obs_all],
+                        dtype=np.float64,
+                    )
+                    rew_buf[t] = compute_inserted_reward_batch(
+                        task.success, ee_xyz_batch, ee_quat_batch, tgt_xyz_batch,
+                        port_quat_batch=port_quat_batch,
+                    )
+                else:
+                    rew_buf[t] = compute_shaped_reward_batch(
+                        task.success, ee_xyz_batch, tgt_xyz_batch
+                    )
             else:
                 for w in range(N):
                     rew_buf[t, w] = compute_shaped_reward(
@@ -564,7 +694,43 @@ def train_ppo(
 
         if iteration % log_interval == 0:
             mean_rew = float(rew_buf.mean())
-            if use_array_api and use_batched_reward:
+            if use_array_api and use_batched_reward and use_insertion_reward:
+                # End-of-rollout success: full inserted criterion (depth + align)
+                check = task.success.data
+                port_axis_v = np.asarray(
+                    check.get("port_axis", [0.0, 0.0, 1.0]), dtype=np.float64
+                )
+                port_axis_v /= max(float(np.linalg.norm(port_axis_v)), 1e-9)
+                plane_z_v = float(check.get("port_plane_z", 0.0))
+                offset_v = np.asarray(
+                    check.get("plug_tip_offset_ee", [0.0, 0.0, 0.05]),
+                    dtype=np.float64,
+                )
+                min_depth_v = float(check.get("min_depth_m", 0.005))
+                axis_tol_deg_v = float(check.get("axis_tol_deg", 5.0))
+                ee_xyz_b = obs_arrays["ee_xyz"]
+                ee_quat_b = obs_arrays["ee_quat"]
+                qx = ee_quat_b[:, 0]; qy = ee_quat_b[:, 1]
+                qz = ee_quat_b[:, 2]; qw = ee_quat_b[:, 3]
+                x2_, y2_, z2_ = qx + qx, qy + qy, qz + qz
+                wx_, wy_, wz_ = qw * x2_, qw * y2_, qw * z2_
+                xx_, xy_, xz_ = qx * x2_, qx * y2_, qx * z2_
+                yy_, yz_, zz_ = qy * y2_, qy * z2_, qz * z2_
+                R_ = np.empty((ee_quat_b.shape[0], 3, 3), dtype=np.float64)
+                R_[:, 0, 0] = 1.0 - (yy_ + zz_); R_[:, 0, 1] = xy_ - wz_;        R_[:, 0, 2] = xz_ + wy_
+                R_[:, 1, 0] = xy_ + wz_;        R_[:, 1, 1] = 1.0 - (xx_ + zz_); R_[:, 1, 2] = yz_ - wx_
+                R_[:, 2, 0] = xz_ - wy_;        R_[:, 2, 1] = yz_ + wx_;         R_[:, 2, 2] = 1.0 - (xx_ + yy_)
+                tip_b = ee_xyz_b + np.einsum("nij,j->ni", R_, offset_v)
+                plug_axis_b = np.einsum("nij,j->ni", R_, np.array([0.0, 0.0, 1.0]))
+                cos_a = np.clip(
+                    np.einsum("ni,i->n", plug_axis_b, -port_axis_v), -1.0, 1.0
+                )
+                align_deg_b = np.degrees(np.arccos(cos_a))
+                tgt_xyz_b = obs_arrays["obj_xyz"][success_target_oid]
+                depth_b = plane_z_v - np.einsum("ni,i->n", tip_b, port_axis_v)
+                end_inserted = (depth_b >= min_depth_v) & (align_deg_b <= axis_tol_deg_v)
+                n_success = int(end_inserted.sum())
+            elif use_array_api and use_batched_reward:
                 # ee_near: vectorized success check
                 threshold_m = float(task.success.data.get("threshold_m", 0.05))
                 ee_xyz_b = obs_arrays["ee_xyz"]
@@ -580,12 +746,25 @@ def train_ppo(
             rate = n_success / N * 100.0
             fps = total_env_steps / (time.time() - t0)
             mean_dist_m = (iter_dist_sum / iter_dist_n) if iter_dist_n else float("nan")
-            ever_pct = 100.0 * float(ever_within.mean()) if ever_within.size else 0.0
-            print(
-                f"iter {iteration:>5} | steps {total_env_steps:>10,} | "
-                f"rew {mean_rew:.3f} | dist {mean_dist_m*100:5.1f}cm | "
-                f"ever<thr {ever_pct:5.1f}% | end<thr {rate:5.1f}% | fps {fps:,.0f}"
-            )
+            if use_insertion_reward and iter_align_n > 0:
+                mean_align_deg = iter_align_deg_sum / iter_align_n
+                mean_depth_mm = iter_depth_mm_sum / iter_align_n
+                ever_aligned_pct = 100.0 * float(ever_aligned.mean())
+                ever_inserted_pct = 100.0 * float(ever_inserted.mean())
+                print(
+                    f"iter {iteration:>5} | steps {total_env_steps:>10,} | "
+                    f"rew {mean_rew:.3f} | tipDist {mean_dist_m*100:5.1f}cm | "
+                    f"align {mean_align_deg:5.1f}° | depth {mean_depth_mm:+6.1f}mm | "
+                    f"ever_align {ever_aligned_pct:5.1f}% | ever_ins {ever_inserted_pct:5.1f}% | "
+                    f"end_ins {rate:5.1f}% | fps {fps:,.0f}"
+                )
+            else:
+                ever_pct = 100.0 * float(ever_within.mean()) if ever_within.size else 0.0
+                print(
+                    f"iter {iteration:>5} | steps {total_env_steps:>10,} | "
+                    f"rew {mean_rew:.3f} | dist {mean_dist_m*100:5.1f}cm | "
+                    f"ever<thr {ever_pct:5.1f}% | end<thr {rate:5.1f}% | fps {fps:,.0f}"
+                )
 
         if save_path is not None and iteration % checkpoint_interval == 0:
             p = NeuralPolicy(

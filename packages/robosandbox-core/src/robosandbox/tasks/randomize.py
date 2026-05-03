@@ -95,6 +95,18 @@ def jitter_scene(scene: Scene, spec: dict[str, Any] | None, seed: int) -> Scene:
 
     See module docstring for per-kind skip rules (mesh size / drawer
     rgba+size+mass).
+
+    Group jitter: when ``group_prefixes`` is set, objects whose id starts
+    with any of those prefixes are rigidly jittered as a unit. They share
+    a single (dx, dy, dyaw) drawn once per scene call. Rotation is around
+    ``group_center`` (object id whose pose is the rotation pivot). This is
+    used for compound static structures like the port in the connector-
+    insertion task: 4 walls + 4 chamfer plates + base + target marker
+    all move together.
+
+    Group jitter uses ``group_xy_jitter`` and ``group_yaw_jitter``
+    amplitudes (independent of the per-object ``xy_jitter`` / ``yaw_jitter``
+    so a task can mix individual + group jitter without coupling).
     """
     if not spec or seed == 0 or not scene.objects:
         return scene
@@ -105,26 +117,76 @@ def jitter_scene(scene: Scene, spec: dict[str, Any] | None, seed: int) -> Scene:
     size_amp = float(spec.get("size_jitter", 0.0))
     mass_amp = float(spec.get("mass_jitter", 0.0))
 
-    if xy <= 0.0 and yaw <= 0.0 and rgba_amp <= 0.0 and size_amp <= 0.0 and mass_amp <= 0.0:
+    group_prefixes = tuple(spec.get("group_prefixes", []) or [])
+    group_xy = float(spec.get("group_xy_jitter", 0.0))
+    group_yaw = float(spec.get("group_yaw_jitter", 0.0))
+    group_center_id = spec.get("group_center")
+
+    if (
+        xy <= 0.0 and yaw <= 0.0 and rgba_amp <= 0.0
+        and size_amp <= 0.0 and mass_amp <= 0.0
+        and group_xy <= 0.0 and group_yaw <= 0.0
+    ):
         return scene
 
     global _warned_mesh_size
     rng = random.Random(seed)
+
+    # ---- Group jitter: draw one (dx, dy, dyaw) for the whole group. ----
+    group_dx = group_dy = group_dyaw = 0.0
+    group_center_xy = (0.0, 0.0)
+    if group_prefixes and (group_xy > 0.0 or group_yaw > 0.0):
+        if group_xy > 0.0:
+            group_dx = rng.uniform(-group_xy, group_xy)
+            group_dy = rng.uniform(-group_xy, group_xy)
+        if group_yaw > 0.0:
+            group_dyaw = rng.uniform(-group_yaw, group_yaw)
+        if group_center_id is not None:
+            for obj in scene.objects:
+                if obj.id == group_center_id:
+                    group_center_xy = (float(obj.pose.xyz[0]), float(obj.pose.xyz[1]))
+                    break
+
+    def _is_in_group(oid: str) -> bool:
+        return any(oid.startswith(p) for p in group_prefixes)
+
+    cos_g = math.cos(group_dyaw) if group_dyaw != 0.0 else 1.0
+    sin_g = math.sin(group_dyaw) if group_dyaw != 0.0 else 0.0
+    cx, cy = group_center_xy
+
     new_objects = []
     for obj in scene.objects:
         is_drawer = obj.kind == "drawer"
         is_mesh = obj.kind == "mesh"
 
         # --- Pose: xy + yaw jitter ---
-        dx = rng.uniform(-xy, xy) if xy > 0.0 else 0.0
-        dy = rng.uniform(-xy, xy) if xy > 0.0 else 0.0
-        dyaw = rng.uniform(-yaw, yaw) if yaw > 0.0 else 0.0
-        x, y, z = obj.pose.xyz
-        new_xyz = (x + dx, y + dy, z)
-        if dyaw != 0.0:
-            new_quat = _quat_mul_xyzw(_quat_xyzw_from_yaw(dyaw), obj.pose.quat_xyzw)
+        # Group members share a single (dx, dy, dyaw) drawn above and skip
+        # their own per-object draws so the rigid group stays rigid.
+        in_group = _is_in_group(obj.id)
+        if in_group:
+            x, y, z = obj.pose.xyz
+            # Rotate (xy - center) by group_dyaw, then translate by group_d{x,y}
+            rx = x - cx
+            ry = y - cy
+            new_x = cx + cos_g * rx - sin_g * ry + group_dx
+            new_y = cy + sin_g * rx + cos_g * ry + group_dy
+            new_xyz = (new_x, new_y, z)
+            if group_dyaw != 0.0:
+                new_quat = _quat_mul_xyzw(
+                    _quat_xyzw_from_yaw(group_dyaw), obj.pose.quat_xyzw
+                )
+            else:
+                new_quat = obj.pose.quat_xyzw
         else:
-            new_quat = obj.pose.quat_xyzw
+            dx = rng.uniform(-xy, xy) if xy > 0.0 else 0.0
+            dy = rng.uniform(-xy, xy) if xy > 0.0 else 0.0
+            dyaw = rng.uniform(-yaw, yaw) if yaw > 0.0 else 0.0
+            x, y, z = obj.pose.xyz
+            new_xyz = (x + dx, y + dy, z)
+            if dyaw != 0.0:
+                new_quat = _quat_mul_xyzw(_quat_xyzw_from_yaw(dyaw), obj.pose.quat_xyzw)
+            else:
+                new_quat = obj.pose.quat_xyzw
         new_pose = Pose(xyz=new_xyz, quat_xyzw=new_quat)
 
         # --- RGBA jitter (skip on drawer) ---
