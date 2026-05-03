@@ -147,7 +147,9 @@ primary role in this memo.
 
 What matters is the boundary:
 
-a strong policy still does not answer:
+a policy, even a strong VLA, does not define the task contract or
+evaluate the outcome. It just chooses the next action. It still does
+not answer:
 
 - what task are we solving?
 - what counts as success?
@@ -182,21 +184,23 @@ different claims.
 
 ## Workflow is where time gets burned
 
-A **workflow** is the full loop:
+There are two loops, and they are not the same:
 
 ```text
-define task
--> run planner or policy
--> execute actions
--> record results
--> inspect failure
--> try again
+robot loop:
+  task -> observation -> decision -> action -> outcome
+
+developer loop:
+  define task -> run test -> inspect logs -> tweak policy -> try again
 ```
 
-This is where teams often lose the most time.
+The robot loop runs in milliseconds. The developer loop runs in hours
+or days, and that is where teams lose the most time.
 
 Not because one model is impossible, but because the whole loop is hard
-to run, hard to compare, and hard to debug.
+to run, hard to compare, and hard to debug. If it is hard to run a test,
+hard to compare two policies, or hard to see why an action failed, the
+developer loop slows to a crawl regardless of how good the model is.
 
 That is why these distinctions matter:
 
@@ -226,15 +230,15 @@ task
 ```
 
 If you want to work on robotics sanely, that visibility needs to be
-concrete, not philosophical. In practice it means the system should
-give you things you can inspect:
+concrete, not philosophical. Every time you run a task, you should get
+back inspectable artifacts:
 
-- the task you ran
-- the observations the robot saw
-- the actions or skills chosen
-- the commands sent
-- the result and failure reason
-- a replayable record of what happened
+- **Execution trace** — the exact sequence of what the robot saw and
+  what commands it sent
+- **Outcome** — a clear pass/fail grade against your predefined
+  success criteria
+- **Replay** — a deterministic recording of the entire episode
+- **Failure reason** — when it failed, where in the loop it failed
 
 That is the real meaning of an **inspectable experimentation layer**.
 

@@ -160,11 +160,17 @@ def main() -> int:
             proc.stdin.write(frame.tobytes())
 
             # Step the sim. Replay a new policy action every action_repeat
-            # steps; hold the previous action otherwise.
+            # steps; hold the previous action otherwise. Each world gets its
+            # own action driven by its own observation — that's the whole
+            # point of "parallel eval at scale". Broadcasting world-0's
+            # action would defeat the randomization.
             if step_i % args.action_repeat == 0:
-                obs0 = obs_list[0]
-                action = np.asarray(policy.act(obs0)).ravel()
-            sim.step(target_joints=action[:n_dof], gripper=float(action[n_dof]))
+                actions = np.stack(
+                    [np.asarray(policy.act(o), dtype=np.float64).ravel()
+                     for o in obs_list],
+                    axis=0,
+                )  # (W, n_dof + 1)
+            sim.step_all(actions[:, :n_dof], actions[:, n_dof])
 
             if (step_i + 1) % 50 == 0:
                 print(f"[rec] step {step_i + 1}/{args.max_steps}  successes so far: {len(success_step)}/{args.world_count}")
