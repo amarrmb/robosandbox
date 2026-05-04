@@ -1,17 +1,17 @@
 # Quickstart
 
-Install, open the viewer, record one episode, export it. Five minutes.
+Five minutes from clone to a recorded episode in the browser.
 
 ## Install
 
-**Step 1: install `uv`** (Python package manager, replaces pip + venv).
+**Step 1 — install `uv`** (Python package manager, replaces pip + venv):
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env   # or open a new terminal
 ```
 
-**Step 2: clone and install.**
+**Step 2 — clone and install:**
 
 ```bash
 git clone https://github.com/amarrmb/robosandbox
@@ -58,10 +58,8 @@ Then open **http://localhost:8000** in your browser.
     **Bind to all interfaces** — use on trusted/private networks only:
     ```bash
     uv run robo-sandbox viewer --host 0.0.0.0
-    # open http://<remote-ip>:8000
-    ```
-
-You'll see a live sim window, a task input field, and a log panel.
+    # → open http://<remote-ip>:8000
+    ``` You'll see a live sim window, a task input field, and a log panel.
 
 ![Viewer running a pick task](assets/demos/franka_pick.gif)
 
@@ -87,22 +85,19 @@ uv pip install -e 'packages/robosandbox-core[lerobot]'
 uv run robo-sandbox export-lerobot runs/<your-episode-dir> datasets/my_demo
 ```
 
-That writes a LeRobot v3 dataset on disk, ready to inspect or train on.
+You now have a LeRobot v3 dataset on disk, ready to inspect or train on.
 
 ## Next steps
 
-If the goal is to score a checkpoint (the actual product), the on-ramp is [What you can do](what-you-can-do.md) followed by [Train ACT and eval it](tutorials/train-act-and-eval.md).
-
-For everything else:
-
-- [How the agent loop works](guides/how-it-works.md) — agent loop, skills, replan.
-- [Bring your own robot](guides/bring-your-own-robot.md) — swap the arm.
-- [Bring your own task](guides/bring-your-own-task.md) — write a custom task.
-- [LeRobot workflow](tutorials/lerobot-export.md) — record → export → train.
+- **[Guides](guides/how-it-works.md)** — how the agent loop, skills, and replan work
+- **[Bring your own robot](guides/bring-your-own-robot.md)** — swap the arm
+- **[Bring your own task](guides/bring-your-own-task.md)** — write a custom task
+- **[LeRobot workflow](tutorials/lerobot-export.md)** — full sim-to-real pipeline
+- **[Train ACT and eval it](tutorials/train-act-and-eval.md)** — go from recorded demos to a scored checkpoint
 
 !!! tip "Smoke test"
-    To verify the sim runs correctly across all built-in tasks:
+    Want to verify the sim runs correctly across all built-in tasks?
     ```bash
     uv run robo-sandbox-bench
     ```
-    Runs the stub planner headlessly and prints a pass/fail table. Useful after changing environment or dependencies.
+    This runs the stub planner headlessly and prints a pass/fail table. Useful after changing environment or dependencies.

@@ -1,10 +1,12 @@
-# What you can do
+# What You Can Do
 
-Three things, in order of how often you'll use them.
+Three things, in the order you'll most often use them.
 
-## 1. Score a checkpoint
+## 1. Score a Checkpoint
 
 `robo-sandbox eval` takes a checkpoint and a task and writes a JSON.
+That JSON is the artifact: every downstream comparison, slicing, and
+regression check reads from it.
 
 ```bash
 robo-sandbox eval \
@@ -15,40 +17,28 @@ robo-sandbox eval \
     --output outputs/eval_50k.json
 ```
 
-The JSON is the artifact:
+The output JSON carries the headline number, a Wilson 95% CI on the
+rate, per-trial details (initial object pose, peak lift, EE-object
+min distance, success step), a spatial breakdown of where the policy
+failed, and a provenance block (checkpoint sha256, robosandbox git
+rev, lerobot/mujoco/torch versions, full CLI args). The Wilson CI
+matters more than the rate alone because Wald collapses to zero width
+at 0% and 100% and undercovers for small `n`. The provenance block
+matters because it lets a second run check, mechanically, whether
+the comparison is apples-to-apples.
 
-```jsonc
-{
-  "schema_version": 2,
-  "task": "pick_cube_franka_random",
-  "policy": {"path": ".../050000/pretrained_model", "kind": "lerobot_act"},
-  "sim_backend": "mujoco",
-  "n_trials": 64,
-  "successes": 28,
-  "rate": 0.4375,
-  "ci_low": 0.323, "ci_high": 0.559,
-  "spatial_breakdown": { "by_object_x": [...], "by_object_y": [...] },
-  "trials": [ /* per-trial cube pose, peak lift, EE-object distance */ ],
-  "provenance": {
-    "checkpoint_sha256": "...",
-    "robosandbox_git_rev": "...",
-    "lerobot_version": "0.4.3",
-    "mujoco_version": "3.3.0"
-  }
-}
-```
+Today's policy support is `LeRobotPolicyAdapter`. The `Policy`
+protocol is framework-agnostic, but we do not ship adapters for
+Diffusion Policy, Octo, or π0 — those need a thin user-side wrapper
+around the `Policy` protocol. See
+[the API reference](reference/api.md) for the protocol shape.
 
-Three blocks worth knowing:
+## 2. Compare Two Checkpoints Fairly
 
-- **`rate` + `ci_low` / `ci_high`** — Wilson 95% CI. Wilson because Wald collapses to zero width at 0% and 100% and undercovers for small `n`.
-- **`spatial_breakdown`** — per-bin success rate by initial object position. Where the policy fails, not what it scored.
-- **`provenance`** — checkpoint sha256, robosandbox git rev, library versions, full CLI args. Two JSONs with matching provenance are guaranteed-comparable.
-
-Policy support today is `LeRobotPolicyAdapter`. The `Policy` protocol is framework-agnostic — Diffusion Policy / Octo / π0 each need their own thin wrapper.
-
-## 2. Compare two checkpoints fairly
-
-Train twice (different seed, different hyperparams, different demo set). Score both. Diff them.
+Train your policy twice, score both, and diff them. `robo-sandbox
+compare` checks the `provenance` blocks before printing a delta, so
+two runs that differ on task, robosandbox git rev, or eval CLI args
+are caught instead of silently compared.
 
 ```bash
 robo-sandbox eval --policy outputs/act_50k --output outputs/eval_50k.json   ...
@@ -57,9 +47,8 @@ robo-sandbox eval --policy outputs/act_60k --output outputs/eval_60k.json   ...
 robo-sandbox compare outputs/eval_50k.json outputs/eval_60k.json
 ```
 
-`compare` checks `provenance` first. If task, robosandbox git rev, or eval CLI args differ between the runs, it refuses to print a delta. A number you can't reproduce isn't a number.
-
-When provenance lines up:
+When provenance lines up, the output is a per-checkpoint rate, the
+Wilson CI on each, and a delta with a significance test:
 
 ```
 50k: 28/64  43.8%  CI [32.3, 55.9]
@@ -67,9 +56,12 @@ When provenance lines up:
 delta: -23.4 pp  (overlapping CIs — significant at p<0.05? no)
 ```
 
-## 3. Find where your policy fails
+## 3. Find Where a Policy Fails
 
-`spatial_breakdown` buckets every trial by initial cube position. Open the JSON.
+The eval JSON's `spatial_breakdown` block buckets every trial by the
+tracked object's initial position. Open the JSON and read that block
+like a histogram — the bucket with high `n` and low `rate` is the
+failure zone.
 
 ```jsonc
 "spatial_breakdown": {
@@ -83,12 +75,18 @@ delta: -23.4 pp  (overlapping CIs — significant at p<0.05? no)
 }
 ```
 
-Read it like a histogram of success rate by position. Above: works in the centre (~60%), collapses in the workspace extremes (~25%). That's a coverage problem in the demos, not a hyperparameter problem. Record more demos in the failure zone, retrain, re-eval, diff.
-
-The full loop is in [Iterating on a policy](guides/iterating-on-a-policy.md).
+That excerpt shows a policy that works in the centre of the
+workspace (around 60%) and collapses in the extremes (around 25%).
+The fix is usually more demos in the failure bucket, not more
+training steps; the demo distribution drove the coverage gap. The
+full demo-add-retrain-re-eval loop is in
+[Iterating on a policy](guides/iterating-on-a-policy.md).
 
 ## See also
 
-- [The eval contract](concepts/the-eval-contract.md) — the schema and the seven invariants enforced in code.
-- [Train ACT and eval it](tutorials/train-act-and-eval.md) — full IL recipe end-to-end.
-- [Iterating on a policy](guides/iterating-on-a-policy.md) — the demo-add-retrain loop using `spatial_breakdown`.
+- [The eval contract](concepts/the-eval-contract.md) — the schema
+  and the seven invariants enforced in code.
+- [Train ACT and eval it](tutorials/train-act-and-eval.md) — the
+  full IL recipe end-to-end.
+- [Where things are](where-things-are.md) — which page (and which
+  branch) covers each part of the workflow.
