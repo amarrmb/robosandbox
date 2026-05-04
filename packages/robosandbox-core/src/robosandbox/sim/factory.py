@@ -19,6 +19,12 @@ _BUILTIN_BACKENDS: dict[str, str] = {
     # parallel API as Newton, used by `train --sim-backend mujoco_vec` for
     # PPO refinement on the sim where contact actually converges.
     "mujoco_vec": "robosandbox.sim.mujoco_vec_backend:MuJoCoVecBackend",
+    # Learned-dynamics propagator. Bootstraps from a real backend for the
+    # initial observation + scene introspection, then time-evolves via a
+    # WorldModelPredictor (default IdentityPredictor — proves the slot,
+    # scores 0% until you swap in a real model). See
+    # docs/site/docs/concepts/eval-for-world-models.md.
+    "world_model": "robosandbox.sim.world_model_backend:WorldModelBackend",
 }
 
 
