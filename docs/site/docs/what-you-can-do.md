@@ -67,8 +67,6 @@ When provenance lines up:
 delta: -23.4 pp  (overlapping CIs — significant at p<0.05? no)
 ```
 
-That single command is what stops you from chasing noise.
-
 ## 3. Find where your policy fails
 
 `spatial_breakdown` buckets every trial by initial cube position. Open the JSON.
@@ -89,12 +87,8 @@ Read it like a histogram of success rate by position. Above: works in the centre
 
 The full loop is in [Iterating on a policy](guides/iterating-on-a-policy.md).
 
-## Three questions you can now answer
+## See also
 
-| Question | Where the answer lives |
-|---|---|
-| Did this checkpoint actually get better, or did I get lucky on the test seed? | `rate` + `ci_low` / `ci_high` |
-| Is this comparison meaningful? | `provenance` match in `robo-sandbox compare` |
-| Where is my policy failing? | `spatial_breakdown` |
-
-For the schema, the seven invariants enforced in code, and where each one lives, see [The eval contract](concepts/the-eval-contract.md).
+- [The eval contract](concepts/the-eval-contract.md) — the schema and the seven invariants enforced in code.
+- [Train ACT and eval it](tutorials/train-act-and-eval.md) — full IL recipe end-to-end.
+- [Iterating on a policy](guides/iterating-on-a-policy.md) — the demo-add-retrain loop using `spatial_breakdown`.

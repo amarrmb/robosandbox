@@ -1,10 +1,16 @@
 # RoboSandbox
 
-Two checkpoints, same task. Which one actually got better?
+RoboSandbox is an evaluation harness for manipulation policies. It runs a LeRobot-compatible checkpoint against a task in MuJoCo or Newton and writes a JSON.
 
-In sim today, you can't tell. Different teams settle physics differently, run different numbers of trials, score success differently. The numbers don't compose. Read a 43% pick rate in one paper and a 51% pick rate in another and you're comparing weather reports from different planets.
+The JSON contains:
 
-`robo-sandbox eval` makes the contract explicit. One command, one JSON: success rate, Wilson 95% CI, per-position breakdown of where it failed, full provenance. Same JSON whether you ran 64 trials in MuJoCo or 1024 parallel trials in Newton.
+- success rate
+- Wilson 95% CI on the rate
+- per-trial details (initial object pose, peak lift, EE-object min distance, success step)
+- per-position breakdown of where the policy failed
+- provenance (checkpoint sha256, robosandbox git rev, lerobot/mujoco/torch versions, full CLI args)
+
+The shape is the same for a single MuJoCo trial or 1024 parallel Newton trials.
 
 ```bash
 robo-sandbox eval \
@@ -16,11 +22,9 @@ robo-sandbox eval \
 # 28/64 (43.8%), CI [32.3, 55.9], spatial_breakdown by cube x/y
 ```
 
-That's the whole product. Everything below is how to use it.
+## What's scored today
 
-## What's run, what scored
-
-Today's policy support is `LeRobotPolicyAdapter`. The `Policy` protocol is framework-agnostic — wrappers for Diffusion Policy, Octo, π0 are a few hours of glue each, but they aren't shipped.
+Policy support is `LeRobotPolicyAdapter`. The `Policy` protocol is framework-agnostic. Wrappers for Diffusion Policy, Octo, and π0 are a few hours of glue each, but they aren't shipped.
 
 Numbers from real runs on this branch:
 
@@ -32,15 +36,15 @@ Numbers from real runs on this branch:
 | USB-A 1.5mm insertion, 1024 Newton worlds | 988/1024 (96.5%), CI [95.2, 97.4] |
 | Same insertion policy, replayed in classical MuJoCo, n=32 | 32/32 (100%), CI [89.3, 100.0] |
 
-The cross-sim row matters most. A policy trained in Newton runs in classical MuJoCo at full success without re-training or code changes. If it didn't transfer, the sim numbers wouldn't mean much.
+The cross-sim row is the load-bearing one. A policy trained in Newton runs in classical MuJoCo at full success without re-training or code changes. Without sim-to-sim transfer, sim numbers in isolation don't tell you much.
 
 <p align="center">
   <video src="https://github.com/amarrmb/robosandbox/raw/main/docs/site/docs/assets/demos/usb_a_insertion_zoom.mp4" width="640" controls muted></video>
 </p>
 
-Four Franka arms, four different port positions, USB-A spec (1.5mm clearance), all four insertions complete. Same policy ran in classical MuJoCo at 32/32 with zero code change.
+The video shows four Franka arms picking USB-A connectors (1.5mm clearance) from four different port positions. All four insertions complete. The same policy then ran in classical MuJoCo at 32/32 with no code changes.
 
-The `eval` CLI lives on `experimental/newton-eval` today and lands on `main` with the eval-and-recording-hygiene PR. Until that ships, reproducing any of the rows above means checking out the branch.
+The `eval` CLI lives on `experimental/newton-eval` today. It lands on `main` with the eval-and-recording-hygiene PR. Reproducing the rows above needs that branch checked out.
 
 ## Try it
 
@@ -56,17 +60,14 @@ uv run robo-sandbox viewer
 # hit Record before running to save the episode for export
 ```
 
-No API key, no model download. The built-in planner runs without a VLM so you can verify the install before plugging anything in.
+No API key, no model download. The built-in planner runs without a VLM so the install can be verified before plugging anything in.
 
 ## What this isn't
 
-A training framework. Train your policy elsewhere — `lerobot train`, your own RL loop, whatever — and bring the checkpoint here.
-
-A photorealistic simulator. MuJoCo + Newton, no rendering tricks. If your policy needs realistic textures or lighting, this is the wrong tool.
-
-A drop-in for arbitrary policy frameworks. The `LeRobotPolicyAdapter` is what's shipped. Other frameworks need their own wrapper around the `Policy` protocol.
-
-If you outgrow this and move to Isaac Sim or your team's internal stack, that's success.
+- **A training framework.** Train policies elsewhere (`lerobot train`, your own RL loop, whatever). Bring the checkpoint here.
+- **A photorealistic simulator.** MuJoCo + Newton, no rendering tricks. Wrong tool if the policy needs realistic textures or lighting.
+- **A drop-in for arbitrary policy frameworks.** Only `LeRobotPolicyAdapter` ships. Other frameworks need their own wrapper around the `Policy` protocol.
+- **A multi-robot stack.** Single robot per scene.
 
 ## Make It Yours
 
