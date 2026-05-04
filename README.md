@@ -1,16 +1,10 @@
 # RoboSandbox
 
-> Score manipulation policies against a reproducible eval contract.
-> Today: any LeRobot-compatible checkpoint, MuJoCo + Newton backends.
+Two checkpoints, same task. Which one actually got better?
 
-<p align="center">
-  <img src="docs/site/docs/assets/demos/hero.gif" alt="Franka picks a red cube from a natural-language command" width="560">
-</p>
+In sim today, you can't tell. Different teams settle physics differently, run different numbers of trials, score success differently. The numbers don't compose. Read a 43% pick rate in one paper and a 51% pick rate in another and you're comparing weather reports from different planets.
 
-Point a checkpoint at a task. Get back a JSON: success rate, Wilson
-95% CI, per-position breakdown of where it failed, full provenance
-(checkpoint sha, git rev, library versions). Same contract whether
-you ran one trial in MuJoCo or a thousand parallel trials in Newton.
+`robo-sandbox eval` makes the contract explicit. One command, one JSON: success rate, Wilson 95% CI, per-position breakdown of where it failed, full provenance. Same JSON whether you ran 64 trials in MuJoCo or 1024 parallel trials in Newton.
 
 ```bash
 robo-sandbox eval \
@@ -19,40 +13,34 @@ robo-sandbox eval \
     --sim-backend mujoco \
     --n-trials 64 --action-repeat 6 --settle-steps 60 \
     --output outputs/eval_50k.json
-# → 28/64 (43.8%), CI [32.3, 55.9], spatial_breakdown by cube x/y
+# 28/64 (43.8%), CI [32.3, 55.9], spatial_breakdown by cube x/y
 ```
 
-That's the whole pitch. Everything below is how to use it.
+That's the whole product. Everything below is how to use it.
 
-## What works today
+## What's run, what scored
 
-| | Result | Where |
-|---|---|---|
-| ACT policy on `pick_cube_franka_random` (n=64) | 43.8%, CI [32.3, 55.9] | `main` — see [Train ACT and eval it](docs/site/docs/tutorials/train-act-and-eval.md) |
-| Reach, 1024 parallel Newton worlds | 100% (1024/1024) | branch `experimental/newton-eval` |
-| USB-A 1.5mm insertion, 64 worlds | 100% (64/64) | branch `experimental/newton-eval` |
-| USB-A 1.5mm insertion, 1024 worlds | 96.5%, CI [95.2, 97.4] | branch `experimental/newton-eval` |
-| Same insertion policy, classical MuJoCo (zero code change) | 100% (32/32), CI [89.3, 100.0] | branch `experimental/newton-eval` |
+Today's policy support is `LeRobotPolicyAdapter`. The `Policy` protocol is framework-agnostic — wrappers for Diffusion Policy, Octo, π0 are a few hours of glue each, but they aren't shipped.
 
-The cross-sim row is the headline: a policy trained on Newton runs in
-classical MuJoCo at full success without re-training. That's the
-precondition for trusting any sim number at all.
+Numbers from real runs on this branch:
+
+| Run | Result |
+|---|---|
+| ACT 50k on `pick_cube_franka_random`, n=64, MuJoCo | 28/64 (43.8%), CI [32.3, 55.9] |
+| Reach, 1024 parallel Newton worlds | 1024/1024 (100%) |
+| USB-A 1.5mm insertion, 64 Newton worlds | 64/64 (100%) |
+| USB-A 1.5mm insertion, 1024 Newton worlds | 988/1024 (96.5%), CI [95.2, 97.4] |
+| Same insertion policy, replayed in classical MuJoCo, n=32 | 32/32 (100%), CI [89.3, 100.0] |
+
+The cross-sim row matters most. A policy trained in Newton runs in classical MuJoCo at full success without re-training or code changes. If it didn't transfer, the sim numbers wouldn't mean much.
 
 <p align="center">
   <video src="https://github.com/amarrmb/robosandbox/raw/main/docs/site/docs/assets/demos/usb_a_insertion_zoom.mp4" width="640" controls muted></video>
 </p>
 
-*Four Franka arms, four different port positions, USB-A spec (1.5mm
-clearance), all four insertions complete. Same policy ran in classical
-MuJoCo at 32/32 with zero code change.*
+Four Franka arms, four different port positions, USB-A spec (1.5mm clearance), all four insertions complete. Same policy ran in classical MuJoCo at 32/32 with zero code change.
 
-> **Reproducing the branch rows.** The four
-> `experimental/newton-eval` rows need that branch checked out — the
-> `train` CLI, Newton parallel backend, and cross-sim harness live
-> there. The `eval` CLI itself lands on `main` with the
-> eval-and-recording-hygiene PR. Until that ships, the IL row
-> (`pick_cube_franka_random`) is reproducible only on the branch as
-> well; afterward it works straight from `main`.
+The `eval` CLI lives on `experimental/newton-eval` today and lands on `main` with the eval-and-recording-hygiene PR. Until that ships, reproducing any of the rows above means checking out the branch.
 
 ## Try it
 
@@ -63,60 +51,22 @@ uv sync
 uv pip install -e 'packages/robosandbox-core[viewer]'
 
 uv run robo-sandbox viewer
-# → open http://localhost:8000
-# → pick a task, type "pick up the red cube", click Run
-# → hit Record to save the episode for export to LeRobot
+# open http://localhost:8000
+# pick a task, type "pick up the red cube", click Run
+# hit Record before running to save the episode for export
 ```
 
-No API key, no model download. The built-in planner runs without a VLM
-so you can verify the install before plugging anything in.
+No API key, no model download. The built-in planner runs without a VLM so you can verify the install before plugging anything in.
 
-## Why this exists
+## What this isn't
 
-Most policy evals don't compose. Different teams use different sims,
-different success criteria, different statistics. You can't read a
-"pick success rate" from one paper and compare it to another. RoboSandbox
-fixes that by making the eval contract explicit and the same across
-backends and policies. Bring your checkpoint, score it the same way
-everyone else scored theirs.
+A training framework. Train your policy elsewhere — `lerobot train`, your own RL loop, whatever — and bring the checkpoint here.
 
-What this is **not**:
+A photorealistic simulator. MuJoCo + Newton, no rendering tricks. If your policy needs realistic textures or lighting, this is the wrong tool.
 
-- A training framework. Train your policy elsewhere (e.g. `lerobot
-  train`) and bring the checkpoint here.
-- A photorealistic simulator. MuJoCo + Newton, no rendering tricks.
-- A drop-in for arbitrary policy frameworks. The only adapter shipped
-  today is `LeRobotPolicyAdapter`. Other frameworks need a thin
-  wrapper around the `Policy` protocol.
+A drop-in for arbitrary policy frameworks. The `LeRobotPolicyAdapter` is what's shipped. Other frameworks need their own wrapper around the `Policy` protocol.
 
-Honest scope. If you outgrow this and move to Isaac Sim or your team's
-internal stack, that's success.
-
-## How It Works
-
-```
-user: "pick up the red cube and put it on the green cube"
-       │
-       ▼
- planner ─► [pick(red_cube), place_on(green_cube)]
-       │
-       ▼
- perception (VLM or ground truth) locates both in 3D
-       │
-       ▼
- motion (DLS Jacobian IK + Cartesian interpolation) executes
-       │
-       ▼
- recorder writes runs/<id>/video.mp4 + events.jsonl
-```
-
-Deeper dives live under [`docs/site/`](docs/site/):
-
-- [How it works in 3 minutes](docs/site/docs/guides/how-it-works.md) — the four-layer architecture
-- [Running the agent](docs/site/docs/guides/agent-runs.md) — CLI entry points, recorded artifacts, provider switch
-- [VLM tool-calling](docs/site/docs/guides/vlm-tool-calling.md) — how text becomes `SkillCall`s
-- [Reachability pre-flight](docs/site/docs/guides/reachability.md) — catch bad object placements before physics runs
-- [Replan loop](docs/site/docs/guides/replan-loop.md) — ReAct recovery when skills fail
+If you outgrow this and move to Isaac Sim or your team's internal stack, that's success.
 
 ## Make It Yours
 
@@ -131,24 +81,22 @@ Deeper dives live under [`docs/site/`](docs/site/):
 | `openai` | `uv run robo-sandbox run --vlm-provider openai "stack all three cubes by colour — red on green on blue"` | `export OPENAI_API_KEY=sk-...` |
 | `custom` | `uv run robo-sandbox run --vlm-provider custom --base-url https://... ...` | any OpenAI-compatible endpoint (together.ai, vLLM, ...) |
 
-Override the model with `--model` (defaults: `llama3.2-vision` for
-ollama, `gpt-4o-mini` for openai). For richer reasoning on open-ended
-tasks, try `--model gpt-4o`.
+Override the model with `--model` (defaults: `llama3.2-vision` for ollama, `gpt-4o-mini` for openai). For richer reasoning on open-ended tasks, try `--model gpt-4o`.
 
 ### System prerequisites
 
-Requires Python 3.10–3.13. MuJoCo 3.2+ comes in as a dependency; no GPU needed.
+Requires Python 3.10–3.13. MuJoCo 3.2+ comes in as a dependency; no GPU needed for the IL track.
 
-**macOS (Apple Silicon or Intel):** works out of the box — no GL configuration needed.
+**macOS (Apple Silicon or Intel):** works out of the box.
 
-**Linux (Ubuntu 22.04 / 24.04):** CI-tested platform. Headless GL is required for rendering:
+**Linux (Ubuntu 22.04 / 24.04):** CI-tested. Headless GL needs one apt-get line:
 
 ```bash
 sudo apt-get install -y libosmesa6 libosmesa6-dev libgl1-mesa-dri
 export MUJOCO_GL=osmesa    # or `egl` if a GPU is available
 ```
 
-**Windows:** not directly supported. WSL2 running Ubuntu 22.04 works; follow the Linux path inside WSL.
+**Windows:** WSL2 + Ubuntu 22.04. Native Windows isn't supported.
 
 ### Bring your own…
 
@@ -159,8 +107,7 @@ export MUJOCO_GL=osmesa    # or `egl` if a GPU is available
 
 ## Extras
 
-Each extra is two lines: install the optional dependency, then run the
-command.
+Each extra is two lines: install the optional dependency, then run the command.
 
 ### Benchmark
 
@@ -170,14 +117,9 @@ uv run robo-sandbox-bench --seeds 50                # randomize and aggregate
 uv run robo-sandbox-bench --vlm-provider ollama     # use a real VLM
 ```
 
-Tasks with a `randomize:` block get per-seed perturbations. Seed 0 is
-the deterministic baseline; seeds ≥ 1 apply uniform jitter keyed on the
-seed. With multiple seeds the summary reports `mean ± stderr`. Results
-append to `benchmark_results.json` locally for regression tracking (the
-file is gitignored).
+Tasks with a `randomize:` block get per-seed perturbations. Seed 0 is the deterministic baseline; seeds ≥ 1 apply uniform jitter keyed on the seed. With multiple seeds the summary reports `mean ± stderr`. Results append to `benchmark_results.json` locally for regression tracking (the file is gitignored).
 
-Eight default tasks ship under
-`packages/robosandbox-core/src/robosandbox/tasks/definitions/` (plus one experimental):
+Eight default tasks ship under `packages/robosandbox-core/src/robosandbox/tasks/definitions/` (plus one experimental):
 
 | Task | What it exercises |
 |---|---|
@@ -191,21 +133,17 @@ Eight default tasks ship under
 | `push_forward` | Non-pick manipulation, verifies directional displacement |
 | `open_drawer` | First articulated primitive — drawer + `OpenDrawer` skill |
 
-`_experimental_stack_two` is excluded from default runs because stacking
-is still open work.
+`_experimental_stack_two` is excluded from default runs because stacking is still open work.
 
 ### Browser live viewer
 
 ```bash
 uv pip install -e 'packages/robosandbox-core[viewer]'
 uv run robo-sandbox viewer
-# → open http://localhost:8000
+# open http://localhost:8000
 ```
 
-Pick a task, click Run. Events log to the sidebar; frames stream at
-~15–50 fps depending on how fast the sim is stepping. Pass
-`--task pick_cube_franka` to preload a specific scene, `--host 0.0.0.0`
-to expose it on your LAN.
+Pick a task, click Run. Events log to the sidebar; frames stream at ~15–50 fps depending on how fast the sim is stepping. Pass `--task pick_cube_franka` to preload a specific scene, `--host 0.0.0.0` to expose it on your LAN.
 
 ### Documentation preview
 
@@ -215,13 +153,11 @@ uv run mkdocs serve -f docs/site/mkdocs.yml           # live preview
 uv run mkdocs build --strict -f docs/site/mkdocs.yml  # one-shot build
 ```
 
-If you're reading this on GitHub, start at
-[`docs/site/docs/index.md`](docs/site/docs/index.md).
+If you're reading this on GitHub, start at [`docs/site/docs/index.md`](docs/site/docs/index.md).
 
 ### Bring-your-own meshes
 
-The sandbox decomposes user OBJ/STL files with CoACD and caches the
-hulls at `~/.cache/robosandbox/mesh_hulls/`:
+The sandbox decomposes user OBJ/STL files with CoACD and caches the hulls at `~/.cache/robosandbox/mesh_hulls/`:
 
 ```bash
 uv pip install -e 'packages/robosandbox-core[meshes]'    # pulls in coacd
@@ -238,10 +174,7 @@ SceneObject(
 )
 ```
 
-`collision="hull"` is a cheap fallback for already-convex meshes — no
-CoACD install required, but the sandbox does not compute a hull for
-you; it trusts the mesh is convex. For concave objects, always use
-`collision="coacd"`.
+`collision="hull"` is a cheap fallback for already-convex meshes — no CoACD install required, but the sandbox does not compute a hull for you; it trusts the mesh is convex. For concave objects, always use `collision="coacd"`.
 
 Pre-decompose once for a bundled asset with the authoring tool:
 
@@ -256,14 +189,7 @@ uv run python scripts/decompose_mesh.py \
 
 ### Robots
 
-`packages/robosandbox-core/src/robosandbox/assets/robots/franka_panda/`
-ships a trimmed copy of Franka Emika
-Panda adapted from [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie)
-under Apache 2.0. Visual meshes removed (collision-only, ~160 KB); the
-tendon-driven gripper actuator was replaced with a simple position
-actuator on `finger_joint1` so the standard RobotSpec interface
-(open_qpos / closed_qpos) applies directly. See `LICENSE` in that
-directory for menagerie's attribution.
+`packages/robosandbox-core/src/robosandbox/assets/robots/franka_panda/` ships a trimmed copy of Franka Emika Panda adapted from [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie) under Apache 2.0. Visual meshes removed (collision-only, ~160 KB); the tendon-driven gripper actuator was replaced with a simple position actuator on `finger_joint1` so the standard RobotSpec interface (open_qpos / closed_qpos) applies directly. See `LICENSE` in that directory for menagerie's attribution.
 
 To bring your own robot:
 
@@ -275,16 +201,11 @@ Scene(
 )
 ```
 
-The sidecar YAML tells RoboSandbox which joint is the primary finger,
-where the end-effector TCP sits, the home pose, and gripper open/closed
-qpos. See `packages/robosandbox-core/src/robosandbox/assets/robots/franka_panda/panda.robosandbox.yaml`
-for the schema.
+The sidecar YAML tells RoboSandbox which joint is the primary finger, where the end-effector TCP sits, the home pose, and gripper open/closed qpos. See `packages/robosandbox-core/src/robosandbox/assets/robots/franka_panda/panda.robosandbox.yaml` for the schema.
 
 ### Objects
 
-`packages/robosandbox-core/src/robosandbox/assets/objects/ycb/` ships
-10 pre-decomposed YCB benchmark objects: a
-visual OBJ + N CoACD convex hulls + per-object sidecar YAML each.
+`packages/robosandbox-core/src/robosandbox/assets/objects/ycb/` ships 10 pre-decomposed YCB benchmark objects: a visual OBJ + N CoACD convex hulls + per-object sidecar YAML each.
 
 | YCB id | Description | Mass (kg) |
 |---|---|---|
@@ -321,13 +242,11 @@ list_builtin_ycb_objects()
 # ['003_cracker_box', '005_tomato_soup_can', ..., '055_baseball']
 ```
 
-See `packages/robosandbox-core/src/robosandbox/assets/objects/ycb/LICENSE`
-for the YCB project's terms.
+See `packages/robosandbox-core/src/robosandbox/assets/objects/ycb/LICENSE` for the YCB project's terms.
 
 ## Architecture
 
-The codebase is deliberately small. Most extension points are plain
-`Protocol`s, so the seams are easy to find and reason about.
+The codebase is deliberately small. Most extension points are plain `Protocol`s, so the seams are easy to find and reason about.
 
 ```
 packages/robosandbox-core/
@@ -383,29 +302,17 @@ class Planner(Protocol):
         """Returns (plan, n_model_calls). Empty plan == 'already done'."""
 ```
 
-`VLMPlanner` talks to an OpenAI-compatible endpoint with tool-calling
-and image input. `StubPlanner` is a regex parser.
+`VLMPlanner` talks to an OpenAI-compatible endpoint with tool-calling and image input. `StubPlanner` is a regex parser.
 
 ### Skills as tools
 
-Each skill exposes `name`, `description`, and a JSON
-`parameters_schema`. `VLMPlanner` turns that into tool definitions; the
-model's tool calls become skill dispatches. If you want to add a skill,
-register it at the `robosandbox.skills` entry point.
+Each skill exposes `name`, `description`, and a JSON `parameters_schema`. `VLMPlanner` turns that into tool definitions; the model's tool calls become skill dispatches. To add a skill, register it at the `robosandbox.skills` entry point.
 
 ## Status
 
-This is still an early project, but the core shape is there. Most
-moving parts are narrow `Protocol`s, so swapping in a different robot,
-object set, planner, recorder, or policy is a small integration job
-instead of a rewrite. The current stack is solid on pick/push/pour/
-drawer-style tasks. Stacking is still rougher than the rest and remains
-open work.
+Still early. Most moving parts are narrow `Protocol`s, so swapping in a different robot, object set, planner, recorder, or policy is a small integration job instead of a rewrite. Solid on pick/push/pour/drawer-style tasks today. Stacking is rougher than the rest and remains open work.
 
-The [roadmap](docs/site/docs/reference/roadmap.md) is the best place to
-see what already ships and what is still deferred. The short version:
-better stacking, collision-aware planning, a cleaner real-policy path,
-and a concrete SO-101 hardware backend are the main next steps.
+The [roadmap](docs/site/docs/reference/roadmap.md) is the best place to see what already ships and what's deferred. Short version: better stacking, collision-aware planning, a cleaner real-policy path, and a concrete SO-101 hardware backend are the main next steps.
 
 ## Development
 
@@ -417,14 +324,10 @@ uv run pytest packages/robosandbox-core/tests/ -q
 uv run robo-sandbox-bench --tasks pick_cube pick_cube_franka home pick_ycb_mug
 ```
 
-These are the exact commands CI runs on every PR (see
-`.github/workflows/ci.yml`).
+These are the exact commands CI runs on every PR (see `.github/workflows/ci.yml`).
 
 ## License
 
 Core: Apache 2.0.
 
-Optional `contrib/` plugins carry their own licenses — research-
-licensed grasp predictors etc. live there; they are opt-in installs
-and not pulled in by the base source install from
-`packages/robosandbox-core`.
+Optional `contrib/` plugins carry their own licenses — research-licensed grasp predictors etc. live there; they are opt-in installs and not pulled in by the base source install from `packages/robosandbox-core`.
