@@ -87,6 +87,7 @@ nav:
   - Concepts:
       - Why RoboSandbox exists: concepts/why-robosandbox-exists.md
       - The eval contract: concepts/the-eval-contract.md
+      - Eval for world models: concepts/eval-for-world-models.md
       - Scenes & objects: concepts/scenes.md
       - Skills & agents: concepts/skills-and-agents.md
       - Perception & grasping: concepts/perception-and-grasping.md

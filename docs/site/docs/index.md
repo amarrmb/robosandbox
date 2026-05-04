@@ -110,6 +110,9 @@ checkpoint + task YAML
   the seven invariants that make two evals comparable.
 - **[Compared to other tools](comparisons.md)** — table vs LeRobot,
   IsaacLab, RoboCasa, robosuite. Honest about losses.
+- **[Eval for world models](concepts/eval-for-world-models.md)** —
+  where this fits relative to World Labs, AMI Labs, NVIDIA Cosmos,
+  and V-JEPA-2. Includes a working `--sim-backend world_model` slot.
 - **[Quickstart](quickstart.md)** — install, open the viewer, record
   one episode. 5 minutes.
 - **[Train ACT and eval it](tutorials/train-act-and-eval.md)** — full
