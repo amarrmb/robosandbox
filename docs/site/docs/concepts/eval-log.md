@@ -45,6 +45,17 @@ detection. `regression_check` uses it to compare any policy to its
 parent slice-by-slice — which is the only honest way to ask "did this
 fine-tune help?".
 
+!!! warning "BC → PPO chaining is currently broken on contact-rich pick"
+    The lineage graph models the *workflow*; it doesn't claim every
+    edge in that workflow currently produces a working policy. As of
+    today, the BC → distill → PPO → fine-tune chain on
+    `pick_cube_franka` fails: the warm-start gets 34% in MuJoCo / 0%
+    in Newton, and 200k env-step PPO fine-tuning wipes the prior
+    instead of improving it. See
+    [The RL track](rl-track.md) for the structural reason
+    (Newton↔MuJoCo gravity-settling gap) and which RL results *do*
+    work today.
+
 ## Spec
 
 For the full schema and the design rationale, see

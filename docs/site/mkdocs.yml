@@ -90,6 +90,7 @@ nav:
       - Recording & export: concepts/recording-and-export.md
       - Real-robot bridge: concepts/real-robot.md
       - Eval log: concepts/eval-log.md
+      - The RL track (experimental): concepts/rl-track.md
   - Tutorials:
       - Custom arm: tutorials/custom-arm.md
       - Custom task: tutorials/custom-task.md

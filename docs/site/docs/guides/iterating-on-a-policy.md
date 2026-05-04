@@ -1,5 +1,13 @@
 # Iterating on a policy
 
+!!! warning "This guide is for the IL track only"
+    *"Train ACT → distill → warm-start PPO → fine-tune"* is a tempting
+    next step but **currently fails on contact-rich pick** because of a
+    structural Newton↔MuJoCo gravity-settling gap (~12 mrad joint
+    residual ≈ ~6 mm at the EE — beyond grasp tolerance for a 24 mm
+    cube). See [The RL track](../concepts/rl-track.md) for what works,
+    what doesn't, and why. This guide stops at MuJoCo eval.
+
 The IL loop only works if you can see *where* a policy is failing and
 *whether* the next iteration helped that slice. `robo-sandbox eval`
 writes a JSON with a `spatial_breakdown` block — that's the artifact

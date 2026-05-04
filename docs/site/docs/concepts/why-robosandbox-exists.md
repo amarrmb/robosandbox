@@ -303,3 +303,18 @@ If RoboSandbox does not lower:
 - time to first real-world validation
 
 then it is not doing its job.
+
+## What about training?
+
+Training models is **out of scope** for the product. Bring your
+checkpoint, evaluate it here. The IL track ([Train ACT and eval
+it](../tutorials/train-act-and-eval.md)) treats training as something
+external (`lerobot train`) that produces a checkpoint RoboSandbox can
+score.
+
+There is an [experimental RL track](rl-track.md) on the
+`experimental/newton-eval` branch — PPO with Newton parallel worlds —
+that exists to integrate Newton, not to become the training layer of
+this project. It is a sibling to the IL track, not a step after it,
+and explicitly carries the caveat that warm-starting RL from BC on
+contact-rich pick currently fails for structural sim-to-sim reasons.
