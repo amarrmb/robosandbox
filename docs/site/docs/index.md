@@ -128,6 +128,9 @@ Both use the same agent loop — only the planner changes.
 
 - **[Quickstart](quickstart.md)** — install, open the viewer, record an
   episode. 5 minutes end-to-end.
+- **[Where things are](where-things-are.md)** — short map of which page
+  (and which branch) covers each thing: IL track, RL track, sim-to-real,
+  and the IL↔RL bridge caveats.
 - **Start here if you want the product thesis first** —
   [Why RoboSandbox exists](concepts/why-robosandbox-exists.md) explains
   the robot loop, where modern model families fit, and what problem

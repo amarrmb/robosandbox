@@ -222,12 +222,15 @@ runtime path, not about claiming successful cross-embodiment transfer.
 
 ## Where this fits
 
-In the broader `record -> train -> deploy` story, this is the middle
-step:
+In the broader `record -> train -> deploy` story, this is the
+*pre-trained checkpoint* branch of the middle step:
 
 1. **[LeRobot Export](./lerobot-export.md)** — proves the data path.
-2. **LeRobot Policy Replay with a pre-trained checkpoint** (you are
-   here) — proves the policy integration under cross-embodiment mismatch.
+2a. **[Train ACT and eval it](./train-act-and-eval.md)** — train your
+   own checkpoint on RoboSandbox demos and score it with `robo-sandbox
+   eval`.
+2b. **LeRobot Policy Replay with a pre-trained checkpoint** (you are
+   here) — wire a *public* checkpoint into `run_policy`.
 3. **[Sim-to-Real Handoff](./sim-to-real-handoff.md)** — the
    deployment recipe and SO-101 backend skeleton for taking a
    sim-validated policy or skill to real hardware.

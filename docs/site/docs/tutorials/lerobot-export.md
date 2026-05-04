@@ -178,10 +178,13 @@ is just parquet, json, and mp4.
 This is the first step in the broader policy workflow:
 
 1. **LeRobot Export** (you are here) — proves the data path.
-2. **[LeRobot Policy Replay](./lerobot-policy-replay.md)** — drives a
-   public ACT checkpoint through `run_policy` under cross-embodiment
-   mismatch.
-3. **[Sim-to-Real Handoff](./sim-to-real-handoff.md)** — the
+2. **[Train ACT and eval it](./train-act-and-eval.md)** — turn this
+   dataset into a trained checkpoint, then score it with `robo-sandbox
+   eval`. End-to-end on a single workstation.
+3. **[LeRobot Policy Replay](./lerobot-policy-replay.md)** — drives a
+   *public* ACT checkpoint through `run_policy` under cross-embodiment
+   mismatch (use this if you don't want to train your own).
+4. **[Sim-to-Real Handoff](./sim-to-real-handoff.md)** — the
    deployment recipe and SO-101 backend skeleton.
 
 You can stop after this page if all you care about is the dataset path.

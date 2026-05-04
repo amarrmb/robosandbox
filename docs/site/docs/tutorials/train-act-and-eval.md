@@ -1,4 +1,4 @@
-# Recipe: train an ACT policy on RoboSandbox demos and evaluate it in MuJoCo
+# Tutorial — train an ACT policy on RoboSandbox demos and eval it in MuJoCo
 
 End-to-end pipeline that produces a trained ACT checkpoint and a deterministic
 n=64 success rate, on a single workstation. Covers the data-generation, export,
@@ -10,7 +10,14 @@ scripted demos, evaluated against `pick_cube_franka_random` with a Wilson 95%
 CI and a per-position spatial breakdown.
 
 **What you don't get:** RoboSandbox does not train models. `lerobot train` does
-the actual training; this recipe is the data pipeline + the eval harness.
+the actual training; this tutorial is the data pipeline + the eval harness.
+
+!!! info "Prerequisite — `robo-sandbox eval`"
+    The eval substrate (`robo-sandbox eval`, Wilson CI, spatial breakdown,
+    per-trial provenance) lives on the `experimental/newton-eval` branch
+    and lands on `main` with the eval-and-recording-hygiene PR. Steps
+    1–3 (generate demos, export, train) work against `main` today; step
+    4 needs that PR or the experimental branch.
 
 ## Hardware
 
@@ -218,6 +225,13 @@ social platforms.
   `provenance` block in each JSON tells you whether the comparison is even
   apples-to-apples (matching `checkpoint_sha256` + `robosandbox_git_rev` =
   yes; either field different = no).
+
+## Where this fits
+
+- **[LeRobot Export](./lerobot-export.md)** — the data path this tutorial consumes.
+- **You are here** — train ACT on those demos and eval the checkpoint.
+- **[LeRobot Policy Replay](./lerobot-policy-replay.md)** — wire a *public* checkpoint instead of training your own.
+- **[Sim-to-Real Handoff](./sim-to-real-handoff.md)** — deploy a sim-validated policy on hardware.
 
 ## Reproducibility
 

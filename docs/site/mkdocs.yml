@@ -70,6 +70,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Quickstart: quickstart.md
+  - Where things are: where-things-are.md
   - Guides:
       - How it works in 3 minutes: guides/how-it-works.md
       - Running the agent: guides/agent-runs.md
@@ -82,8 +83,7 @@ nav:
       - Replan loop: guides/replan-loop.md
       - Iterating on a policy: guides/iterating-on-a-policy.md
   - Concepts:
-  - Why RoboSandbox exists: concepts/why-robosandbox-exists.md
-  - The Village of Many Bridges: concepts/the-village-of-many-bridges.md
+      - Why RoboSandbox exists: concepts/why-robosandbox-exists.md
       - Scenes & objects: concepts/scenes.md
       - Skills & agents: concepts/skills-and-agents.md
       - Perception & grasping: concepts/perception-and-grasping.md
@@ -97,6 +97,7 @@ nav:
       - Policy replay: tutorials/policy-replay.md
       - "LeRobot workflow":
           - LeRobot export: tutorials/lerobot-export.md
+          - Train ACT and eval it: tutorials/train-act-and-eval.md
           - LeRobot policy replay: tutorials/lerobot-policy-replay.md
           - Sim-to-real handoff: tutorials/sim-to-real-handoff.md
   - Reference:
