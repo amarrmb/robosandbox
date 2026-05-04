@@ -1,20 +1,23 @@
-# The eval contract
+# The Eval Contract
 
 When two people report a "pick success rate" on the same task, you
-should be able to compare those numbers. Most of the time you can't —
-different settle behaviour, different action timing, different success
-criteria, different stats. The eval contract is the small set of rules
-that make those numbers actually comparable.
+want those two numbers to mean the same thing. They usually don't.
+Different teams settle physics for different durations, hold actions
+for different numbers of sim steps, score success on the final state
+or on the first match, and report rates with different statistical
+intervals. The numbers don't compose because the rules behind them
+don't compose.
 
-It's not marketing. It's seven invariants enforced in code, plus one
-JSON schema. This page documents both.
+The eval contract is the small set of rules that make two RoboSandbox
+evals actually comparable. It's a JSON schema and seven invariants
+that the code enforces. This page documents both.
 
-## The schema
+## The Schema
 
-Source of truth: `EvalSummary` in
-[`packages/robosandbox-core/src/robosandbox/eval/stats.py`](https://github.com/amarrmb/robosandbox/blob/main/packages/robosandbox-core/src/robosandbox/eval/stats.py).
-Schema version is `2`. Every JSON written by `robo-sandbox eval`
-carries this shape:
+The source of truth is `EvalSummary` in
+[`packages/robosandbox-core/src/robosandbox/eval/stats.py`](https://github.com/amarrmb/robosandbox/blob/main/packages/robosandbox-core/src/robosandbox/eval/stats.py),
+schema version 2. Every JSON written by `robo-sandbox eval` has this
+shape:
 
 ```jsonc
 {
@@ -49,140 +52,156 @@ carries this shape:
 }
 ```
 
-Three blocks worth understanding:
+The headline number is the `rate` together with `ci_low` and
+`ci_high`, which are the Wilson 95% confidence interval bounds on the
+rate. The Wilson interval is preferred over the textbook Wald
+interval because Wald collapses to zero width at 0% and 100% and
+undercovers for small `n`. Wilson stays well-defined and conservative
+across the whole range. The default confidence level is 95%.
 
-**The headline number** — `rate`, `ci_low`, `ci_high`. The CI is
-[Wilson](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval#Wilson_score_interval),
-not Wald. Wald collapses to zero width at 0% and 100% and undercovers
-for small `n`; Wilson stays well-defined and conservative across the
-whole range. Default `ci_level` is 0.95.
+The `spatial_breakdown` block buckets trials by the tracked object's
+initial position and reports the per-bin success rate. A gradient
+across the bins is the signature of a generalization gap. The
+breakdown is derived at JSON-write time from `per_trial_details`, so
+it costs nothing extra to emit.
 
-**Spatial breakdown** — `spatial_breakdown.by_object_x` and `by_object_y`
-bucket the trials by the tracked object's initial position and report
-the per-bin success rate. A gradient across the bins is the signature
-of a generalization gap. This is derived at JSON-write time from
-`per_trial_details`, so it's free.
+The `provenance` block is what makes two JSONs comparable in the
+first place. It carries the checkpoint sha256, the robosandbox git
+revision, the lerobot, mujoco, and torch versions, and the full CLI
+arguments. `robo-sandbox compare` checks the provenance before
+printing a delta; mismatching fields are reported and the delta is
+withheld, because at least one of code, checkpoint, or sim changed
+and the comparison isn't apples-to-apples.
 
-**Provenance** — checkpoint sha256, robosandbox git rev,
-lerobot/mujoco/torch versions, full CLI args. Two JSONs with matching
-provenance are guaranteed-comparable. Mismatching provenance means at
-least one of code/checkpoint/sim changed and any apples-to-apples
-comparison is suspect — `robo-sandbox compare` checks this before
-printing a delta.
+## The Seven Invariants
 
-## The seven invariants
+These are the rules that turn "ran an eval" into "ran *the* eval".
+Each one has a real failure mode behind it, and each one is enforced
+in code rather than left to convention.
 
-These are the rules that turn "ran an eval" into "ran *the* eval."
-Each one has a real failure mode behind it; each is enforced in code,
-not folklore.
+### 1. No Settled-Frame Contamination in Training Data
 
-### 1. No settled-frame contamination in training data
-
-The exporter refuses `action=None` in `events.jsonl`
-(`_coerce_action` raises). Settle frames have no commanded action; if
-you record them and the exporter silently fills the column with
+The exporter refuses `action=None` rows in `events.jsonl`
+(`_coerce_action` raises). Settle frames have no commanded action;
+if you record them and the exporter silently fills the column with
 `observation.state`, you teach the policy "predict your current pose"
-for a third of training. Symptom: every trial undershoots by 17–60°
-per joint.
+for a third of training. The symptom is every trial undershooting
+the demo trajectory by 17–60° per joint. The exporter check is what
+keeps that regression from coming back silently.
 
-### 2. Normalizer is part of the policy adapter
+### 2. The Normalizer Is Part of the Policy Adapter
 
-`ACTPolicy.select_action` returns *normalized* actions and expects
-*normalized* state + *ImageNet-normalized* images.
-`LeRobotPolicyAdapter` loads `policy_preprocessor.json` +
-`policy_postprocessor.json` and applies both. Without this the model
-sees out-of-distribution inputs and emits actions in normalized space
-the sim then misuses as raw joint angles. Symptom: predictions look
-random.
+`ACTPolicy.select_action` returns normalized actions and expects
+normalized state and ImageNet-normalized images.
+`LeRobotPolicyAdapter` loads the saved
+`policy_preprocessor.json` and `policy_postprocessor.json` and
+applies both. Without that wiring the model receives
+out-of-distribution inputs and emits actions in normalized space
+that the sim then misuses as raw joint angles. Predictions look
+random until the processors are in place; with them, joint MAE on
+training data drops from ~30° to ~0.3°.
 
-### 3. Action repeat matches `sim_dt / dataset_dt`
+### 3. Action Repeat Matches `sim_dt / dataset_dt`
 
-The dataset is recorded at 30 fps; the sim runs at 200 Hz. Calling
+The dataset is recorded at 30 fps. The sim runs at 200 Hz. Calling
 `policy.act()` every sim step replays the model's chunk 6.7× faster
 than training. `run_policy` holds each commanded action for
-`--action-repeat` sim steps. For the bundled Franka recipe that's `6`.
-Wrong number = wrong gripper-close timing.
+`--action-repeat` sim steps. For the bundled Franka recipe that
+ratio is 6. The wrong number gives wrong gripper-close timing and
+the policy closes the fingers on empty air.
 
-### 4. Success latches on first match
+### 4. Success Latches on First Match
 
-A trained policy doesn't know when to stop. Once it succeeds it keeps
-emitting actions and often perturbs the scene back into a "failed"
-state by `max_steps`. Final-state-only success checking hides genuine
-successes as failures. `run_policy` records `success_step` — the first
-per-step match — and uses that, not the final state. RoboMimic / IsaacLab
+A trained policy doesn't know when to stop. Once it succeeds it
+keeps emitting actions, often perturbing the scene back into a
+"failed" state by `max_steps`. Final-state-only success checking
+hides genuine successes as failures — a cube lifted to +120 mm at
+step 400 and dropped back to +5 mm by step 900 scores as a fail
+under final-state checking even though the task was solved.
+`run_policy` records `success_step` (the first per-step match) and
+uses that, not the final state. This is the RoboMimic / IsaacLab
 convention.
 
-### 5. Adapters implement `reset()`
+### 5. Adapters Implement `reset()`
 
+The eval CLI calls `policy.reset()` between trials so each trial
+starts at step 0 of the model's action queue.
 `LeRobotPolicyAdapter.reset()` forwards to the inner policy's
 `reset()`. Without it, ACT's `_action_queue` carries partial chunks
-across trials and per-trial outcomes depend on trial order. The eval
-CLI calls `policy.reset()` between trials by contract.
+across trials and per-trial outcomes depend on trial order — which
+is the same bug, in user-space, that makes one team's "30%" not
+match another team's "30%".
 
-### 6. Settle parity between training data and eval
+### 6. Settle Parity Between Demos and Eval
 
-`generate_demos.py` settles the sim ~60 steps before recording the
-first frame. Training data therefore reflects a settled scene. If the
-eval skips that step the policy's first observation has the cube
-mid-fall — out-of-distribution. Pass `--settle-steps=60` to match.
-This is wired for both MuJoCo and Newton paths.
+`generate_demos.py` settles the sim for ~60 steps before recording
+the first frame. The training data therefore reflects a settled
+scene. If the eval skips that step, the policy's first observation
+has the cube mid-fall, which is out-of-distribution. The eval CLI's
+`--settle-steps` is wired for both the MuJoCo and Newton paths;
+passing `--settle-steps=60` matches the recipe's demo generation.
 
-### 7. Fresh policy per trial (default)
+### 7. Fresh Policy Per Trial
 
-`policy.reset()` clears documented state but doesn't undo BatchNorm
-running buffers, register_buffers, RNG state, or any cached
-compile/autograd state. Per-trial results under "load once + reset"
-depend on trial order. `--reload-policy` (default `true`) calls
-`load_policy()` fresh per trial at ~1–2s per trial cost.
-`--no-reload-policy` exists for raw speed when you accept order
-dependence.
+`policy.reset()` clears the documented state (the action queue, the
+temporal ensembler), but it doesn't undo BatchNorm running buffers,
+register_buffers, RNG state, or any cached compile or autograd
+state. Per-trial results under "load once and reset" depend on
+trial order. `--reload-policy` (the default) calls `load_policy()`
+fresh per trial, at a cost of about one to two seconds per trial.
+`--no-reload-policy` exists for raw speed when order-dependence is
+acceptable.
 
-## What "comparable" means in practice
+## What "Comparable" Means in Practice
 
-`robo-sandbox compare a.json b.json` enforces the contract at compare
-time:
+`robo-sandbox compare a.json b.json` enforces the contract at
+compare time. Same `task` is mandatory; different tasks aren't
+comparable and the tool refuses to print a delta. Same
+`robosandbox_git_rev` is a soft check; different eval code can
+silently change behaviour and a warning fires if the revisions
+don't match. Same `cli_args` (n_trials, action_repeat, settle_steps,
+reload_policy) is also a soft check. Different `checkpoint_sha256`
+is the *expected* difference — that is the whole point of comparing.
 
-- Same `task` — different tasks are not comparable. Hard fail.
-- Same `robosandbox_git_rev` — different eval code is not comparable.
-  Soft fail (warn + refuse delta).
-- Same `cli_args` (n_trials, action_repeat, settle_steps,
-  reload_policy) — different harness settings are not comparable.
-  Soft fail.
-- Different `checkpoint_sha256` is the *expected* difference; that's
-  the whole point of comparing.
+When the gates pass you get a per-checkpoint rate, the Wilson CI on
+each, a delta in percentage points, and a two-proportion z-test
+significance flag. When they don't, the tool prints which field
+broke comparability and exits without a number. A number you can't
+reproduce isn't a number, and the contract's job is to keep that
+property mechanical instead of cultural.
 
-When the gates pass, you get a rate delta with significance from the
-two-proportion z-test (`proportion_z_test` in `stats.py`). When they
-don't, `compare` tells you *which* field broke comparability. That's
-the value: a number you can't reproduce isn't a number.
+## What This Contract Isn't
 
-## What this contract isn't
+It isn't a real-robot eval contract. Sim numbers are sim numbers. The
+real-arm story is in [the real-robot bridge concept page](real-robot.md)
+and the [sim-to-real handoff tutorial](../tutorials/sim-to-real-handoff.md);
+neither closes the transfer claim today. There is no eval contract
+that survives a hardware delta automatically.
 
-- It isn't a real-robot eval contract. Sim numbers are sim numbers;
-  see [Real-robot bridge](real-robot.md) for the (still-open) story
-  on transfer.
-- It isn't an OOD-detector. There's no claim that a policy with high
-  in-distribution success rate generalizes to a different task or
-  embodiment.
-- It isn't a leaderboard. Two checkpoints with comparable provenance
-  give you a defensible per-task rate delta. Aggregating across tasks
-  is up to you.
+It isn't an OOD detector. A high in-distribution success rate doesn't
+imply generalization to a different task or a different embodiment.
+The spatial breakdown shows where the policy fails *in distribution*,
+which is a different question.
 
-## Where this is enforced
+It isn't a leaderboard. Two checkpoints with comparable provenance
+give a defensible per-task rate delta. Aggregating across tasks is
+left to the user and to the downstream tooling.
 
-| Invariant | Where in code |
+## Where Each Invariant Lives in Code
+
+| Invariant | File and symbol |
 |---|---|
 | Schema | `eval/stats.py` — `EvalSummary`, `summarise_eval`, `_spatial_breakdown` |
 | Wilson CI | `eval/stats.py` — `wilson_ci` |
-| Significance | `eval/stats.py` — `proportion_z_test` |
+| Two-proportion z-test | `eval/stats.py` — `proportion_z_test` |
 | Action=None reject | `recorder/lerobot_export.py` — `_coerce_action` |
 | Normalizer wiring | `policy/lerobot_adapter.py` — `LeRobotPolicyAdapter.__init__` |
 | Action repeat | `policy/__init__.py` — `run_policy(..., action_repeat=...)` |
-| Success latch | `policy/__init__.py` — `run_policy` (`success_step`) |
-| Reset | `policy/lerobot_adapter.py` — `LeRobotPolicyAdapter.reset` |
+| Success latching | `policy/__init__.py` — `run_policy` (`success_step`) |
+| Reset forwarding | `policy/lerobot_adapter.py` — `LeRobotPolicyAdapter.reset` |
 | Settle parity | `cli.py` — `--settle-steps` (both backends) |
 | Reload per trial | `cli.py` — `--reload-policy` (default true) |
 
-If you change any of those files, you're changing the contract. Bump
-`schema_version`, document the change, accept that old JSONs no longer
-compare.
+Changing any of those files changes the contract. The honest move is
+to bump `schema_version`, document the change, and accept that older
+JSONs no longer compare against newer ones.

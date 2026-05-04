@@ -1,30 +1,25 @@
-# Tutorial — world model as a sim backend
+# Tutorial — World Model as a Sim Backend
 
-This page walks the `WorldModelBackend` slot end to end. It exists for
-two reasons:
+This page walks the `WorldModelBackend` slot end to end. It exists
+for two reasons. First, to prove that `robo-sandbox eval --sim-backend
+world_model` runs against a learned-dynamics propagator the same way
+it runs against MuJoCo or Newton — same CLI, same JSON schema, same
+Wilson CI, same provenance block. Second, to document, with code in
+front of you, what it would take to drop in V-JEPA-2, NVIDIA Cosmos,
+or your own DreamerV3 reimplementation.
 
-1. To prove that `robo-sandbox eval --sim-backend world_model` runs
-   against a learned-dynamics propagator the same way it runs against
-   MuJoCo or Newton — same CLI, same JSON schema, same Wilson CI,
-   same provenance block.
-2. To document, with code in front of you, what it would take to drop
-   in V-JEPA-2, NVIDIA Cosmos, or your own DreamerV3 reimplementation.
+The framing for why this slot exists at all — where it sits relative
+to the world-model wave, what the eval contract has to learn to
+handle learned substrates — is in
+[Eval for World Models](../concepts/eval-for-world-models.md).
 
-For the framing — why we built this slot, where it sits relative to
-the world-model wave, and what the eval contract has to learn to
-handle learned substrates — see
-[Eval for world models](../concepts/eval-for-world-models.md).
+The reference predictor shipped with `WorldModelBackend` is
+`IdentityPredictor`. It returns `next_obs = current_obs` and scores
+0% on every task. That is intentional. The wedge is the slot, not a
+world-model implementation. Real world-model integrations replace
+`IdentityPredictor` with something that actually predicts dynamics.
 
-!!! warning "Status: slot, not a real world model"
-    The reference predictor shipped with `WorldModelBackend` is
-    `IdentityPredictor`. It returns `next_obs = current_obs` and
-    therefore scores **0% on every task**. That is the point.
-    Real world-model integrations replace `IdentityPredictor` with
-    something that actually predicts dynamics; this page tells you
-    where each named candidate would slot in and what the integration
-    cost looks like.
-
-## The slot
+## The Slot
 
 `WorldModelBackend` is a `SimBackend` like any other. It bootstraps
 from a real backend (MuJoCo by default) for the initial observation
@@ -32,8 +27,6 @@ and scene metadata, then time-evolves purely via a
 `WorldModelPredictor`:
 
 ```python
-from robosandbox.protocols import SimBackend  # noqa: F401
-
 class WorldModelPredictor(Protocol):
     def predict_next(
         self,
@@ -46,12 +39,14 @@ class WorldModelPredictor(Protocol):
 ```
 
 A predictor returns a full `Observation`. Whatever fields it leaves
-unchanged are carried over — that lets a joint-state-only model avoid
-faking ee_pose or images it doesn't predict. Implementations should
-be deterministic given `(obs, action)`; per-trial reset is the
-predictor's responsibility.
+unchanged are carried over from the input — that lets a
+joint-state-only model avoid faking the ee_pose or images it doesn't
+predict. Implementations should be deterministic given `(obs,
+action)`. Per-trial reset is the predictor's responsibility; the eval
+CLI calls `policy.reset()` between trials and treats the backend as
+black-box.
 
-## Smoke-testing the slot
+## Smoke-Testing the Slot
 
 ```bash
 robo-sandbox eval \
@@ -62,8 +57,8 @@ robo-sandbox eval \
     --output outputs/world_model_identity.json
 ```
 
-Expected result: 0/4. The `IdentityPredictor` never moves the arm or
-the cube, so no policy succeeds. The interesting part is the JSON:
+The expected result is 0/4. `IdentityPredictor` never moves the arm
+or the cube, so no policy succeeds. The interesting part is the JSON:
 
 ```jsonc
 {
@@ -79,106 +74,81 @@ the cube, so no policy succeeds. The interesting part is the JSON:
 }
 ```
 
-That's the contract holding under a learned substrate. Wilson CI is
-still defined at zero. `spatial_breakdown` still bins by initial cube
-position. Provenance still has every field. The only thing missing —
-and the next contract evolution this slot demands — is a
+That's the contract holding under a learned substrate. The Wilson CI
+is still defined at zero. `spatial_breakdown` still bins by initial
+cube position. Provenance still has every field. The only thing
+missing — and the next contract evolution this slot demands — is a
 `world_model_sha256` field next to the policy's checkpoint hash, so
 two evals against different world models are visibly non-comparable.
-That's tracked in the [eval contract](../concepts/the-eval-contract.md)
-spec.
+That work is tracked in [the eval contract](../concepts/the-eval-contract.md).
 
-## What plugging in a real model looks like
+## What Plugging In a Real Model Looks Like
 
-Each of the named candidates has a different integration shape. None
-of them is a drop-in. The honest cost estimates below come from
-reading their public model cards / reference implementations, not
-from running them in this slot — that's the next round of work.
+We have not run any of the named real models in this slot. The cost
+estimates below come from reading model cards and reference
+implementations, not from hands-on integration. Each candidate has a
+different shape and a different blocker.
 
-### V-JEPA-2 (Meta, weights public)
+V-JEPA-2 predicts in latent space, not pixel or state space. Wrapping
+it requires running the encoder on the bootstrap observation at
+`predict_next` entry, embedding the action into the latent
+transition, and decoding back from latent to robot state. V-JEPA-2
+doesn't ship a state decoder. You'd train one. Realistic effort:
+weeks of training a state decoder before any eval trial runs. Worth
+it as a research project, not as a weekend integration.
 
-V-JEPA-2 predicts in latent space, not pixel or state space. To wrap
-it as a `WorldModelPredictor` you need:
+NVIDIA Cosmos-Predict generates the next video frame conditional on
+text and previous frames. Action conditioning is via Cosmos-1 plus a
+downstream model. Wrapping it requires encoding the bootstrap RGB,
+generating the next frame on a real action, and running a separate
+pose estimator on the predicted frame to recover joint positions and
+object poses. The compute budget is the larger problem; the
+integration code is the smaller one.
 
-- An encoder run on the bootstrap observation (RGB → latent) at
-  `predict_next` entry.
-- The action embedded into the latent transition.
-- A decoder back from latent → robot state (joint positions, ee_pose,
-  scene_objects). This is the hard part — V-JEPA-2 doesn't ship a
-  state decoder. You'd train one.
+DreamerV3-style learned dynamics is the cleanest fit on paper. It is
+already a `(state, action) → next state` model. You'd train DreamerV3
+on recorded trajectories from MuJoCo for the task, then wrap the
+trained world model's `imagine` step as `predict_next`. Effort: a
+few days of training per task plus a thin wrapper. The catch is that
+it has to be trained per task — it won't generalize across tasks the
+way V-JEPA or Cosmos try to.
 
-Realistic effort: weeks of training a state decoder before you can
-even score a single trial. Worth it as a research project, not as a
-weekend integration.
+Genie 2 has no public weights. The 1X World Model is closed. Neither
+is integratable today.
 
-### NVIDIA Cosmos-Predict (weights public)
+## A Trivial State-MLP Option
 
-Cosmos predicts video frames conditional on text + previous frames.
-Action conditioning is via Cosmos-1 + a downstream model. To wrap:
-
-- Encode the bootstrap RGB.
-- Generate the next frame conditioned on the action.
-- Run a separate pose estimator on the predicted frame to recover
-  joint positions and object poses.
-
-Realistic effort: heavy compute (Cosmos models are large), and the
-"pose estimator on a predicted frame" step is the same problem the
-real-arm sim-to-real handoff faces — see
-[Sim-to-real handoff](sim-to-real-handoff.md). The integration cost
-is more about the GPU budget than the code.
-
-### DreamerV3-style (training-script-public, weights per-task)
-
-DreamerV3 is the cleanest fit on paper: it is exactly a `(state,
-action) → next state` learned dynamics model. You'd:
-
-- Train DreamerV3 on recorded trajectories from MuJoCo for your task.
-- Wrap the trained world model's `imagine` step as `predict_next`.
-
-Realistic effort: a few days of training per task, then the wrapper
-is straightforward. The catch is that you have to train it per task
-— it won't generalize across tasks the way V-JEPA / Cosmos try to.
-
-### Genie 2 / 1X World Model
-
-No public weights. Not integratable today.
-
-## The trivial state-MLP option (if you want a real number above zero)
-
-If you want a working number above 0% without integrating a real
+If you want a working number above zero without integrating a real
 world model, the smallest meaningful predictor is a state-only MLP
 fit on recorded demos: `(joint_state_t, action_t) → joint_state_t+1`.
 Train on a few hundred recorded trajectories; the network is small
-enough to fit on a laptop CPU in minutes. Plug into
+enough to fit on a laptop CPU in minutes. Plug it into
 `WorldModelBackend` via the same `WorldModelPredictor` Protocol.
 
-This isn't a world model in any serious sense — there's no scene
+This isn't a world model in any serious sense. There's no scene
 prediction, no perception coupling, no contact reasoning. But it is
-a learned dynamics model and it scores >0% on tasks where the
-ground-truth physics is "smooth enough" for a small MLP to
-extrapolate. It exists as the natural next step beyond
-`IdentityPredictor` if you want to verify the slot's downstream
-behaviour (provenance, action repeat, success latching) end to end
-without a billion-parameter dependency.
+a learned dynamics model, and it scores above 0% on tasks where the
+ground-truth physics is smooth enough for a small MLP to extrapolate.
+It exists as the natural next step beyond `IdentityPredictor` for
+verifying the slot's downstream behaviour (provenance, action repeat,
+success latching) end to end without a billion-parameter dependency.
 
-The implementation isn't shipped — it would take ~50 lines and one
-short training script — and we'd rather you ship a real model than
-an MLP. Treat it as a known fallback if your real-model integration
-is blocked on weights or compute.
+The implementation isn't shipped. We'd rather you ship a real model
+than an MLP, and the MLP would take about 50 lines and one short
+training script if needed as a fallback.
 
-## Where this leaves us
+## Where This Leaves Us
 
 The slot is real. `robo-sandbox eval --sim-backend world_model` runs.
-The contract holds. Two things are explicitly *not* claimed by this
-tutorial:
+The contract holds. Two things this tutorial does not claim:
 
-- We have not run any of the named real models in this slot. The
-  table above is a planning document, not a results table.
-- The eval contract does not yet have a `world_model_sha256`
-  provenance field. Two evals against different world models would
-  silently look comparable in the JSON — they aren't. This is the
-  first concrete contract change that the wave forces, and it's
-  tracked.
+We have not run any of the named real models in this slot. The table
+above is a planning document, not a results table.
 
-When a public model lands that's worth integrating, this is where
-the integration goes.
+The eval contract does not yet have a `world_model_sha256` provenance
+field. Two evals against different world models would silently look
+comparable in the JSON today. That is the first concrete contract
+change the wave forces, and it is tracked in
+[the eval contract](../concepts/the-eval-contract.md). When a public
+model lands that's worth integrating, this is where the integration
+goes.

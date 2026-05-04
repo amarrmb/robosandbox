@@ -1,114 +1,116 @@
-# Eval for world models
+# Eval for World Models
 
-The world-model wave is real. World Labs raised $230M then $1B. Yann
-LeCun's AMI Labs raised $1.03B at $3.5B. NVIDIA Cosmos has open
-checkpoints. Meta's V-JEPA-2 weights are out. The bet across all of
-them: learned dynamics will replace classical physics simulators for
-robotics.
+The world-model wave is real. World Labs raised $230M and then $1B.
+Yann LeCun's AMI Labs raised $1.03B at a $3.5B valuation. NVIDIA
+Cosmos has open checkpoints. Meta's V-JEPA-2 weights are out. The
+underlying bet across these labs is that learned dynamics will replace
+classical physics simulators for robot training and evaluation.
 
 If that bet pays off — even partially, even just for navigation
 before manipulation — then "evaluate a policy in MuJoCo or Newton"
-gets a third option: evaluate it in a learned world model.
+gets a third option: evaluate it in a learned world model. This page
+is about what RoboSandbox does in that world.
 
-This page is about what RoboSandbox does in that world.
+## The Substrate Question Is Not the Eval Question
 
-## The substrate question is not the eval question
+The substrate question is: what produces the next observation given
+an action? Classical sim, GPU sim, a learned world model, or the
+real arm. The eval contract question is: given a checkpoint and a
+substrate, what counts as success, what's the schema for the result,
+and how do you know two numbers are comparable?
 
-These are different layers of the stack:
+World-model labs are competing on substrate. Nobody is currently
+building eval contracts for their output. Today every world-model
+paper hand-rolls its own success criteria, its own statistics, and
+its own provenance. When the field has to compare two world models,
+or compare two policies trained on two world models, somebody has to
+ship the contract layer.
 
-- **Substrate**: what produces the next observation given an action?
-  Classical sim, GPU sim, a learned world model, the real arm.
-- **Eval contract**: given a checkpoint and a substrate, what counts
-  as success, what's the schema for the result, how do you know two
-  numbers are comparable?
+That's the layer this project occupies. RoboSandbox is not competing
+with World Labs or AMI; the right read is that we should be sitting
+on top of their substrates when those substrates are ready.
 
-World-model labs are building substrates. Nobody is building eval
-contracts. Today every world-model paper hand-rolls its own success
-criteria, its own statistics, its own provenance. When the field
-eventually has to compare two world models or two policies trained on
-two world models, *somebody* has to ship the contract layer.
+## World Model as a `SimBackend`
 
-That's our shape. We are not competing with World Labs. We are the
-layer that should sit on top when their substrate is ready.
+The `SimBackend` Protocol is small enough to fit in a paragraph: a
+backend implements `load(scene)`, `reset()`, `step(target_joints,
+gripper)`, `observe()`, `get_object_pose(id)`, `set_object_pose(id,
+pose)`, `n_dof`, `joint_names`, and `close()`. Anything that can
+answer *"given a state and an action, what's the next state"* fits.
+Classical solvers fit. Learned dynamics models fit too — they just
+produce the next observation differently.
 
-## What "world model as a `SimBackend`" means in this codebase
+The `experimental/newton-eval` branch ships a `WorldModelBackend`
+that takes a `WorldModelPredictor` and runs it through the same
+`robo-sandbox eval` pipeline as MuJoCo or Newton. The reference
+predictor is intentionally trivial: it returns `next_obs =
+current_obs`, scores 0% on every task, and exists to prove the slot
+is wired without a real world-model dependency. The
+[World model as a sim backend tutorial](../tutorials/world-model-as-sim-backend.md)
+walks the wiring and the smoke-test result.
 
-The `SimBackend` Protocol is small:
+## What Plugging In a Real World Model Looks Like
 
-```python
-class SimBackend(Protocol):
-    def load(self, scene: Scene) -> None: ...
-    def reset(self) -> None: ...
-    def step(self, target_joints, gripper) -> None: ...
-    def observe(self) -> Observation: ...
-    @property
-    def n_dof(self) -> int: ...
-    @property
-    def joint_names(self) -> list[str]: ...
-    def close(self) -> None: ...
-```
+We have not run any of the named real models in this slot. The
+section below is a planning document, not a results table. Each
+candidate has a different integration shape and a different cost.
 
-Anything that can answer *"given a state and an action, what's the
-next state"* fits this slot. Classical solvers fit (MuJoCo, Newton).
-Learned dynamics models fit too — they just produce the next
-observation differently.
+V-JEPA-2 predicts in latent space, not pixel or state space. Wrapping
+it as a `WorldModelPredictor` would require an encoder run on the
+bootstrap observation at `predict_next` entry, the action embedded
+into the latent transition, and a decoder back from latent to robot
+state — which V-JEPA-2 doesn't ship. Training that decoder is its
+own multi-week project before any eval trial runs. We do not have
+this wired today.
 
-The branch ships a working `WorldModelBackend` that takes a
-`WorldModelPredictor` and runs it through the same `robo-sandbox eval`
-pipeline as MuJoCo or Newton. See
-**[World model as a sim backend](../tutorials/world-model-as-sim-backend.md)**
-for the wiring and a smoke-test result. The reference predictor is
-intentionally trivial — the wedge is the *slot*, not a world-model
-implementation.
+NVIDIA Cosmos-Predict generates the next video frame conditional on
+text and previous frames. Wrapping it would require encoding the
+bootstrap RGB, generating the next frame on a real action, and
+running a separate pose estimator on the predicted frame to recover
+joint positions and object poses. The compute budget is the larger
+problem; the integration code is the smaller one. We do not have
+this wired today either.
 
-## What it would take to plug in a real world model
+DreamerV3-style learned dynamics is the cleanest fit on paper: it is
+already a `(state, action) → next state` model. The catch is that
+it has to be trained per task, on recorded trajectories from the
+ground-truth simulator. A few days of training plus a thin wrapper
+around the trained model's `imagine` step would land it. We have not
+done this work yet, but the path is shorter than V-JEPA-2 or Cosmos.
 
-Each of the named candidates has a different integration shape.
-Skimming, in rough order of effort:
+Genie 2 has no public weights. The 1X World Model is closed. Neither
+is integratable today.
 
-| Model | Public weights | Action-conditional? | Manipulation-relevant? | Integration shape |
-|---|---|---|---|---|
-| **V-JEPA-2** (Meta) | yes | latent-space, unclear interface | mostly video understanding | predict latent → decode → robot-state extraction non-trivial |
-| **Cosmos-Predict** (NVIDIA) | yes | text + previous-frame conditional, action conditioning is via Cosmos-1 + downstream model | video, manipulation showcased | heavy compute, frame-out not state-out |
-| **DreamerV3** (DeepMind, OSS reimpls) | training script, not weights | yes (state + action → next latent) | yes if you train it on your task | needs per-task training, but the cleanest fit |
-| **Genie 2** (DeepMind) | no public weights | yes | mostly games | not available |
-| **1X World Model** (1X) | closed | unknown | yes | not available |
+## Where the Contract Gets Weird for Learned Substrates
 
-The honest read: **none of these is a drop-in.** Closing the gap
-between what each model exposes and what `WorldModelBackend` expects
-is real work. The current wedge is to make the slot exist and the
-contract hold; integrations land one at a time, with eyes open about
-what each one can and can't claim.
+Three things will need careful handling when a real world model
+lands. None of them is a blocker, but each is a contract evolution
+that should happen before two evals against different world models
+silently look comparable in the JSON.
 
-## Where the contract gets weird for learned substrates
+The first is provenance. A world-model substrate has its own
+`model_sha256` that needs to land next to the policy's. The schema
+doesn't carry this field today; bumping `schema_version` to 3 is
+straightforward and is on the list once a real model is wired.
 
-Three things will need careful handling when a real world model lands:
+The second is the success criterion. Most success criteria today
+read positions off ground-truth physics — for example,
+`object.lifted_mm > 50`. A world model doesn't have ground truth; it
+has its prediction of the position. The eval becomes "did the world
+model think the cube lifted," which is a different claim and
+probably needs a `success_kind: "predicted"` flag plus side-by-side
+classical-sim grounding to be credible.
 
-1. **Provenance.** A world-model substrate has its own `model_sha256`
-   that needs to land in the eval JSON next to the policy's. Two
-   evals against the same policy on different world-model checkpoints
-   are not comparable; the contract should say so.
-2. **Success criterion.** Most success criteria today read positions
-   off ground-truth physics (`object.lifted_mm > 50`). A world model
-   doesn't have ground truth — it has its *prediction* of the
-   position. The eval becomes "did the world model think the cube
-   lifted," which is a different claim. Tasks will need a
-   `success_kind: "predicted"` flag and probably side-by-side
-   classical-sim grounding.
-3. **Action repeat.** Classical sim runs at 200 Hz; learned models
-   typically generate frames at 4–30 Hz. The `--action-repeat`
-   contract invariant translates differently. Probably needs a
-   per-backend default and a clear warning when the user crosses the
-   line.
+The third is action repeat. Classical sim runs at 200 Hz. Learned
+models typically generate frames at 4–30 Hz. The `--action-repeat`
+contract invariant translates differently between the two, and
+needs a per-backend default plus a clear warning when the user
+crosses the line.
 
-These are open problems, not blockers. Calling them out here so the
-eval contract evolves with eyes open instead of accumulating silent
-incompatibilities.
+## What's Not in Scope
 
-## What's not in scope
-
-We are not going to build a world model. That's a billion-dollar bet
-from labs with hundreds of researchers and we'd lose. The product is
-the layer above. When World Labs / AMI / Cosmos ship something the
-field wants to evaluate, RoboSandbox should be the obvious place to
-score it.
+We are not going to build a world model. That is a billion-dollar
+bet from labs with hundreds of researchers, and we would lose. The
+product is the layer above. When World Labs, AMI, or Cosmos ship
+something the field wants to evaluate, RoboSandbox should be the
+obvious place to score it.
