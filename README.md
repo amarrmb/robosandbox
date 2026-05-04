@@ -1,18 +1,60 @@
 # RoboSandbox
 
-> A sim-first sandbox for robot manipulation.
-> **Bring your own arm, objects, and tasks.**
+> Score manipulation policies against a reproducible eval contract.
+> Today: any LeRobot-compatible checkpoint, MuJoCo + Newton backends.
 
 <p align="center">
   <img src="docs/site/docs/assets/demos/hero.gif" alt="Franka picks a red cube from a natural-language command" width="560">
 </p>
 
-RoboSandbox is a small manipulation sandbox built around MuJoCo. You
-can load a robot from a URDF or MJCF, spawn a few objects, define a
-task, run a planner or policy, and record the result. The point is to
-make the stack small enough to inspect and easy enough to modify.
+Point a checkpoint at a task. Get back a JSON: success rate, Wilson
+95% CI, per-position breakdown of where it failed, full provenance
+(checkpoint sha, git rev, library versions). Same contract whether
+you ran one trial in MuJoCo or a thousand parallel trials in Newton.
 
-## Try It
+```bash
+robo-sandbox eval \
+    --task pick_cube_franka_random \
+    --policy outputs/act_franka_pick/checkpoints/050000/pretrained_model \
+    --sim-backend mujoco \
+    --n-trials 64 --action-repeat 6 --settle-steps 60 \
+    --output outputs/eval_50k.json
+# → 28/64 (43.8%), CI [32.3, 55.9], spatial_breakdown by cube x/y
+```
+
+That's the whole pitch. Everything below is how to use it.
+
+## What works today
+
+| | Result | Where |
+|---|---|---|
+| ACT policy on `pick_cube_franka_random` (n=64) | 43.8%, CI [32.3, 55.9] | `main` — see [Train ACT and eval it](docs/site/docs/tutorials/train-act-and-eval.md) |
+| Reach, 1024 parallel Newton worlds | 100% (1024/1024) | branch `experimental/newton-eval` |
+| USB-A 1.5mm insertion, 64 worlds | 100% (64/64) | branch `experimental/newton-eval` |
+| USB-A 1.5mm insertion, 1024 worlds | 96.5%, CI [95.2, 97.4] | branch `experimental/newton-eval` |
+| Same insertion policy, classical MuJoCo (zero code change) | 100% (32/32), CI [89.3, 100.0] | branch `experimental/newton-eval` |
+
+The cross-sim row is the headline: a policy trained on Newton runs in
+classical MuJoCo at full success without re-training. That's the
+precondition for trusting any sim number at all.
+
+<p align="center">
+  <video src="https://github.com/amarrmb/robosandbox/raw/main/docs/site/docs/assets/demos/usb_a_insertion_zoom.mp4" width="640" controls muted></video>
+</p>
+
+*Four Franka arms, four different port positions, USB-A spec (1.5mm
+clearance), all four insertions complete. Same policy ran in classical
+MuJoCo at 32/32 with zero code change.*
+
+> **Reproducing the branch rows.** The four
+> `experimental/newton-eval` rows need that branch checked out — the
+> `train` CLI, Newton parallel backend, and cross-sim harness live
+> there. The `eval` CLI itself lands on `main` with the
+> eval-and-recording-hygiene PR. Until that ships, the IL row
+> (`pick_cube_franka_random`) is reproducible only on the branch as
+> well; afterward it works straight from `main`.
+
+## Try it
 
 ```bash
 git clone https://github.com/amarrmb/robosandbox.git
@@ -23,62 +65,32 @@ uv pip install -e 'packages/robosandbox-core[viewer]'
 uv run robo-sandbox viewer
 # → open http://localhost:8000
 # → pick a task, type "pick up the red cube", click Run
-# → frames stream to the browser; hit Record to save for training
+# → hit Record to save the episode for export to LeRobot
 ```
 
-No API key, no model download. The stub planner handles a small but
-useful grammar: `pick the <obj>`, `pick the <obj> and put it on <obj2>`,
-`stack <obj> on <obj2>`, `push the <obj> <dir>`, `go home`.
+No API key, no model download. The built-in planner runs without a VLM
+so you can verify the install before plugging anything in.
 
-## Why RoboSandbox Exists
+## Why this exists
 
-A lot of robotics tooling is either very low-level or very heavy. If
-you are new, that means a steep learning curve before you can make
-anything move. If you are experienced, that often means too much setup
-just to test one idea.
+Most policy evals don't compose. Different teams use different sims,
+different success criteria, different statistics. You can't read a
+"pick success rate" from one paper and compare it to another. RoboSandbox
+fixes that by making the eval contract explicit and the same across
+backends and policies. Bring your checkpoint, score it the same way
+everyone else scored theirs.
 
-RoboSandbox sits in the middle. It is a small manipulation sandbox for
-learning, prototyping, and integration work. You can run it, read it,
-and modify it without committing to a heavyweight simulation workflow.
+What this is **not**:
 
-This project is intentionally a starting point, not an end state. The
-goal is not to replace MuJoCo, Isaac Sim, LeRobot, or your team's
-internal stack. The goal is to help you get oriented, get something
-working, and make the seams visible before you invest in a larger
-system.
+- A training framework. Train your policy elsewhere (e.g. `lerobot
+  train`) and bring the checkpoint here.
+- A photorealistic simulator. MuJoCo + Newton, no rendering tricks.
+- A drop-in for arbitrary policy frameworks. The only adapter shipped
+  today is `LeRobotPolicyAdapter`. Other frameworks need a thin
+  wrapper around the `Policy` protocol.
 
-If you start with RoboSandbox and later move to MuJoCo, Isaac Sim,
-LeRobot training workflows, or real hardware, that is success, not
-failure.
-
-### Who it helps
-
-**If you are new to robotics** — use it to learn how a manipulation
-stack fits together. Start with a working example, then trace the path
-from task text to skills to motion to recorded artifacts without getting
-buried in framework complexity.
-
-**If you already do robotics but not simulation** — use it as a fast
-prototyping environment. A lightweight place to test a robot, task,
-recorder, or policy integration without first committing to a
-heavyweight simulator workflow.
-
-**If you already use simulation tools** — use it as a small integration
-harness. A good place to isolate interface questions, build minimal
-reproductions, and validate a seam before moving the idea into MuJoCo,
-Isaac Sim, or your internal stack.
-
-### When to use it
-
-Use RoboSandbox when you want to learn how a manipulation stack works
-end to end, prototype a new robot/task/policy, test recording-export-
-replay workflows, debug interface contracts, or build a minimal
-reproducible manipulation demo.
-
-You will probably want a heavier stack when you need photorealistic
-rendering, richer sensor simulation, large scenes or multi-robot setups,
-industrial-scale simulation workflows, or production-grade deployment
-infrastructure.
+Honest scope. If you outgrow this and move to Isaac Sim or your team's
+internal stack, that's success.
 
 ## How It Works
 

@@ -1,6 +1,11 @@
 # Quickstart
 
-Five minutes from clone to a recorded episode in the browser.
+Install, open the viewer, record one episode, export it. Five minutes.
+
+If you're here to evaluate a checkpoint (the actual product), skip
+this page after install and go straight to
+**[What you can do](what-you-can-do.md)** or
+**[Train ACT and eval it](tutorials/train-act-and-eval.md)**.
 
 ## Install
 

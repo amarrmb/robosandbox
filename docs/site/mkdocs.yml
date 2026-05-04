@@ -69,8 +69,10 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - What you can do: what-you-can-do.md
   - Quickstart: quickstart.md
   - Where things are: where-things-are.md
+  - Compared to other tools: comparisons.md
   - Guides:
       - How it works in 3 minutes: guides/how-it-works.md
       - Running the agent: guides/agent-runs.md
@@ -84,6 +86,7 @@ nav:
       - Iterating on a policy: guides/iterating-on-a-policy.md
   - Concepts:
       - Why RoboSandbox exists: concepts/why-robosandbox-exists.md
+      - The eval contract: concepts/the-eval-contract.md
       - Scenes & objects: concepts/scenes.md
       - Skills & agents: concepts/skills-and-agents.md
       - Perception & grasping: concepts/perception-and-grasping.md

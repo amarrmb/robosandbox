@@ -1,5 +1,23 @@
 # Tutorial — Sim-to-Real Handoff
 
+!!! warning "Status: skeleton, not a working real-arm path"
+    This page documents the **interface** between sim and a real
+    backend. It does **not** ship a working hardware driver. Today:
+
+    - `RealRobotBackend` Protocol — defined and contract-tested.
+    - `SO101Backend` — software skeleton at
+      `examples/so101_handoff/so101_backend.py`. Tracks commanded
+      joint state in memory, no serial I/O.
+    - `Home` skill — end-to-end against the skeleton, certified by
+      `test_home_skill_runs_against_real_backend`.
+    - Real serial driver (Feetech bus, camera capture, calibration,
+      safety limits) — **not implemented**. Patches welcome.
+
+    If you came here looking for "load checkpoint, push to SO-101,
+    pick a cube" — that path is unfinished. Use this page to
+    understand what's wired, decide if you want to finish the wiring
+    yourself, and read the safety checklist before you do.
+
 This page is about the handoff from sim code to a real backend. It does
 not ship a hardware driver; it shows the contract that a hardware driver
 has to satisfy and the pieces that already sit on top of that contract.

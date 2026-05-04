@@ -16,6 +16,11 @@ core.
     so the example script uses a small compatibility shim. Treat that
     shim as user-side glue, not as stable API.
 
+    **Policy framework support today:** the only adapter shipped is
+    `LeRobotPolicyAdapter`. The underlying `Policy` protocol is
+    framework-agnostic, but other frameworks (Diffusion Policy, Octo,
+    π0, etc.) need their own thin wrapper. Patches welcome.
+
 ![so100 policy rollout](../assets/demos/so100_policy_run.gif){ loading=lazy }
 
 <details>

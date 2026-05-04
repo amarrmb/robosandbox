@@ -19,6 +19,12 @@ the actual training; this tutorial is the data pipeline + the eval harness.
     1–3 (generate demos, export, train) work against `main` today; step
     4 needs that PR or the experimental branch.
 
+!!! info "Policy framework"
+    This tutorial uses LeRobot ACT because it's what we ship an adapter
+    for (`LeRobotPolicyAdapter`). Other frameworks (Diffusion Policy,
+    Octo, π0) need their own wrapper around the `Policy` protocol —
+    not impossible, just not done.
+
 ## Hardware
 
 Validated on the configurations below.

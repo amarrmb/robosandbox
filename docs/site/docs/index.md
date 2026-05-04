@@ -1,160 +1,137 @@
 # RoboSandbox
 
-> A sim-first sandbox for robot manipulation.
-> **Bring your own arm, objects, and tasks.**
+> Score manipulation policies against a reproducible eval contract.
+> Today: any LeRobot-compatible checkpoint, MuJoCo + Newton backends.
 
-!!! info "Platform support"
-    **macOS** (Apple Silicon and Intel) works out of the box — no GL configuration needed.
-    **Linux** (Ubuntu 22.04/24.04) is the CI-tested platform; headless rendering needs one `apt-get` line (see [Quickstart](quickstart.md)).
-    **Windows** is not directly supported; WSL2 running Ubuntu 22.04 works.
-
-RoboSandbox is a small manipulation sandbox for building and testing
-manipulation loops without needing a giant stack around them. Load a
-robot, drop in a few objects, define a task, run a planner or policy,
-and record the result. If you want to export episodes for policy work
-later, that is part of the same flow.
-
-<video controls preload="metadata" playsinline style="width: 100%; border-radius: 12px; margin: 1rem 0;">
-  <source src="assets/demos/robosandbox_teaser_phase.mp4" type="video/mp4">
-</video>
-
-## Why This Project Exists
-
-RoboSandbox is a small manipulation sandbox for learning, prototyping,
-and integration work.
-
-It exists for the gap between toy demos and heavyweight robotics
-stacks. You can bring in a robot, define a task, run a planner or
-policy, record the result, and inspect the interfaces without a large
-simulator setup.
-
-The project is deliberately scoped. It is meant to help you understand
-the workflow, try ideas quickly, and make the seams between robot, task,
-skills, recorder, and policy visible. It is not trying to be the final
-simulator you use forever.
-
-If you outgrow RoboSandbox and move to MuJoCo, Isaac Sim, LeRobot
-training pipelines, or real hardware, that is success, not failure.
-
-## Who This Is For
-
-RoboSandbox is a good fit if you are:
-
-- learning how a manipulation stack fits together
-- doing robotics work but want a lighter-weight way to prototype in simulation
-- already comfortable with simulation and need a small, hackable integration harness
-
-It is especially useful when you want to answer questions like:
-
-- How do I add a new robot?
-- How do I describe a task?
-- What does a policy need to consume and emit?
-- What gets recorded and exported?
-- What breaks when I swap embodiments?
-
-## When To Move Beyond It
-
-RoboSandbox is a starting point, not an end state.
-
-You may want to move beyond it when you need:
-
-- lower-level simulator control than the current abstractions expose
-- photorealism or richer sensor simulation
-- large-scale industrial workflows
-- large scenes or more complex multi-robot environments
-- production deployment infrastructure
-
-The intended path is simple: start small, understand the workflow,
-validate the seams, then move to a heavier stack when your requirements
-become sharper.
-
-```
-user: "pick up the red cube and put it on the green cube"
-       │
-       ▼
- planner ─► [pick(red_cube), place_on(green_cube)]
-       │
-       ▼
- perception (VLM or ground truth) locates both in 3D
-       │
-       ▼
- motion (DLS Jacobian IK + Cartesian interpolation) executes
-       │
-       ▼
- recorder writes runs/<id>/video.mp4 + events.jsonl
-```
-
-## Get started
-
-**Open the browser viewer** — no API key, no model download.
+Point a checkpoint at a task. Get back a JSON: success rate, Wilson 95%
+CI, per-position breakdown of where it failed, full provenance
+(checkpoint sha, git rev, library versions). Same contract whether you
+ran one trial in MuJoCo or a thousand parallel trials in Newton.
 
 ```bash
-uv run robo-sandbox viewer
-# → open http://localhost:8000
+robo-sandbox eval \
+    --task pick_cube_franka_random \
+    --policy outputs/act_franka_pick/checkpoints/050000/pretrained_model \
+    --sim-backend mujoco \
+    --n-trials 64 --action-repeat 6 --settle-steps 60 \
+    --output outputs/eval_50k.json
+# → 28/64 (43.8%), CI [32.3, 55.9], spatial_breakdown by cube x/y
 ```
 
-Pick a task, type a command like `pick up the red cube`, click **Run**.
-The arm plans and executes while frames stream to your browser. Hit
-**Record** before running to save the episode to disk for training.
+Start with **[What you can do](what-you-can-do.md)** for three concrete
+scenarios, or **[Quickstart](quickstart.md)** to install and record
+your first episode in 5 minutes.
 
-The built-in planner understands a small grammar — pick, place, push,
-pour, stack, open/close drawer, go home — which is enough to exercise
-the full [agent loop](concepts/skills-and-agents.md). See the
-**[Quickstart](quickstart.md)** for the install steps and the
-record → export → train flow.
+## What works today
 
-**Want richer natural language?** Plug in a VLM for free-form commands
-and visual scene reasoning:
+| | Result | Where |
+|---|---|---|
+| ACT policy on `pick_cube_franka_random` (n=64) | 43.8%, CI [32.3, 55.9] | `main` — see [Train ACT and eval it](tutorials/train-act-and-eval.md) |
+| Reach, 1024 parallel Newton worlds | 100% (1024/1024) | branch `experimental/newton-eval` |
+| USB-A 1.5mm insertion, 64 worlds | 100% (64/64) | branch `experimental/newton-eval` |
+| USB-A 1.5mm insertion, 1024 worlds | 96.5%, CI [95.2, 97.4] | branch `experimental/newton-eval` |
+| Same insertion policy, classical MuJoCo (zero code change) | 100% (32/32), CI [89.3, 100.0] | branch `experimental/newton-eval` |
 
-=== "Ollama (local, no API key)"
+The cross-sim row is the headline. A policy trained on Newton runs in
+classical MuJoCo at full success without re-training. That's the
+precondition for trusting any sim number at all — without it, every
+sim demo is just sim theater.
 
-    ```bash
-    ollama pull llama3.2-vision && ollama serve &
-    uv run robo-sandbox run --vlm-provider ollama \
-      "pick up the blue cube and put it on the green cube"
-    ```
+<video controls preload="metadata" playsinline loop muted style="width: 100%; border-radius: 12px; margin: 1rem 0;">
+  <source src="assets/demos/usb_a_insertion_zoom.mp4" type="video/mp4">
+</video>
 
-=== "OpenAI (hosted)"
+*Four Franka arms, four different port positions, USB-A spec (1.5mm
+clearance), all four insertions complete. Same policy ran in classical
+MuJoCo at 32/32 with zero code change.*
 
-    ```bash
-    export OPENAI_API_KEY=sk-...
-    uv run robo-sandbox run --vlm-provider openai \
-      "stack all three cubes by colour — red on green on blue"
-    ```
+!!! info "Reproducing the branch rows"
+    The four `experimental/newton-eval` rows above need that branch
+    checked out — the `train` CLI, Newton parallel backend, and
+    cross-sim harness live there. The `eval` CLI itself lands on
+    `main` with the eval-and-recording-hygiene PR. Until that ships,
+    the IL row (`pick_cube_franka_random`) is reproducible only on
+    the branch as well; afterward it'll work straight from `main`.
 
-Both use the same agent loop — only the planner changes.
+The RL track that produced the bottom four rows is intentionally
+off-thesis — see [The RL track](concepts/rl-track.md). The IL track is
+the recommended on-ramp.
+
+## Scope
+
+What this **is**:
+
+- A reproducible eval contract for manipulation policies
+- A workflow for recording demos and exporting them to LeRobot v3
+- A pluggable sim layer (MuJoCo single-world, Newton parallel-world)
+
+What this is **not**:
+
+- A training framework. Train elsewhere (e.g. `lerobot train`) and
+  bring the checkpoint here.
+- A photorealistic simulator. MuJoCo + Newton, no rendering tricks.
+- A drop-in for arbitrary policy frameworks. The only adapter shipped
+  today is `LeRobotPolicyAdapter`. Other frameworks need a thin
+  wrapper around the `Policy` protocol.
+
+If you outgrow this and move to Isaac Sim or your team's internal
+stack, that's success.
+
+!!! info "Platform support"
+    **macOS** (Apple Silicon / Intel): works out of the box.
+    **Linux** (Ubuntu 22.04/24.04): one `apt-get` line for headless GL
+    (see [Quickstart](quickstart.md)). CI-tested.
+    **Windows**: WSL2 + Ubuntu 22.04 only.
+
+## How a single eval flows
+
+```
+checkpoint + task YAML
+       │
+       ▼
+ sim backend (MuJoCo single-world OR Newton 1–1024 worlds)
+       │
+       ▼
+ policy adapter (LeRobotPolicyAdapter today)
+       │
+       ▼
+ run_policy / run_eval_parallel
+       │
+       ▼
+ eval JSON: rate, Wilson CI, spatial_breakdown, per-trial, provenance
+```
 
 ## Where to go next
 
-- **[Quickstart](quickstart.md)** — install, open the viewer, record an
-  episode. 5 minutes end-to-end.
-- **[Where things are](where-things-are.md)** — short map of which page
-  (and which branch) covers each thing: IL track, RL track, sim-to-real,
-  and the IL↔RL bridge caveats.
-- **Start here if you want the product thesis first** —
-  [Why RoboSandbox exists](concepts/why-robosandbox-exists.md) explains
-  the robot loop, where modern model families fit, and what problem
-  RoboSandbox is actually trying to solve.
-- **Concepts** — [Scenes & objects](concepts/scenes.md), [Skills & agents](concepts/skills-and-agents.md), [Perception & grasping](concepts/perception-and-grasping.md), [Recording & export](concepts/recording-and-export.md), [Real-robot bridge](concepts/real-robot.md).
-- **Tutorials** — [Custom arm](tutorials/custom-arm.md), [Custom task](tutorials/custom-task.md), [Custom skill](tutorials/custom-skill.md), [Policy replay](tutorials/policy-replay.md).
-- **Reference** — [CLI](reference/cli.md), [API](reference/api.md),
-  [roadmap](reference/roadmap.md).
+- **[What you can do](what-you-can-do.md)** — three concrete scenarios
+  (score a checkpoint, compare two checkpoints, find the failing
+  workspace slice). One command + one artifact each.
+- **[The eval contract](concepts/the-eval-contract.md)** — the schema +
+  the seven invariants that make two evals comparable.
+- **[Compared to other tools](comparisons.md)** — table vs LeRobot,
+  IsaacLab, RoboCasa, robosuite. Honest about losses.
+- **[Quickstart](quickstart.md)** — install, open the viewer, record
+  one episode. 5 minutes.
+- **[Train ACT and eval it](tutorials/train-act-and-eval.md)** — full
+  IL recipe: 200 demos → external `lerobot train` → `robo-sandbox eval`.
+- **[Where things are](where-things-are.md)** — map of which page (and
+  which branch) covers each thing.
+- **[Why this exists](concepts/why-robosandbox-exists.md)** — the
+  longer essay if you want the framing, not the commands.
+- **[The RL track](concepts/rl-track.md)** — what the
+  `experimental/newton-eval` branch ships, what works, what's open.
 
-## What ships in v0.1
+## What's in the box on `main`
 
-- MuJoCo physics backend + built-in 6-DOF arm + bundled Franka Panda
-  (URDF import path).
-- 9 skills: `pick`, `place_on`, `push`, `home`, `pour`, `tap`,
-  `open_drawer`, `close_drawer`, `stack`.
-- 8 default benchmark tasks + 1 experimental, including a long-horizon
-  `pour_can_into_bowl` and an articulated-drawer primitive.
-- 10 bundled YCB objects, drop-in via `@ycb:<id>`.
+- MuJoCo physics, built-in 6-DOF arm, bundled Franka Panda (URDF).
+- 9 skills (`pick`, `place_on`, `push`, `home`, `pour`, `tap`,
+  `open_drawer`, `close_drawer`, `stack`) and 8 default benchmark tasks.
+- 10 pre-decomposed YCB objects; drop into a task with `@ycb:<id>`.
 - Browser live viewer with record + keyboard teleop.
-- LeRobot v3 parquet export + policy replay loop.
-- Real-robot bridge stub — subclass, fill the hardware driver;
-  observation+step skills (`Home`, teleop, policy rollouts) carry
-  over unchanged. Motion-planning skills (`Pick`, `PlaceOn`, `Push`)
-  still depend on MuJoCo kinematics — see the
-  [sim-to-real handoff tutorial](tutorials/sim-to-real-handoff.md).
+- LeRobot v3 parquet export + `LeRobotPolicyAdapter` for policy replay.
+- Real-robot bridge **stub** (`RealRobotBackend` Protocol). Observation
+  + teleop + policy rollouts carry over; `Pick` / `PlaceOn` / `Push`
+  still depend on MuJoCo kinematics. See [sim-to-real
+  handoff](tutorials/sim-to-real-handoff.md) for the current state.
 
-See the [roadmap](reference/roadmap.md) for what is coming next.
+See the [roadmap](reference/roadmap.md) for what's coming next.

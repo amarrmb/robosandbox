@@ -12,6 +12,7 @@ uv.lock
 runs/
 *.mp4
 !assets/*.mp4
+!docs/site/docs/assets/**/*.mp4
 .DS_Store
 MUJOCO_LOG.TXT
 .claude/
