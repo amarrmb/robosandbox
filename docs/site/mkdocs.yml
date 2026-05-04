@@ -105,6 +105,7 @@ nav:
           - Train ACT and eval it: tutorials/train-act-and-eval.md
           - LeRobot policy replay: tutorials/lerobot-policy-replay.md
           - Sim-to-real handoff: tutorials/sim-to-real-handoff.md
+      - World model as a sim backend: tutorials/world-model-as-sim-backend.md
   - Reference:
       - CLI: reference/cli.md
       - API: reference/api.md

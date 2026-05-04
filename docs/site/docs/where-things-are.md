@@ -18,6 +18,7 @@ worlds). They live in different places.
 | Bring your own arm | [Bring your own robot](guides/bring-your-own-robot.md) | `main` |
 | Bring your own task | [Bring your own task](guides/bring-your-own-task.md) | `main` |
 | Run RL (PPO + Newton parallel worlds) | [The RL track](concepts/rl-track.md) | `experimental/newton-eval` |
+| Score against a learned world model | [World model as a sim backend](tutorials/world-model-as-sim-backend.md) + [Eval for world models](concepts/eval-for-world-models.md) | `experimental/newton-eval` (lands on main with the eval-and-recording-hygiene PR) |
 | Distill an ACT policy into a state-only MLP | `scripts/distill_act_to_mlp.py` | `experimental/newton-eval` |
 | Run cross-sim transfer (Newton → MuJoCo) | `scripts/eval_insert_1024.py`, `scripts/cross_sim_*` | `experimental/newton-eval` |
 
